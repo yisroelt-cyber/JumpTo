@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <title>JumpTo Commands Runtime</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <style>
+      body { font-family: Segoe UI, Arial, sans-serif; margin: 16px; }
+      code { background: #f2f2f2; padding: 2px 4px; border-radius: 4px; }
+      .small { font-size: 12px; color: #444; }
+    </style>
+  </head>
+  <body>
+    <!-- This page is a runtime host for ribbon command handlers. -->
+    <div class="small">
+      JumpTo Commands Runtime loaded. If you are viewing this in a browser, a blank page is normal.
+      <div>Build tag: <code>v=20</code></div>
+    </div>
+    <script>
+      // Legacy Office pattern: define Office.initialize for older hosts.
+      // Office.onReady in commands.js is still the main entry point.
+      window.Office = window.Office || {};
+      window.Office.initialize = window.Office.initialize || function () {};
+      console.log("JumpTo commands.html loaded");
+    </script>
+  </body>
+</html>

@@ -1,0 +1,55 @@
+Jump to Sheet — Iteration 37 (Shared Runtime Conversion)
+Date: 2026-01-12
+
+Goal
+- Convert the add-in to a correct Shared Runtime (SharedRuntime 1.1) configuration so that taskpane hide/show APIs
+  (especially Office.addin.hide) can be tested and used for the “get-in / jump / get-out” UX.
+- Ensure ribbon commands render correctly in Excel under Shared Runtime (prior “shared runtime” attempts resulted in no ribbon button).
+
+Current UX
+- Primary ribbon button: opens the taskpane (ShowTaskpane).
+- Taskpane is the primary UI (search sheets, favorites, recents, etc.).
+- After a successful sheet activation, the add-in attempts to hide the taskpane via Office.addin.hide().
+  (closeContainer is retained only as a fallback, but is typically unavailable in the taskpane context on this host.)
+
+Key Technical Changes
+1) Manifest: Shared Runtime (correct pattern)
+- Requirements: adds SharedRuntime MinVersion=1.1.
+- VersionOverrides: upgrades to VersionOverridesV1_1 and includes SharedRuntime set.
+- DesktopFormFactor:
+  - FunctionFile points to Taskpane.Url (not Commands.Url).
+  - Adds Runtimes with Runtime resid=Taskpane.Url lifetime=long.
+  - This ensures commands + taskpane execute in the same long-lived runtime.
+
+2) Build / bundling: commands code loaded into the taskpane runtime
+- webpack HtmlWebpackPlugin for taskpane.html now injects the commands bundle as an additional chunk.
+- Result: commands.js runs in the same runtime as the taskpane, enabling Shared Runtime behavior and stable association
+  of command handlers.
+
+3) Diagnostics
+- commands.js continues to write invocation markers to OfficeRuntime.storage:
+  - jtBuild = "37"
+  - jtCommandsHostReady timestamp
+  - jtLastRibbonInvoke timestamp
+  - jtRibbonInvokeCount
+- Taskpane UI includes/retains diagnostics buttons to test hide behavior.
+
+What to Test
+A) Ribbon commands render
+- Confirm the “Jump to Sheet” ribbon button is visible and opens the taskpane.
+
+B) Shared runtime hide behavior
+- In the taskpane diagnostics, run “Hide taskpane now (test)” and verify the pane hides.
+- Activate a worksheet from the list/search and verify:
+  - sheet activates
+  - taskpane hides automatically after activation
+
+C) Reliability after restart
+- Close Excel, reopen, click ribbon:
+  - button appears
+  - taskpane opens
+  - hide still works
+
+Notes / Known Constraints
+- Office.context.ui.closeContainer is not available in this taskpane host (undefined), so it cannot be relied upon.
+- This iteration focuses on making Shared Runtime real and testable; further UX refinements come after hide reliability is proven.
