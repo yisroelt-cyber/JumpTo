@@ -9,55 +9,94 @@ if (typeof window !== "undefined") {
   console.log("JumpTo: commands.js loaded");
 }
 
-/* global Office, Excel */
+/* global Office, Excel, OfficeRuntime */
 
-const JT_BUILD = "37";
+// Option B: Dialog = UI only. Excel work happens here (addin commands runtime).
+// This keeps JumpTo unobtrusive (no taskpane required) and more robust.
 
-Office.onReady(() => {
+import {
+  getJumpToState,
+  toggleFavorite as toggleFavoriteInStorage,
+  recordActivation,
+} from "../services/jumpToStorage";
+
+const JT_BUILD = "38";
+
+// --- Simple single-flight lock (VBA: "only one macro at a time") ---
+let lockBusy = false;
+const lockQueue = [];
+
+function withLock(fn) {
+  return new Promise((resolve, reject) => {
+    lockQueue.push({ fn, resolve, reject });
+    void pump();
+  });
+}
+
+async function pump() {
+  if (lockBusy) return;
+  const job = lockQueue.shift();
+  if (!job) return;
+
+  lockBusy = true;
   try {
-    const ts = new Date().toISOString();
-    console.log(`[JT][build 37] commands host ready`, ts, window.location.href);
-    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage) {
-      OfficeRuntime.storage.setItem("jtBuild", JT_BUILD).catch(() => {});
-      OfficeRuntime.storage.setItem("jtCommandsHostReady", ts).catch(() => {});
-    }
-  } catch { /* ignore */ }
-});
+    const result = await job.fn();
+    job.resolve(result);
+  } catch (e) {
+    job.reject(e);
+  } finally {
+    lockBusy = false;
+    void pump();
+  }
+}
 
-/**
- * Optional placeholder command. Safe in Excel.
- * @param {Office.AddinCommands.Event} event
- */
+async function activateSheetById(sheetId) {
+  // Excel JS does not reliably expose "getItemById" for worksheets.
+  // So we map id -> name, then activate by name.
+  return Excel.run(async (context) => {
+    const sheets = context.workbook.worksheets;
+    sheets.load("items/id,name,visibility");
+    await context.sync();
+
+    const match = sheets.items.find((ws) => ws.id === sheetId);
+    if (!match) {
+      throw new Error(`Worksheet not found (id: ${sheetId})`);
+    }
+
+    context.workbook.worksheets.getItem(match.name).activate();
+    await context.sync();
+  });
+}
+
 function action(event) {
   try {
-    // No-op; keep for compatibility if referenced anywhere.
     console.log("JumpTo: action command executed");
   } finally {
     event.completed();
   }
 }
 
-/**
- * Opens the JumpTo dialog and handles sheet selection.
- * @param {Office.AddinCommands.Event} event
- */
 function openJumpDialog(event) {
-  // Diagnostics: confirm the ribbon command handler is actually invoked.
+  // Diagnostics: confirm ribbon command handler is invoked.
   try {
     const ts = new Date().toISOString();
-    console.log("[JT][build 37] openJumpDialog invoked", ts, window.location.href);
+    console.log(`[JT][build ${JT_BUILD}] openJumpDialog invoked`, ts, window.location.href);
     if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage) {
+      OfficeRuntime.storage.setItem("jtBuild", JT_BUILD).catch(() => {});
       OfficeRuntime.storage.setItem("jtLastRibbonInvoke", ts).catch(() => {});
-      OfficeRuntime.storage.getItem("jtRibbonInvokeCount").then((v) => {
-        const n = (parseInt(v || "0", 10) || 0) + 1;
-        return OfficeRuntime.storage.setItem("jtRibbonInvokeCount", String(n));
-      }).catch(() => {});
+      OfficeRuntime.storage
+        .getItem("jtRibbonInvokeCount")
+        .then((v) => {
+          const n = (parseInt(v || "0", 10) || 0) + 1;
+          return OfficeRuntime.storage.setItem("jtRibbonInvokeCount", String(n));
+        })
+        .catch(() => {});
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
-  // IMPORTANT: Build the dialog URL relative to the current page.
-  // Using window.location.origin breaks on GitHub Pages because the add-in
-  // is hosted under a repo subpath (e.g. /JumpTo/), and origin would drop it.
+  // Build dialog URL relative to the current page (works on GitHub Pages subpath).
   const params = new URLSearchParams(window.location.search);
   const v = params.get("v");
   const dialogUrlObj = new URL("./dialog.html", window.location.href);
@@ -70,7 +109,11 @@ function openJumpDialog(event) {
   const completeOnce = () => {
     if (completed) return;
     completed = true;
-    try { event.completed(); } catch { /* ignore */ }
+    try {
+      event.completed();
+    } catch {
+      /* ignore */
+    }
   };
 
   const tryOpen = (attempt) => {
@@ -79,7 +122,7 @@ function openJumpDialog(event) {
         const err = asyncResult.error;
         console.error("displayDialogAsync failed:", err);
 
-        // Retry a couple of times for transient dialog launch failures.
+        // Retry a couple times for transient dialog launch failures.
         const code = err?.code;
         const transientCodes = new Set([12002, 12006, 12007, 12009]);
         if (attempt < 5 && transientCodes.has(code)) {
@@ -87,35 +130,46 @@ function openJumpDialog(event) {
           setTimeout(() => tryOpen(attempt + 1), delay);
           return;
         }
+
         completeOnce();
         return;
       }
 
       const dialog = asyncResult.value;
 
+      const safeReply = (obj) => {
+        try {
+          dialog.messageChild(JSON.stringify(obj));
+        } catch {
+          /* ignore */
+        }
+      };
+
+      const closeDialog = () => {
+        try {
+          dialog.close();
+        } catch {
+          /* ignore */
+        }
+      };
+
       const closeAndComplete = () => {
-        try { dialog.close(); } catch { /* ignore */ }
+        closeDialog();
         completeOnce();
       };
 
-      const safeReply = (obj) => {
-        try { dialog.messageChild(JSON.stringify(obj)); } catch { /* ignore */ }
-      };
-
-      const getVisibleSheets = async () => {
-        return Excel.run(async (context) => {
-          const sheets = context.workbook.worksheets;
-          sheets.load("items/name,visibility");
-          await context.sync();
-          return sheets.items
-            .filter((ws) => ws.visibility === Excel.SheetVisibility.visible)
-            .map((ws) => ({ name: ws.name }));
-        });
+      const sendFreshState = async () => {
+        const state = await getJumpToState();
+        safeReply({ type: "stateData", state });
       };
 
       const onMessage = async (arg) => {
         let payload;
-        try { payload = JSON.parse(arg.message); } catch { return; }
+        try {
+          payload = JSON.parse(arg.message);
+        } catch {
+          return;
+        }
 
         try {
           if (payload?.type === "ping") {
@@ -124,23 +178,32 @@ function openJumpDialog(event) {
           }
 
           if (payload?.type === "getSheets") {
-            const sheets = await getVisibleSheets();
-            safeReply({ type: "sheetsData", sheets });
+            await withLock(async () => {
+              await sendFreshState();
+            });
             return;
           }
 
-          if (payload?.type === "selectSheet" && payload.sheetName) {
-            try {
-              await Excel.run(async (context) => {
-                const sheet = context.workbook.worksheets.getItem(payload.sheetName);
-                sheet.activate();
-                await context.sync();
-              });
-            } catch (err) {
-              console.error("Sheet activation failed:", err);
-              safeReply({ type: "error", message: String(err?.message || err) });
-            }
+          if (payload?.type === "toggleFavorite" && payload.sheetId) {
+            await withLock(async () => {
+              await toggleFavoriteInStorage(payload.sheetId);
+              await sendFreshState();
+            });
+            return;
+          }
+
+          if (payload?.type === "selectSheet" && payload.sheetId) {
+            await withLock(async () => {
+              await activateSheetById(payload.sheetId);
+              await recordActivation(payload.sheetId);
+            });
             closeAndComplete();
+            return;
+          }
+
+          if (payload?.type === "cancel") {
+            closeAndComplete();
+            return;
           }
         } catch (err) {
           console.error("DialogMessageReceived handling failed:", err);
@@ -156,15 +219,17 @@ function openJumpDialog(event) {
       dialog.addEventHandler(Office.EventType.DialogMessageReceived, onMessage);
       dialog.addEventHandler(Office.EventType.DialogEventReceived, onEvent);
 
+      // Signal readiness immediately to avoid races.
+      safeReply({ type: "parentReady" });
+
+      // Ribbon command can complete now; dialog stays running.
       completeOnce();
     });
   };
 
-  // Ensure Office is ready before launching (helps stability in desktop).
-  setTimeout(() => tryOpen(0), 500);
+  setTimeout(() => tryOpen(0), 300);
 }
 
-
-// Register the functions with Office.
+// Register functions
 Office.actions.associate("action", action);
 Office.actions.associate("openJumpDialog", openJumpDialog);
