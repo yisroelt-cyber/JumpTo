@@ -55,10 +55,14 @@ function openJumpDialog(event) {
     }
   } catch { /* ignore */ }
 
-  const origin = window.location.origin;
+  // IMPORTANT: Build the dialog URL relative to the current page.
+  // Using window.location.origin breaks on GitHub Pages because the add-in
+  // is hosted under a repo subpath (e.g. /JumpTo/), and origin would drop it.
   const params = new URLSearchParams(window.location.search);
   const v = params.get("v");
-  const dialogUrl = `${origin}/dialog.html${v ? `?v=${encodeURIComponent(v)}` : ""}`;
+  const dialogUrlObj = new URL("./dialog.html", window.location.href);
+  if (v) dialogUrlObj.searchParams.set("v", v);
+  const dialogUrl = dialogUrlObj.toString();
 
   const options = { height: 70, width: 45, displayInIframe: true };
 
