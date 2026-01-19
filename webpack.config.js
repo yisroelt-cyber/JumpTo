@@ -6,7 +6,7 @@ const HtmlWebpackPlugin = require("html-webpack-plugin");
 const webpack = require("webpack");
 
 const urlDev = "https://localhost:3000/";
-const urlProd = "https://YOUR-PROD-DOMAIN-HERE/"; // CHANGE THIS TO YOUR PRODUCTION DEPLOYMENT LOCATION
+const urlProd = "https://yisroelt-cyber.github.io/JumpTo/"; // CHANGE THIS TO YOUR PRODUCTION DEPLOYMENT LOCATION
 
 async function getHttpsOptions() {
   const httpsOptions = await devCerts.getHttpsServerOptions();
@@ -86,6 +86,7 @@ module.exports = async (env, options) => {
               }
             },
           },
+          { from: "src/index.html", to: "index.html" },
         ],
       }),
       new HtmlWebpackPlugin({
