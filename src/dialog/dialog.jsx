@@ -362,15 +362,6 @@ function DialogApp() {
     opacity: isActivating ? 0.65 : 1,
   };
 
-  const starStyle = {
-    border: "none",
-    background: "transparent",
-    padding: "0 6px",
-    cursor: "pointer",
-    fontSize: 13,
-    lineHeight: "16px",
-    opacity: 0.85,
-  };
 
 
   
@@ -570,17 +561,6 @@ return (
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
-                        <button
-                          type="button"
-                          aria-label={isFavorite(s.id) ? "Remove from favorites" : "Add to favorites"}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleFavorite(s.id);
-                          }}
-                          style={starStyle}
-                        >
-                          {isFavorite(s.id) ? "★" : "☆"}
-                        </button>
                       </div>
                     </div>
                   ))}
@@ -630,17 +610,6 @@ return (
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{slot}</div>
                         <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
-                        <button
-                          type="button"
-                          aria-label="Remove from favorites"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            id && onToggleFavorite(id);
-                          }}
-                          style={starStyle}
-                        >
-                          {"★"}
-                        </button>
                       </div>
                     </div>
                   );
@@ -673,17 +642,6 @@ return (
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
-                        <button
-                          type="button"
-                          aria-label={fav ? "Remove from favorites" : "Add to favorites"}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            id && onToggleFavorite(id);
-                          }}
-                          style={starStyle}
-                        >
-                          {fav ? "★" : "☆"}
-                        </button>
                       </div>
                     </div>
                   );

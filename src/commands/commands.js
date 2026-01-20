@@ -1,5 +1,4 @@
-/* commands.js – Option B engine with guaranteed state delivery */
-
+/* commands.js – Option B engine (with cancel restored) */
 import {
   getJumpToState,
   toggleFavorite as toggleFavoriteInStorage,
@@ -101,6 +100,13 @@ function openJumpDialog(event) {
               await activateSheetById(msg.sheetId);
               await recordActivation(msg.sheetId);
             });
+            event.completed();
+            return;
+          }
+
+          // RESTORED: cancel handling
+          if (msg.type === "cancel") {
+            dialog.close();
             event.completed();
             return;
           }
