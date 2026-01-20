@@ -651,7 +651,7 @@ return (
                   return (
                     <div
                       key={id || `${name}_${i}`}
-                      onMouseEnter={() => { try { setRecentsHoverIndex(i); } catch {} }}
+                      onMouseEnter={() => { try { setFavoritesHoverIndex(i); } catch {} }}
                       onClick={() => !isActivating && id && onSelect({ id })}
                       style={{ ...rowStyle, background: i === favoritesHoverIndex ? "rgba(0,120,212,0.12)" : "transparent" }}
                       role="button"
@@ -691,6 +691,7 @@ return (
                   return (
                     <div
                       key={id || `${name}_${i}`}
+                      onMouseEnter={() => { try { setRecentsHoverIndex(i); } catch {} }}
                       onClick={() => !isActivating && id && onSelect({ id })}
                       style={{ ...rowStyle, background: i === recentsHoverIndex ? "rgba(0,120,212,0.12)" : "transparent" }}
                       role="button"
