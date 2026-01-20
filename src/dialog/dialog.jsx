@@ -100,7 +100,6 @@ function DialogApp() {
       if (!el || typeof el.focus !== "function") return;
       try {
         el.focus();
-        if (typeof el.select === "function") el.select();
       } catch {
         // ignore
       }
@@ -356,9 +355,10 @@ function DialogApp() {
 useEffect(() => {
   if (activeTab !== "Navigation") return;
   setHighlightIndex(0);
+  // Do NOT re-select the search text on every keystroke; that would cause each new character to replace the previous.
   requestSearchFocus("resetHighlight");
   // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [filtered.length, query, activeTab]);
+}, [filtered.length, activeTab]);
 
 // Keep the highlighted row visible when navigating with arrow keys.
 useEffect(() => {
