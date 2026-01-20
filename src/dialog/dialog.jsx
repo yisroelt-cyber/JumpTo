@@ -73,11 +73,13 @@ function DialogApp() {
   const [isActivating, setIsActivating] = useState(false);
   const [initError, setInitError] = useState("");
   const [activeTab, setActiveTab] = useState("Navigation");
+  const [highlightIndex, setHighlightIndex] = useState(0);
   const requestedRef = useRef(false);
   const timeoutIdRef = useRef(null);
   const statusRef = useRef("Loading…");
   const sheetsLenRef = useRef(0);
   const searchInputRef = useRef(null);
+  const listRowRefs = useRef([]);
   const focusTimersRef = useRef([]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
@@ -350,6 +352,28 @@ function DialogApp() {
 
   const favoriteIds = useMemo(() => new Set((favorites || []).map((f) => f?.id).filter(Boolean)), [favorites]);
 
+// Listbox-like navigation: default highlight is first row after load/filter.
+useEffect(() => {
+  if (activeTab !== "Navigation") return;
+  setHighlightIndex(0);
+  requestSearchFocus("resetHighlight");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [filtered.length, query, activeTab]);
+
+// Keep the highlighted row visible when navigating with arrow keys.
+useEffect(() => {
+  if (activeTab !== "Navigation") return;
+  const el = listRowRefs.current?.[highlightIndex];
+  if (el && typeof el.scrollIntoView === "function") {
+    try {
+      el.scrollIntoView({ block: "nearest" });
+    } catch {
+      // ignore
+    }
+  }
+}, [highlightIndex, activeTab]);
+
+
   const isFavorite = (sheetId) => favoriteIds.has(sheetId);
 
   const rowStyle = {
@@ -461,6 +485,32 @@ return (
                   onKeyDown={(e) => {
                     try {
                       const key = e.key;
+                      // Keep focus in search box; allow navigation + activation like a VBA listbox.
+                      if (key === "Tab") {
+                        e.preventDefault();
+                        requestSearchFocus("tab");
+                        return;
+                      }
+                      if (key === "ArrowDown") {
+                        e.preventDefault();
+                        setHighlightIndex((prev) => {
+                          const max = Math.max(0, (filtered?.length || 0) - 1);
+                          return Math.min(max, prev + 1);
+                        });
+                        return;
+                      }
+                      if (key === "ArrowUp") {
+                        e.preventDefault();
+                        setHighlightIndex((prev) => Math.max(0, prev - 1));
+                        return;
+                      }
+                      if (key === "Enter") {
+                        e.preventDefault();
+                        const idx = Math.max(0, Math.min((filtered?.length || 1) - 1, highlightIndex));
+                        const s = filtered?.[idx];
+                        if (s) onSelect(s);
+                        return;
+                      }
                       const mods = e.altKey || e.ctrlKey || e.metaKey;
                       const oneDigit = globalOptions?.oneDigitActivationEnabled;
                       const q = query || "";
@@ -539,10 +589,12 @@ return (
                     borderRadius: 6,
                   }}
                 >
-                  {filtered.map((s) => (
+                  {filtered.map((s, i) => (
                     <div
                       key={s.id || s.name}
-                      onClick={() => !isActivating && onSelect(s)}
+                      ref={(el) => { listRowRefs.current[i] = el; }}
+                      onMouseEnter={() => { try { setHighlightIndex(i); } catch {} }}
+                      onClick={() => { if (!isActivating) { try { setHighlightIndex(i); } catch {} onSelect(s); } }}
                       style={{
                         padding: "2px 10px",
                         fontSize: 12,
@@ -551,6 +603,7 @@ return (
                         borderBottom: "1px solid rgba(0,0,0,0.06)",
                         userSelect: "none",
                         opacity: isActivating ? 0.65 : 1,
+                        background: i === highlightIndex ? "rgba(0,120,212,0.12)" : "transparent",
                       }}
                       role="button"
                       tabIndex={0}
