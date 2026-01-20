@@ -74,6 +74,8 @@ function DialogApp() {
   const [initError, setInitError] = useState("");
   const [activeTab, setActiveTab] = useState("Navigation");
   const [highlightIndex, setHighlightIndex] = useState(0);
+  const [favoritesHoverIndex, setFavoritesHoverIndex] = useState(-1);
+  const [recentsHoverIndex, setRecentsHoverIndex] = useState(-1);
   const requestedRef = useRef(false);
   const timeoutIdRef = useRef(null);
   const statusRef = useRef("Loading…");
@@ -631,6 +633,7 @@ return (
             <div style={{ flex: "0 0 45%", minWidth: 220 }}>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
+                onMouseLeave={() => { try { setFavoritesHoverIndex(-1); } catch {} }}
                 style={{
                   maxHeight: 150,
                   minHeight: 150,
@@ -648,8 +651,9 @@ return (
                   return (
                     <div
                       key={id || `${name}_${i}`}
+                      onMouseEnter={() => { try { setRecentsHoverIndex(i); } catch {} }}
                       onClick={() => !isActivating && id && onSelect({ id })}
-                      style={rowStyle}
+                      style={{ ...rowStyle, background: i === favoritesHoverIndex ? "rgba(0,120,212,0.12)" : "transparent" }}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
@@ -671,6 +675,7 @@ return (
 
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Recents</div>
               <div
+                onMouseLeave={() => { try { setRecentsHoverIndex(-1); } catch {} }}
                 style={{
                   maxHeight: 150,
                   overflowY: "auto",
@@ -687,7 +692,7 @@ return (
                     <div
                       key={id || `${name}_${i}`}
                       onClick={() => !isActivating && id && onSelect({ id })}
-                      style={rowStyle}
+                      style={{ ...rowStyle, background: i === recentsHoverIndex ? "rgba(0,120,212,0.12)" : "transparent" }}
                       role="button"
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
