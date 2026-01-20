@@ -581,8 +581,8 @@ return (
               ) : (
                 <div
                   style={{
-                    maxHeight: 240,
-              minHeight: 240,
+                    maxHeight: 300,
+              minHeight: 300,
                     overflowY: "auto",
                     overscrollBehavior: "contain",
                     border: "1px solid rgba(0,0,0,0.1)",
@@ -625,9 +625,6 @@ return (
                 </div>
               )}
 
-              <div style={{ marginTop: 10, fontSize: 11, opacity: 0.55 }}>
-                JumpTo • build {JT_BUILD}
-              </div>
             </div>
 
             {/* Right: Favorites + Recents */}
@@ -635,8 +632,8 @@ return (
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
                 style={{
-                  maxHeight: 110,
-                  minHeight: 110,
+                  maxHeight: 150,
+                  minHeight: 150,
                   overflowY: "auto",
                   overscrollBehavior: "contain",
                   border: "1px solid rgba(0,0,0,0.1)",
@@ -675,7 +672,7 @@ return (
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Recents</div>
               <div
                 style={{
-                  maxHeight: 110,
+                  maxHeight: 150,
                   overflowY: "auto",
                   overscrollBehavior: "contain",
                   border: "1px solid rgba(0,0,0,0.1)",
@@ -717,7 +714,7 @@ return (
         <div style={{ fontSize: 13, opacity: 0.85 }}>Settings (coming soon)</div>
       )}
       {/* Global actions (outside tabs) */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12, paddingTop: 10, borderTop: "1px solid #e0e0e0" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, paddingTop: 8, borderTop: "1px solid #e0e0e0" }}>
         <button
           type="button"
           onClick={() => { try { if (window.Office?.context?.ui?.messageParent) { window.Office.context.ui.messageParent(JSON.stringify({ type: "cancel" })); } else { window.close?.(); } } catch (e) { console.error("Cancel failed:", e); window.close?.(); } }}
