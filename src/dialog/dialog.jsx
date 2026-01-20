@@ -772,7 +772,7 @@ return (
               {(() => {
                 const favSet = new Set((favorites || []).map((f) => f?.id).filter(Boolean));
                 const q = (favQuery || "").trim().toLowerCase();
-                const available = (Array.isArray(fullList) ? fullList : [])
+                const available = (Array.isArray(state?.sheets) ? state.sheets : [])
                   .filter((s) => s && s.id && s.name && !favSet.has(s.id))
                   .filter((s) => (q ? String(s.name).toLowerCase().includes(q) : true));
 
