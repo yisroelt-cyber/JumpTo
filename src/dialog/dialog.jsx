@@ -74,6 +74,9 @@ function DialogApp() {
   const [initError, setInitError] = useState("");
   const [activeTab, setActiveTab] = useState("Navigation");
   const [highlightIndex, setHighlightIndex] = useState(0);
+  const [favQuery, setFavQuery] = useState("");
+  const [selectedAvailableIndex, setSelectedAvailableIndex] = useState(-1);
+  const [selectedFavoriteIndex, setSelectedFavoriteIndex] = useState(-1);
   const [favoritesHoverIndex, setFavoritesHoverIndex] = useState(-1);
   const [recentsHoverIndex, setRecentsHoverIndex] = useState(-1);
   const requestedRef = useRef(false);
@@ -415,6 +418,24 @@ const onToggleFavorite = (sheetId) => {
   }
 };
 
+
+const addFavorite = (sheetId) => {
+  if (!sheetId) return;
+  sendToParent({ type: "addFavorite", sheetId });
+};
+
+const removeFavorite = (sheetId) => {
+  if (!sheetId) return;
+  sendToParent({ type: "removeFavorite", sheetId });
+};
+
+const moveFavorite = (sheetId, direction) => {
+  if (!sheetId) return;
+  if (direction !== "up" && direction !== "down") return;
+  sendToParent({ type: "moveFavorite", sheetId, direction });
+};
+
+
 const onCancel = () => {
   try {
     Office.context.ui.messageParent(JSON.stringify({ type: "cancel" }));
@@ -713,8 +734,197 @@ return (
 
 
 {activeTab === "Favorites" && (
-        <div style={{ fontSize: 13, opacity: 0.85 }}>Favorites (coming soon)</div>
+        <div style={{ display: "flex", gap: 16 }}>
+          {/* Left: Available (filtered, excluding favorites) */}
+          <div style={{ flex: "1 1 52%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0" }}>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
+                Available sheets (double-click to add)
+              </div>
+              <input
+                value={favQuery}
+                onChange={(e) => {
+                  setFavQuery(e.target.value || "");
+                  setSelectedAvailableIndex(-1);
+                }}
+                placeholder="Filter sheets…"
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  fontSize: 14,
+                  border: "1px solid #c8c8c8",
+                  borderRadius: 6,
+                  outline: "none",
+                }}
+              />
+            </div>
+
+            <div
+              style={{
+                maxHeight: 300,
+                minHeight: 300,
+                overflowY: "auto",
+                overscrollBehavior: "contain",
+                border: "1px solid rgba(0,0,0,0.1)",
+                borderRadius: 6,
+              }}
+            >
+              {(() => {
+                const favSet = new Set((favorites || []).map((f) => f?.id).filter(Boolean));
+                const q = (favQuery || "").trim().toLowerCase();
+                const available = (Array.isArray(sheets) ? sheets : [])
+                  .filter((s) => s && s.id && s.name && !favSet.has(s.id))
+                  .filter((s) => (q ? String(s.name).toLowerCase().includes(q) : true));
+
+                if (available.length === 0) {
+                  return (
+                    <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.8 }}>
+                      No matches.
+                    </div>
+                  );
+                }
+
+                return available.map((s, i) => (
+                  <div
+                    key={s.id}
+                    onClick={() => {
+                      setSelectedAvailableIndex(i);
+                      setSelectedFavoriteIndex(-1);
+                    }}
+                    onDoubleClick={() => addFavorite(s.id)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "7px 10px",
+                      borderBottom: "1px solid rgba(0,0,0,0.06)",
+                      cursor: "default",
+                      background: i === selectedAvailableIndex ? "rgba(0,120,212,0.12)" : "transparent",
+                    }}
+                    title="Double-click to add to Favorites"
+                  >
+                    <div style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {s.name}
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+
+          {/* Right: Favorites (ordered) + reorder controls */}
+          <div style={{ flex: "0 0 45%", minWidth: 220, display: "flex", gap: 10 }}>
+            <div style={{ flex: "1 1 auto" }}>
+              <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
+                Favorites (double-click to remove)
+              </div>
+
+              <div
+                style={{
+                  maxHeight: 300,
+                  minHeight: 300,
+                  overflowY: "auto",
+                  overscrollBehavior: "contain",
+                  border: "1px solid rgba(0,0,0,0.1)",
+                  borderRadius: 6,
+                }}
+              >
+                {(Array.isArray(favorites) ? favorites : []).length === 0 && (
+                  <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.8 }}>
+                    No favorites yet.
+                  </div>
+                )}
+
+                {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
+                  const id = f?.id;
+                  const name = f?.name || "(unknown)";
+                  return (
+                    <div
+                      key={id || `${name}_${i}`}
+                      onClick={() => {
+                        setSelectedFavoriteIndex(i);
+                        setSelectedAvailableIndex(-1);
+                      }}
+                      onDoubleClick={() => id && removeFavorite(id)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "7px 10px",
+                        borderBottom: "1px solid rgba(0,0,0,0.06)",
+                        cursor: "default",
+                        background: i === selectedFavoriteIndex ? "rgba(0,120,212,0.12)" : "transparent",
+                      }}
+                      title="Double-click to remove from Favorites"
+                    >
+                      <div style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {name}
+                      </div>
+                      <div style={{ fontSize: 12, opacity: 0.55, marginLeft: 10 }}>
+                        {i < 9 ? String(i + 1) : i === 9 ? "0" : ""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* External reorder buttons */}
+            <div style={{ flex: "0 0 34px", display: "flex", flexDirection: "column", gap: 8, paddingTop: 22 }}>
+              {(() => {
+                const favArr = Array.isArray(favorites) ? favorites : [];
+                const sel = selectedFavoriteIndex;
+                const canUp = sel > 0 && sel < favArr.length;
+                const canDown = sel >= 0 && sel < favArr.length - 1;
+                const selId = sel >= 0 ? favArr?.[sel]?.id : null;
+
+                const btnStyle = (enabled) => ({
+                  width: 34,
+                  height: 34,
+                  fontSize: 16,
+                  borderRadius: 6,
+                  border: "1px solid rgba(0,0,0,0.18)",
+                  background: enabled ? "white" : "rgba(0,0,0,0.04)",
+                  cursor: enabled ? "pointer" : "default",
+                  opacity: enabled ? 1 : 0.55,
+                });
+
+                return (
+                  <>
+                    <button
+                      type="button"
+                      disabled={!canUp || !selId}
+                      onClick={() => {
+                        if (!canUp || !selId) return;
+                        moveFavorite(selId, "up");
+                        setSelectedFavoriteIndex(sel - 1);
+                      }}
+                      style={btnStyle(canUp && !!selId)}
+                      title="Move up"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canDown || !selId}
+                      onClick={() => {
+                        if (!canDown || !selId) return;
+                        moveFavorite(selId, "down");
+                        setSelectedFavoriteIndex(sel + 1);
+                      }}
+                      style={btnStyle(canDown && !!selId)}
+                      title="Move down"
+                    >
+                      ▼
+                    </button>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
       )}
+
 
       {activeTab === "Settings" && (
         <div style={{ fontSize: 13, opacity: 0.85 }}>Settings (coming soon)</div>
