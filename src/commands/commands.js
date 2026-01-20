@@ -11,8 +11,11 @@ if (typeof window !== "undefined") {
 
 /* global Office, Excel, OfficeRuntime */
 
-// Option B: Dialog = UI only. Excel work happens here (addin commands runtime).
-// This keeps JumpTo unobtrusive (no taskpane required) and more robust.
+// Option B performance patch:
+// - Open dialog immediately (no artificial delay)
+// - Start preloading state concurrently with dialog creation
+// - Push stateData proactively (dialog doesn't need to request)
+// - Close dialog immediately after activation; recordActivation after close
 
 import {
   getJumpToState,
@@ -20,7 +23,7 @@ import {
   recordActivation,
 } from "../services/jumpToStorage";
 
-const JT_BUILD = "38";
+const JT_BUILD = "39";
 
 // --- Simple single-flight lock (VBA: "only one macro at a time") ---
 let lockBusy = false;
@@ -51,8 +54,8 @@ async function pump() {
 }
 
 async function activateSheetById(sheetId) {
-  // Excel JS does not reliably expose "getItemById" for worksheets.
-  // So we map id -> name, then activate by name.
+  // Excel JS does not reliably expose getItemById for worksheets.
+  // Map id -> name, then activate by name.
   return Excel.run(async (context) => {
     const sheets = context.workbook.worksheets;
     sheets.load("items/id,name,visibility");
@@ -96,7 +99,7 @@ function openJumpDialog(event) {
     /* ignore */
   }
 
-  // Build dialog URL relative to the current page (works on GitHub Pages subpath).
+  // Build dialog URL relative to the current page.
   const params = new URLSearchParams(window.location.search);
   const v = params.get("v");
   const dialogUrlObj = new URL("./dialog.html", window.location.href);
@@ -116,13 +119,23 @@ function openJumpDialog(event) {
     }
   };
 
+  // Start preloading state immediately, but do NOT block dialog opening.
+  // This overlaps Excel.run with the dialog webview startup.
+  const preloadStatePromise = withLock(async () => {
+    try {
+      return await getJumpToState();
+    } catch (e) {
+      console.error("Preload getJumpToState failed:", e);
+      return null;
+    }
+  });
+
   const tryOpen = (attempt) => {
     Office.context.ui.displayDialogAsync(dialogUrl, options, (asyncResult) => {
       if (asyncResult.status !== Office.AsyncResultStatus.Succeeded) {
         const err = asyncResult.error;
         console.error("displayDialogAsync failed:", err);
 
-        // Retry a couple times for transient dialog launch failures.
         const code = err?.code;
         const transientCodes = new Set([12002, 12006, 12007, 12009]);
         if (attempt < 5 && transientCodes.has(code)) {
@@ -158,6 +171,15 @@ function openJumpDialog(event) {
         completeOnce();
       };
 
+      // Immediately signal parent readiness.
+      safeReply({ type: "parentReady" });
+
+      // Proactively send stateData as soon as preload finishes.
+      // This removes the extra round-trip (dialog asking for sheets).
+      preloadStatePromise.then((state) => {
+        if (state) safeReply({ type: "stateData", state });
+      });
+
       const sendFreshState = async () => {
         const state = await getJumpToState();
         safeReply({ type: "stateData", state });
@@ -178,9 +200,15 @@ function openJumpDialog(event) {
           }
 
           if (payload?.type === "getSheets") {
-            await withLock(async () => {
-              await sendFreshState();
-            });
+            // Prefer the preloaded state if it is ready, otherwise compute fresh.
+            const preloaded = await preloadStatePromise;
+            if (preloaded) {
+              safeReply({ type: "stateData", state: preloaded });
+            } else {
+              await withLock(async () => {
+                await sendFreshState();
+              });
+            }
             return;
           }
 
@@ -193,11 +221,23 @@ function openJumpDialog(event) {
           }
 
           if (payload?.type === "selectSheet" && payload.sheetId) {
+            // Activate sheet first (user-perceived success), then close immediately.
             await withLock(async () => {
               await activateSheetById(payload.sheetId);
-              await recordActivation(payload.sheetId);
             });
+
+            // Close ASAP for better perceived speed.
             closeAndComplete();
+
+            // Record activation after close (best-effort; do not block UI).
+            void withLock(async () => {
+              try {
+                await recordActivation(payload.sheetId);
+              } catch (e) {
+                console.error("recordActivation failed:", e);
+              }
+            });
+
             return;
           }
 
@@ -219,17 +259,14 @@ function openJumpDialog(event) {
       dialog.addEventHandler(Office.EventType.DialogMessageReceived, onMessage);
       dialog.addEventHandler(Office.EventType.DialogEventReceived, onEvent);
 
-      // Signal readiness immediately to avoid races.
-      safeReply({ type: "parentReady" });
-
       // Ribbon command can complete now; dialog stays running.
       completeOnce();
     });
   };
 
-  setTimeout(() => tryOpen(0), 300);
+  // Open immediately (no artificial delay).
+  tryOpen(0);
 }
 
-// Register functions
 Office.actions.associate("action", action);
 Office.actions.associate("openJumpDialog", openJumpDialog);
