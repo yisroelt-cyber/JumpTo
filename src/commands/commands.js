@@ -1,4 +1,7 @@
-/* commands.js – Option B engine (with cancel restored) */
+/*
+  commands.js – Option B engine with cache + refresh-on-open (signature based)
+*/
+
 import {
   getJumpToState,
   toggleFavorite as toggleFavoriteInStorage,
@@ -8,6 +11,11 @@ import {
 let lockBusy = false;
 const lockQueue = [];
 const pendingStateRequests = [];
+
+let cachedState = null;
+let cachedSignature = "";
+let lastCheckTs = 0;
+const CHECK_TTL_MS = 1500;
 
 function withLock(fn) {
   return new Promise((resolve, reject) => {
@@ -31,12 +39,37 @@ async function pump() {
   }
 }
 
+async function computeSheetSignature() {
+  return Excel.run(async (context) => {
+    const sheets = context.workbook.worksheets;
+    sheets.load("items/id,name,visibility");
+    await context.sync();
+    return sheets.items
+      .filter((s) => s.visibility === "visible")
+      .map((s) => `${s.id}:${s.name}`)
+      .join("|");
+  });
+}
+
+async function ensureFreshState() {
+  const now = Date.now();
+  if (now - lastCheckTs < CHECK_TTL_MS) return false;
+  lastCheckTs = now;
+
+  const sig = await computeSheetSignature();
+  if (sig === cachedSignature && cachedState) return false;
+
+  cachedState = await getJumpToState();
+  cachedSignature = sig;
+  return true;
+}
+
 async function activateSheetById(sheetId) {
   return Excel.run(async (context) => {
     const sheets = context.workbook.worksheets;
     sheets.load("items/id,name");
     await context.sync();
-    const ws = sheets.items.find(s => s.id === sheetId);
+    const ws = sheets.items.find((s) => s.id === sheetId);
     if (!ws) throw new Error("Sheet not found");
     context.workbook.worksheets.getItem(ws.name).activate();
     await context.sync();
@@ -62,10 +95,16 @@ function openJumpDialog(event) {
       };
 
       const flushStateQueue = async () => {
-        const state = await getJumpToState();
-        while (pendingStateRequests.length) {
-          pendingStateRequests.pop();
-          reply({ type: "stateData", state });
+        if (cachedState) {
+          while (pendingStateRequests.length) {
+            pendingStateRequests.pop();
+            reply({ type: "stateData", state: cachedState });
+          }
+        }
+
+        const changed = await ensureFreshState();
+        if (changed && cachedState) {
+          reply({ type: "stateData", state: cachedState });
         }
       };
 
@@ -89,7 +128,8 @@ function openJumpDialog(event) {
           if (msg.type === "toggleFavorite") {
             await withLock(async () => {
               await toggleFavoriteInStorage(msg.sheetId);
-              await flushStateQueue();
+              cachedState = await getJumpToState();
+              reply({ type: "stateData", state: cachedState });
             });
             return;
           }
@@ -104,7 +144,6 @@ function openJumpDialog(event) {
             return;
           }
 
-          // RESTORED: cancel handling
           if (msg.type === "cancel") {
             dialog.close();
             event.completed();
