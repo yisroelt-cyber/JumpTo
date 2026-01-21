@@ -63,214 +63,6 @@ function TabButton({ label, active, onClick }) {
   );
 }
 
-function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
-  const [selectedAvailableId, setSelectedAvailableId] = useState(null);
-  const [selectedFavoriteId, setSelectedFavoriteId] = useState(null);
-  const [availableQuery, setAvailableQuery] = useState("");
-
-  const favoriteIdSet = useMemo(() => {
-    const set = new Set();
-    (Array.isArray(favorites) ? favorites : []).forEach((f) => {
-      const id = f?.id;
-      if (id) set.add(id);
-    });
-    return set;
-  }, [favorites]);
-
-  const available = useMemo(() => {
-    const items = Array.isArray(allSheets) ? allSheets : [];
-    const q = (availableQuery || "").trim().toLowerCase();
-    return items
-      .filter((s) => s?.id && !favoriteIdSet.has(s.id))
-      .filter((s) => !q || String(s?.name || "").toLowerCase().includes(q));
-  }, [allSheets, favoriteIdSet, availableQuery]);
-
-  const favoritesSafe = useMemo(() => (Array.isArray(favorites) ? favorites.filter((f) => f?.id) : []), [favorites]);
-
-  useEffect(() => {
-    if (selectedAvailableId && !available.some((s) => s.id === selectedAvailableId)) setSelectedAvailableId(null);
-  }, [available, selectedAvailableId]);
-
-  useEffect(() => {
-    if (selectedFavoriteId && !favoritesSafe.some((f) => f.id === selectedFavoriteId)) setSelectedFavoriteId(null);
-  }, [favoritesSafe, selectedFavoriteId]);
-
-  const addFavorite = (sheetId) => {
-    if (!sheetId || disabled) return;
-    if (favoriteIdSet.has(sheetId)) return;
-    const sheet = (Array.isArray(allSheets) ? allSheets : []).find((s) => s?.id === sheetId);
-    if (!sheet) return;
-    const next = [...favoritesSafe, { id: sheet.id, name: sheet.name }];
-    setFavorites(next);
-    setSelectedFavoriteId(sheet.id);
-    setSelectedAvailableId(null);
-  };
-
-  const removeFavorite = (sheetId) => {
-    if (!sheetId || disabled) return;
-    const next = favoritesSafe.filter((f) => f.id !== sheetId);
-    setFavorites(next);
-    setSelectedFavoriteId(null);
-  };
-
-  const moveFavorite = (delta) => {
-    if (!selectedFavoriteId || disabled) return;
-    const idx = favoritesSafe.findIndex((f) => f.id === selectedFavoriteId);
-    if (idx < 0) return;
-    const to = idx + delta;
-    if (to < 0 || to >= favoritesSafe.length) return;
-    const next = favoritesSafe.slice();
-    const [item] = next.splice(idx, 1);
-    next.splice(to, 0, item);
-    setFavorites(next);
-  };
-
-  const buttonStyle = {
-    width: 34,
-    padding: "6px 0",
-    borderRadius: 6,
-    border: "1px solid rgba(0,0,0,0.25)",
-    background: "white",
-    cursor: disabled ? "default" : "pointer",
-    opacity: disabled ? 0.65 : 1,
-  };
-
-  const listBoxStyle = {
-    maxHeight: 300,
-    minHeight: 300,
-    overflowY: "auto",
-    overscrollBehavior: "contain",
-    border: "1px solid rgba(0,0,0,0.1)",
-    borderRadius: 6,
-  };
-
-  const rowStyle = (isSel) => ({
-    padding: "2px 10px",
-    fontSize: 12,
-    lineHeight: "16px",
-    cursor: disabled ? "default" : "pointer",
-    userSelect: "none",
-    opacity: disabled ? 0.65 : 1,
-    background: isSel ? "rgba(0,120,212,0.12)" : "transparent",
-    borderBottom: "1px solid rgba(0,0,0,0.06)",
-  });
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 12 }}>
-
-      <div style={{ display: "flex", flexDirection: "row", flexWrap: "nowrap", gap: 12, alignItems: "flex-start" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 0" }}>
-          <div style={{ fontWeight: 600 }}>Available</div>
-          <div style={{ fontSize: 12, opacity: 0.75 }}>Double-click to add →</div>
-          <input
-            value={availableQuery}
-            onChange={(e) => setAvailableQuery(e.target.value)}
-            placeholder="Search available…"
-            disabled={disabled}
-            style={{
-              width: "100%",
-              padding: "6px 8px",
-              fontSize: 12,
-              boxSizing: "border-box",
-              marginTop: 4,
-              marginBottom: 6,
-            }}
-          />
-
-
-          <div style={listBoxStyle}>
-            {available.length === 0 ? (
-              <div style={{ padding: 10, fontSize: 12, opacity: 0.7 }}>No available sheets</div>
-            ) : (
-              available.map((s) => {
-                const isSel = s.id === selectedAvailableId;
-                return (
-                  <div
-                    key={s.id}
-                    onClick={() => !disabled && setSelectedAvailableId(s.id)}
-                    onDoubleClick={() => addFavorite(s.id)}
-                    style={rowStyle(isSel)}
-                    title={s.name || s.id}
-                    role="button"
-                  >
-                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {s.name || s.id}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: 34, flex: "0 0 34px" }}>
-          <div style={{ height: 22 }} />
-          <div style={{ height: 14 }} />
-          <div style={{ height: 30, marginTop: 4, marginBottom: 6 }} />
-          <div style={{ height: 260, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8, alignItems: "center" }}>
-            <button
-              type="button"
-              onClick={() => moveFavorite(-1)}
-              disabled={disabled || !selectedFavoriteId || favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) <= 0}
-              style={buttonStyle}
-              title="Move selected favorite up"
-            >
-              ▲
-            </button>
-
-            <button
-              type="button"
-              onClick={() => moveFavorite(1)}
-              disabled={
-                disabled ||
-                !selectedFavoriteId ||
-                favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) < 0 ||
-                favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) >= favoritesSafe.length - 1
-              }
-              style={buttonStyle}
-              title="Move selected favorite down"
-            >
-              ▼
-            </button>
-          </div>
-        </div>
-<div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 0" }}>
-          <div style={{ fontWeight: 600 }}>Favorites</div>
-          <div style={{ fontSize: 12, opacity: 0.75 }}>Double-click to remove</div>
-          <div style={{ height: 30, marginTop: 4, marginBottom: 6 }} />
-
-
-          <div style={listBoxStyle}>
-            {favoritesSafe.length === 0 ? (
-              <div style={{ padding: 10, fontSize: 12, opacity: 0.7 }}>No favorites yet</div>
-            ) : (
-              favoritesSafe.map((f) => {
-                const isSel = f.id === selectedFavoriteId;
-                const name = f.name || f.id;
-                return (
-                  <div
-                    key={f.id}
-                    onClick={() => !disabled && setSelectedFavoriteId(f.id)}
-                    onDoubleClick={() => removeFavorite(f.id)}
-                    style={rowStyle(isSel)}
-                    title={name}
-                    role="button"
-                  >
-                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {name}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function DialogApp() {
   const [allSheets, setAllSheets] = useState([]);
   const [favorites, setFavorites] = useState([]);
@@ -281,7 +73,17 @@ function DialogApp() {
   const [isActivating, setIsActivating] = useState(false);
   const [initError, setInitError] = useState("");
   const [activeTab, setActiveTab] = useState("Navigation");
-  const [highlightIndex, setHighlightIndex] = useState(0);
+  
+  // Favorites tab UI state (remember selection across tab switches)
+  const [favTabSelectedAvailableId, setFavTabSelectedAvailableId] = useState(null);
+  const [favTabSelectedFavoriteId, setFavTabSelectedFavoriteId] = useState(null);
+
+  // Hover highlight state (Navigation + Favorites tab)
+  const [hoverNavFavoriteId, setHoverNavFavoriteId] = useState(null);
+  const [hoverNavRecentId, setHoverNavRecentId] = useState(null);
+  const [hoverFavTabAvailableId, setHoverFavTabAvailableId] = useState(null);
+  const [hoverFavTabFavoriteId, setHoverFavTabFavoriteId] = useState(null);
+const [highlightIndex, setHighlightIndex] = useState(0);
   const requestedRef = useRef(false);
   const timeoutIdRef = useRef(null);
   const statusRef = useRef("Loading…");
@@ -584,7 +386,41 @@ useEffect(() => {
 
   const isFavorite = (sheetId) => favoriteIds.has(sheetId);
 
-  const rowStyle = {
+  
+  const addFavoriteLocal = (sheetId) => {
+    if (!sheetId) return;
+    setFavorites((prev) => {
+      const arr = Array.isArray(prev) ? prev : [];
+      if (arr.some((x) => x?.id === sheetId)) return arr;
+      const s = (Array.isArray(allSheets) ? allSheets : []).find((x) => x?.id === sheetId);
+      const name = s?.name || "";
+      return [...arr, { id: sheetId, name }];
+    });
+    setFavTabSelectedFavoriteId(sheetId);
+    setFavTabSelectedAvailableId(null);
+  };
+
+  const removeFavoriteLocal = (sheetId) => {
+    if (!sheetId) return;
+    setFavorites((prev) => (Array.isArray(prev) ? prev : []).filter((x) => x?.id !== sheetId));
+    if (favTabSelectedFavoriteId === sheetId) setFavTabSelectedFavoriteId(null);
+  };
+
+  const moveFavoriteLocal = (sheetId, direction) => {
+    if (!sheetId) return;
+    if (direction !== "up" && direction !== "down") return;
+    setFavorites((prev) => {
+      const arr = Array.isArray(prev) ? prev.slice() : [];
+      const idx = arr.findIndex((x) => x?.id === sheetId);
+      if (idx < 0) return arr;
+      const to = direction === "up" ? idx - 1 : idx + 1;
+      if (to < 0 || to >= arr.length) return arr;
+      const [item] = arr.splice(idx, 1);
+      arr.splice(to, 0, item);
+      return arr;
+    });
+  };
+const rowStyle = {
     padding: "2px 10px",
     fontSize: 12,
     lineHeight: "16px",
@@ -857,7 +693,9 @@ return (
                     <div
                       key={id || `${name}_${i}`}
                       onClick={() => !isActivating && id && onSelect({ id })}
-                      style={rowStyle}
+                      onMouseEnter={() => setHoverNavFavoriteId(id)}
+                      onMouseLeave={() => setHoverNavFavoriteId(null)}
+                      style={{ ...rowStyle, background: (hoverNavFavoriteId === id ? "rgba(0,120,212,0.10)" : "transparent") }}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
@@ -914,11 +752,197 @@ return (
       )}
 
 
-{activeTab === "Favorites" && (
-        <FavoritesTab allSheets={allSheets} favorites={favorites} setFavorites={setFavorites} disabled={isActivating} />
-      )}
 
-      {activeTab === "Settings" && (
+      {activeTab === "Favorites" && (
+        <>
+          <div style={{ display: "flex", gap: 16 }}>
+            {/* Left: Search + Available (non-favorites) */}
+            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0" }}>
+              <div style={{ marginBottom: 10 }}>
+                <input
+                  ref={searchInputRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    try {
+                      const key = e.key;
+                      if (key === "Tab") {
+                        e.preventDefault();
+                        requestSearchFocus("tab");
+                        return;
+                      }
+                      if (key === "ArrowDown") {
+                        e.preventDefault();
+                        // Mirror Navigation: move highlight through the available list (non-favorites)
+                        const available = (Array.isArray(filtered) ? filtered : []).filter((x) => x && !isFavorite(x.id));
+                        setHighlightIndex((prev) => Math.min((prev ?? -1) + 1, Math.max(available.length - 1, 0)));
+                        return;
+                      }
+                      if (key === "ArrowUp") {
+                        e.preventDefault();
+                        setHighlightIndex((prev) => Math.max((prev ?? 0) - 1, 0));
+                        return;
+                      }
+                      if (key === "Enter") {
+                        e.preventDefault();
+                        const available = (Array.isArray(filtered) ? filtered : []).filter((x) => x && !isFavorite(x.id));
+                        const s = available[highlightIndex];
+                        if (s?.id) addFavoriteLocal(s.id);
+                        return;
+                      }
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                  placeholder="Search sheets…"
+                  disabled={!!status && status !== "" && allSheets.length === 0}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: 12,
+                    boxSizing: "border-box",
+                    border: "1px solid rgba(0,0,0,0.2)",
+                    borderRadius: 6,
+                  }}
+                />
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid rgba(0,0,0,0.15)",
+                  borderRadius: 6,
+                  overflow: "hidden",
+                }}
+              >
+                <div style={{ maxHeight: 380, overflowY: "auto", overscrollBehavior: "contain" }}>
+                  {(Array.isArray(filtered) ? filtered : [])
+                    .filter((s) => s && !isFavorite(s.id))
+                    .map((s, i) => {
+                      const isHovered = hoverFavTabAvailableId === s.id;
+                      const isHL = i === highlightIndex;
+                      const bg = isHL ? "rgba(0,120,212,0.12)" : isHovered ? "rgba(0,120,212,0.10)" : "transparent";
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={() => {
+                            if (isActivating) return;
+                            setFavTabSelectedAvailableId(s.id);
+                          }}
+                          onDoubleClick={() => {
+                            if (isActivating) return;
+                            addFavoriteLocal(s.id);
+                          }}
+                          onMouseEnter={() => setHoverFavTabAvailableId(s.id)}
+                          onMouseLeave={() => setHoverFavTabAvailableId(null)}
+                          style={{
+                            ...rowStyle,
+                            background: bg,
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {s.name}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {(Array.isArray(filtered) ? filtered : []).filter((s) => s && !isFavorite(s.id)).length === 0 && (
+                    <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.8 }}>
+                      No matches.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Favorites (top) + Controls (bottom, replaces Recents section) */}
+            <div style={{ flex: "0 0 45%", minWidth: 220, display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Favorites list */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
+                <div
+                  style={{
+                    maxHeight: 150,
+                    minHeight: 150,
+                    overflowY: "auto",
+                    overscrollBehavior: "contain",
+                    border: "1px solid rgba(0,0,0,0.1)",
+                    borderRadius: 6,
+                  }}
+                >
+                  {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
+                    const name = f?.name || "";
+                    const id = f?.id;
+                    const isHovered = hoverFavTabFavoriteId === id;
+                    const isSel = favTabSelectedFavoriteId === id;
+                    const bg = isSel ? "rgba(0,120,212,0.12)" : isHovered ? "rgba(0,120,212,0.10)" : "transparent";
+                    return (
+                      <div
+                        key={id || `${name}_${i}`}
+                        onClick={() => {
+                          if (isActivating) return;
+                          if (id) setFavTabSelectedFavoriteId(id);
+                        }}
+                        onDoubleClick={() => {
+                          if (isActivating) return;
+                          if (id) removeFavoriteLocal(id);
+                        }}
+                        onMouseEnter={() => id && setHoverFavTabFavoriteId(id)}
+                        onMouseLeave={() => setHoverFavTabFavoriteId(null)}
+                        style={{ ...rowStyle, background: bg }}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{i < 9 ? String(i + 1) : ""}</div>
+                          <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {(Array.isArray(favorites) ? favorites : []).length === 0 && (
+                    <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No favorites yet.</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Controls block (mirrors where Recents was, but without Recents title) */}
+              <div style={{ flex: "1 1 auto" }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  <button
+                    type="button"
+                    disabled={!favTabSelectedFavoriteId || (Array.isArray(favorites) ? favorites : []).findIndex(x => x?.id === favTabSelectedFavoriteId) <= 0}
+                    onClick={() => moveFavoriteLocal(favTabSelectedFavoriteId, "up")}
+                    style={{ flex: 1, padding: "6px 8px", fontSize: 12, borderRadius: 6, border: "1px solid rgba(0,0,0,0.2)", background: "white" }}
+                  >
+                    Up
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      !favTabSelectedFavoriteId ||
+                      (Array.isArray(favorites) ? favorites : []).findIndex((x) => x?.id === favTabSelectedFavoriteId) < 0 ||
+                      (Array.isArray(favorites) ? favorites : []).findIndex((x) => x?.id === favTabSelectedFavoriteId) >= (Array.isArray(favorites) ? favorites : []).length - 1
+                    }
+                    onClick={() => moveFavoriteLocal(favTabSelectedFavoriteId, "down")}
+                    style={{ flex: 1, padding: "6px 8px", fontSize: 12, borderRadius: 6, border: "1px solid rgba(0,0,0,0.2)", background: "white" }}
+                  >
+                    Down
+                  </button>
+                </div>
+
+                <div style={{ textAlign: "center", fontSize: 12, opacity: 0.85, userSelect: "none" }}>
+                  ⇄&nbsp;&nbsp;&nbsp;Double-click to transfer&nbsp;&nbsp;&nbsp;⇄
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+{activeTab === "Settings" && (
         <div style={{ fontSize: 13, opacity: 0.85 }}>Settings (coming soon)</div>
       )}
       {/* Global actions (outside tabs) */}
