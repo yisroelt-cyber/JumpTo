@@ -824,7 +824,8 @@ return (
                     .map((s, i) => {
                       const isHovered = hoverFavTabAvailableId === s.id;
                       const isSel = favTabSelectedAvailableId === s.id;
-                      const bg = isSel ? "rgba(0,120,212,0.12)" : isHovered ? "rgba(0,120,212,0.10)" : "transparent";
+                      const bg = isSel ? "rgba(0,120,212,0.18)" : (isHovered ? "rgba(0,120,212,0.05)" : "transparent");
+                      const boxShadow = isSel ? "inset 0 0 0 2px rgba(0,120,212,0.85)" : "none";
                       return (
                         <div
                           key={s.id}
@@ -844,6 +845,7 @@ return (
                           style={{
                             ...rowStyle,
                             background: bg,
+                            boxShadow,
                           }}
                           role="button"
                           tabIndex={0}
@@ -888,7 +890,8 @@ return (
                     // Favorites tab favorites list: show a single highlight.
                     // - If a row is selected (clicked), highlight the selected row (needed for Up/Down).
                     // - If no selection, highlight follows mouse hover.
-                    const bg = isSelected ? "rgba(0,120,212,0.12)" : (isHovered ? "rgba(0,120,212,0.10)" : "transparent");
+                    const bg = isSelected ? "rgba(0,120,212,0.18)" : (isHovered ? "rgba(0,120,212,0.05)" : "transparent");
+                    const boxShadow = isSelected ? "inset 0 0 0 2px rgba(0,120,212,0.85)" : "none";
                     return (
                       <div
                         key={id || `${name}_${i}`}
@@ -905,7 +908,7 @@ return (
                         }}
                         onMouseEnter={() => id && setHoverFavTabFavoriteId(id)}
                         onMouseLeave={() => setHoverFavTabFavoriteId(null)}
-                        style={{ ...rowStyle, background: bg }}
+                        style={{ ...rowStyle, background: bg, boxShadow }}
                         role="button"
                         tabIndex={0}
                       >
