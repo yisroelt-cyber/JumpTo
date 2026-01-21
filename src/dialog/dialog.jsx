@@ -63,6 +63,190 @@ function TabButton({ label, active, onClick }) {
   );
 }
 
+function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
+  const [selectedAvailableId, setSelectedAvailableId] = useState(null);
+  const [selectedFavoriteId, setSelectedFavoriteId] = useState(null);
+
+  const favoriteIdSet = useMemo(() => {
+    const set = new Set();
+    (Array.isArray(favorites) ? favorites : []).forEach((f) => {
+      const id = f?.id;
+      if (id) set.add(id);
+    });
+    return set;
+  }, [favorites]);
+
+  const available = useMemo(() => {
+    const items = Array.isArray(allSheets) ? allSheets : [];
+    return items.filter((s) => s?.id && !favoriteIdSet.has(s.id));
+  }, [allSheets, favoriteIdSet]);
+
+  const favoritesSafe = useMemo(() => (Array.isArray(favorites) ? favorites.filter((f) => f?.id) : []), [favorites]);
+
+  useEffect(() => {
+    if (selectedAvailableId && !available.some((s) => s.id === selectedAvailableId)) setSelectedAvailableId(null);
+  }, [available, selectedAvailableId]);
+
+  useEffect(() => {
+    if (selectedFavoriteId && !favoritesSafe.some((f) => f.id === selectedFavoriteId)) setSelectedFavoriteId(null);
+  }, [favoritesSafe, selectedFavoriteId]);
+
+  const addFavorite = (sheetId) => {
+    if (!sheetId || disabled) return;
+    if (favoriteIdSet.has(sheetId)) return;
+    const sheet = (Array.isArray(allSheets) ? allSheets : []).find((s) => s?.id === sheetId);
+    if (!sheet) return;
+    const next = [...favoritesSafe, { id: sheet.id, name: sheet.name }];
+    setFavorites(next);
+    setSelectedFavoriteId(sheet.id);
+    setSelectedAvailableId(null);
+  };
+
+  const removeFavorite = (sheetId) => {
+    if (!sheetId || disabled) return;
+    const next = favoritesSafe.filter((f) => f.id !== sheetId);
+    setFavorites(next);
+    setSelectedFavoriteId(null);
+  };
+
+  const moveFavorite = (delta) => {
+    if (!selectedFavoriteId || disabled) return;
+    const idx = favoritesSafe.findIndex((f) => f.id === selectedFavoriteId);
+    if (idx < 0) return;
+    const to = idx + delta;
+    if (to < 0 || to >= favoritesSafe.length) return;
+    const next = favoritesSafe.slice();
+    const [item] = next.splice(idx, 1);
+    next.splice(to, 0, item);
+    setFavorites(next);
+  };
+
+  const buttonStyle = {
+    padding: "8px 10px",
+    borderRadius: 6,
+    border: "1px solid rgba(0,0,0,0.25)",
+    background: "white",
+    cursor: disabled ? "default" : "pointer",
+    opacity: disabled ? 0.65 : 1,
+  };
+
+  const listBoxStyle = {
+    border: "1px solid rgba(0,0,0,0.2)",
+    borderRadius: 6,
+    height: 260,
+    overflow: "auto",
+    background: "white",
+  };
+
+  const rowStyle = (isSel) => ({
+    padding: "6px 10px",
+    cursor: disabled ? "default" : "default",
+    userSelect: "none",
+    background: isSel ? "rgba(0,120,212,0.15)" : "transparent",
+    borderBottom: "1px solid rgba(0,0,0,0.06)",
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 12 }}>
+      <div style={{ fontSize: 13, opacity: 0.85 }}>
+        Manage favorites. Double-click to add/remove. Use Up/Down to reorder.
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 1fr", gap: 12, alignItems: "start" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontWeight: 600 }}>Available</div>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>Double-click to add →</div>
+
+          <div style={listBoxStyle}>
+            {available.length === 0 ? (
+              <div style={{ padding: 10, fontSize: 12, opacity: 0.7 }}>No available sheets</div>
+            ) : (
+              available.map((s) => {
+                const isSel = s.id === selectedAvailableId;
+                return (
+                  <div
+                    key={s.id}
+                    onClick={() => !disabled && setSelectedAvailableId(s.id)}
+                    onDoubleClick={() => addFavorite(s.id)}
+                    style={rowStyle(isSel)}
+                    title={s.name || s.id}
+                    role="button"
+                  >
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {s.name || s.id}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 46 }}>
+          <button
+            type="button"
+            onClick={() => moveFavorite(-1)}
+            disabled={disabled || !selectedFavoriteId || favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) <= 0}
+            style={buttonStyle}
+            title="Move selected favorite up"
+          >
+            ▲ Up
+          </button>
+
+          <button
+            type="button"
+            onClick={() => moveFavorite(1)}
+            disabled={
+              disabled ||
+              !selectedFavoriteId ||
+              favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) < 0 ||
+              favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) >= favoritesSafe.length - 1
+            }
+            style={buttonStyle}
+            title="Move selected favorite down"
+          >
+            ▼ Down
+          </button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontWeight: 600 }}>Favorites</div>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>Double-click to remove</div>
+
+          <div style={listBoxStyle}>
+            {favoritesSafe.length === 0 ? (
+              <div style={{ padding: 10, fontSize: 12, opacity: 0.7 }}>No favorites yet</div>
+            ) : (
+              favoritesSafe.map((f) => {
+                const isSel = f.id === selectedFavoriteId;
+                const name = f.name || f.id;
+                return (
+                  <div
+                    key={f.id}
+                    onClick={() => !disabled && setSelectedFavoriteId(f.id)}
+                    onDoubleClick={() => removeFavorite(f.id)}
+                    style={rowStyle(isSel)}
+                    title={name}
+                    role="button"
+                  >
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {name}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 12, opacity: 0.7 }}>
+        Note: persistence/wiring will be added in Patch 2 (engine/storage). This patch is UI-only.
+      </div>
+    </div>
+  );
+}
+
 function DialogApp() {
   const [allSheets, setAllSheets] = useState([]);
   const [favorites, setFavorites] = useState([]);
@@ -707,7 +891,7 @@ return (
 
 
 {activeTab === "Favorites" && (
-        <div style={{ fontSize: 13, opacity: 0.85 }}>Favorites UI patch failed to apply</div>
+        <FavoritesTab allSheets={allSheets} favorites={favorites} setFavorites={setFavorites} disabled={isActivating} />
       )}
 
       {activeTab === "Settings" && (
