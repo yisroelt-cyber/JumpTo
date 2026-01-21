@@ -884,8 +884,9 @@ return (
                     const name = f?.name || "";
                     const id = f?.id;
                     const isHovered = hoverFavTabFavoriteId === id;
-                    const isSel = favTabSelectedFavoriteId === id;
-                    const bg = isSel ? "rgba(0,120,212,0.12)" : (favTabSelectedFavoriteId ? "transparent" : (isHovered ? "rgba(0,120,212,0.10)" : "transparent"));
+                    // Favorites tab favorites list: hover-only highlight (single highlight follows cursor).
+                    // Selection is still tracked for operations (up/down/remove) but is not visually highlighted.
+                    const bg = isHovered ? "rgba(0,120,212,0.10)" : "transparent";
                     return (
                       <div
                         key={id || `${name}_${i}`}
