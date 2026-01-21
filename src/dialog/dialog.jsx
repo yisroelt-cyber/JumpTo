@@ -884,9 +884,11 @@ return (
                     const name = f?.name || "";
                     const id = f?.id;
                     const isHovered = hoverFavTabFavoriteId === id;
-                    // Favorites tab favorites list: hover-only highlight (single highlight follows cursor).
-                    // Selection is still tracked for operations (up/down/remove) but is not visually highlighted.
-                    const bg = isHovered ? "rgba(0,120,212,0.10)" : "transparent";
+                    const isSelected = favTabSelectedFavoriteId === id;
+                    // Favorites tab favorites list: show a single highlight.
+                    // - If a row is selected (clicked), highlight the selected row (needed for Up/Down).
+                    // - If no selection, highlight follows mouse hover.
+                    const bg = isSelected ? "rgba(0,120,212,0.12)" : (isHovered ? "rgba(0,120,212,0.10)" : "transparent");
                     return (
                       <div
                         key={id || `${name}_${i}`}
