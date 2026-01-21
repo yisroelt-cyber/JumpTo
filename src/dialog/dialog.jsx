@@ -695,7 +695,7 @@ return (
                       onClick={() => !isActivating && id && onSelect({ id })}
                       onMouseEnter={() => setHoverNavFavoriteId(id)}
                       onMouseLeave={() => setHoverNavFavoriteId(null)}
-                      style={{ ...rowStyle, background: (hoverNavFavoriteId === id ? "rgba(0,120,212,0.10)" : "transparent") }}
+                      style={{...rowStyle, background: (hoverNavFavoriteId === id ? "rgba(0,120,212,0.10)" : "transparent")}}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
@@ -814,7 +814,7 @@ return (
                   overflow: "hidden",
                 }}
               >
-                <div style={{ maxHeight: 380, overflowY: "auto", overscrollBehavior: "contain" }}>
+                <div style={{ maxHeight: 300, minHeight: 300, overflowY: "auto", overscrollBehavior: "contain" }}>
                   {(Array.isArray(filtered) ? filtered : [])
                     .filter((s) => s && !isFavorite(s.id))
                     .map((s, i) => {
@@ -914,7 +914,7 @@ return (
                 <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                   <button
                     type="button"
-                    disabled={!favTabSelectedFavoriteId || (Array.isArray(favorites) ? favorites : []).findIndex(x => x?.id === favTabSelectedFavoriteId) <= 0}
+                    disabled={!favTabSelectedFavoriteId || (Array.isArray(favorites) ? favorites : []).findIndex((x) => x?.id === favTabSelectedFavoriteId) <= 0}
                     onClick={() => moveFavoriteLocal(favTabSelectedFavoriteId, "up")}
                     style={{ flex: 1, padding: "6px 8px", fontSize: 12, borderRadius: 6, border: "1px solid rgba(0,0,0,0.2)", background: "white" }}
                   >
@@ -934,7 +934,7 @@ return (
                   </button>
                 </div>
 
-                <div style={{ textAlign: "center", fontSize: 12, opacity: 0.85, userSelect: "none" }}>
+                <div style={{ textAlign: "center", fontSize: 14, fontWeight: 600, marginTop: 18, opacity: 0.85, userSelect: "none" }}>
                   ⇄&nbsp;&nbsp;&nbsp;Double-click to transfer&nbsp;&nbsp;&nbsp;⇄
                 </div>
               </div>
