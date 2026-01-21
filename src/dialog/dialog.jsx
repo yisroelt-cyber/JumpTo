@@ -66,6 +66,7 @@ function TabButton({ label, active, onClick }) {
 function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
   const [selectedAvailableId, setSelectedAvailableId] = useState(null);
   const [selectedFavoriteId, setSelectedFavoriteId] = useState(null);
+  const [availableQuery, setAvailableQuery] = useState("");
 
   const favoriteIdSet = useMemo(() => {
     const set = new Set();
@@ -78,8 +79,11 @@ function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
 
   const available = useMemo(() => {
     const items = Array.isArray(allSheets) ? allSheets : [];
-    return items.filter((s) => s?.id && !favoriteIdSet.has(s.id));
-  }, [allSheets, favoriteIdSet]);
+    const q = (availableQuery || "").trim().toLowerCase();
+    return items
+      .filter((s) => s?.id && !favoriteIdSet.has(s.id))
+      .filter((s) => !q || String(s?.name || "").toLowerCase().includes(q));
+  }, [allSheets, favoriteIdSet, availableQuery]);
 
   const favoritesSafe = useMemo(() => (Array.isArray(favorites) ? favorites.filter((f) => f?.id) : []), [favorites]);
 
@@ -122,7 +126,8 @@ function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
   };
 
   const buttonStyle = {
-    padding: "8px 10px",
+    width: 34,
+    padding: "6px 0",
     borderRadius: 6,
     border: "1px solid rgba(0,0,0,0.25)",
     background: "white",
@@ -131,31 +136,47 @@ function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
   };
 
   const listBoxStyle = {
-    border: "1px solid rgba(0,0,0,0.2)",
+    maxHeight: 300,
+    minHeight: 300,
+    overflowY: "auto",
+    overscrollBehavior: "contain",
+    border: "1px solid rgba(0,0,0,0.1)",
     borderRadius: 6,
-    height: 260,
-    overflow: "auto",
-    background: "white",
   };
 
   const rowStyle = (isSel) => ({
-    padding: "6px 10px",
-    cursor: disabled ? "default" : "default",
+    padding: "2px 10px",
+    fontSize: 12,
+    lineHeight: "16px",
+    cursor: disabled ? "default" : "pointer",
     userSelect: "none",
-    background: isSel ? "rgba(0,120,212,0.15)" : "transparent",
+    opacity: disabled ? 0.65 : 1,
+    background: isSel ? "rgba(0,120,212,0.12)" : "transparent",
     borderBottom: "1px solid rgba(0,0,0,0.06)",
   });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 12 }}>
-      <div style={{ fontSize: 13, opacity: 0.85 }}>
-        Manage favorites. Double-click to add/remove. Use Up/Down to reorder.
-      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 1fr", gap: 12, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ fontWeight: 600 }}>Available</div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>Double-click to add →</div>
+          <input
+            value={availableQuery}
+            onChange={(e) => setAvailableQuery(e.target.value)}
+            placeholder="Search available…"
+            disabled={disabled}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              fontSize: 12,
+              boxSizing: "border-box",
+              marginTop: 4,
+              marginBottom: 6,
+            }}
+          />
+
 
           <div style={listBoxStyle}>
             {available.length === 0 ? (
@@ -182,7 +203,11 @@ function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 46 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ height: 22 }} />
+          <div style={{ height: 14 }} />
+          <div style={{ height: 30, marginTop: 4, marginBottom: 6 }} />
+          <div style={{ height: 300, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8, alignItems: "center" }}>
           <button
             type="button"
             onClick={() => moveFavorite(-1)}
@@ -190,7 +215,7 @@ function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
             style={buttonStyle}
             title="Move selected favorite up"
           >
-            ▲ Up
+            ▲
           </button>
 
           <button
@@ -205,13 +230,17 @@ function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
             style={buttonStyle}
             title="Move selected favorite down"
           >
-            ▼ Down
+            ▼
           </button>
+            </div>
+          </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ fontWeight: 600 }}>Favorites</div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>Double-click to remove</div>
+          <div style={{ height: 30, marginTop: 4, marginBottom: 6 }} />
+
 
           <div style={listBoxStyle}>
             {favoritesSafe.length === 0 ? (
@@ -239,11 +268,6 @@ function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
           </div>
         </div>
       </div>
-
-      <div style={{ fontSize: 12, opacity: 0.7 }}>
-        Note: persistence/wiring will be added in Patch 2 (engine/storage). This patch is UI-only.
-      </div>
-    </div>
   );
 }
 
