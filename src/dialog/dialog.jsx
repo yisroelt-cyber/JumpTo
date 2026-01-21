@@ -158,8 +158,8 @@ function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 12 }}>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 1fr", gap: 12, alignItems: "start" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "row", flexWrap: "nowrap", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 0" }}>
           <div style={{ fontWeight: 600 }}>Available</div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>Double-click to add →</div>
           <input
@@ -203,40 +203,39 @@ function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: 34, flex: "0 0 34px" }}>
           <div style={{ height: 22 }} />
           <div style={{ height: 14 }} />
           <div style={{ height: 30, marginTop: 4, marginBottom: 6 }} />
-          <div style={{ height: 300, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8, alignItems: "center" }}>
-          <button
-            type="button"
-            onClick={() => moveFavorite(-1)}
-            disabled={disabled || !selectedFavoriteId || favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) <= 0}
-            style={buttonStyle}
-            title="Move selected favorite up"
-          >
-            ▲
-          </button>
+          <div style={{ height: 260, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8, alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => moveFavorite(-1)}
+              disabled={disabled || !selectedFavoriteId || favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) <= 0}
+              style={buttonStyle}
+              title="Move selected favorite up"
+            >
+              ▲
+            </button>
 
-          <button
-            type="button"
-            onClick={() => moveFavorite(1)}
-            disabled={
-              disabled ||
-              !selectedFavoriteId ||
-              favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) < 0 ||
-              favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) >= favoritesSafe.length - 1
-            }
-            style={buttonStyle}
-            title="Move selected favorite down"
-          >
-            ▼
-          </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => moveFavorite(1)}
+              disabled={
+                disabled ||
+                !selectedFavoriteId ||
+                favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) < 0 ||
+                favoritesSafe.findIndex((f) => f.id === selectedFavoriteId) >= favoritesSafe.length - 1
+              }
+              style={buttonStyle}
+              title="Move selected favorite down"
+            >
+              ▼
+            </button>
           </div>
         </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+<div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 0" }}>
           <div style={{ fontWeight: 600 }}>Favorites</div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>Double-click to remove</div>
           <div style={{ height: 30, marginTop: 4, marginBottom: 6 }} />
@@ -268,6 +267,7 @@ function FavoritesTab({ allSheets, favorites, setFavorites, disabled }) {
           </div>
         </div>
       </div>
+    </div>
   );
 }
 
