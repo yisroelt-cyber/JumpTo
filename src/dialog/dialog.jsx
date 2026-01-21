@@ -885,7 +885,7 @@ return (
                     const id = f?.id;
                     const isHovered = hoverFavTabFavoriteId === id;
                     const isSel = favTabSelectedFavoriteId === id;
-                    const bg = isSel ? "rgba(0,120,212,0.12)" : isHovered ? "rgba(0,120,212,0.10)" : "transparent";
+                    const bg = isSel ? "rgba(0,120,212,0.12)" : (favTabSelectedFavoriteId ? "transparent" : (isHovered ? "rgba(0,120,212,0.10)" : "transparent"));
                     return (
                       <div
                         key={id || `${name}_${i}`}
