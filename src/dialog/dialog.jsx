@@ -526,6 +526,7 @@ return (
                   ref={searchInputRef}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onBlur={() => requestSearchFocus("fav-search-blur")}
                   onKeyDown={(e) => {
                     try {
                       const key = e.key;
@@ -695,7 +696,7 @@ return (
                       onClick={() => !isActivating && id && onSelect({ id })}
                       onMouseEnter={() => setHoverNavFavoriteId(id)}
                       onMouseLeave={() => setHoverNavFavoriteId(null)}
-                      style={{...rowStyle, background: (hoverNavFavoriteId === id ? "rgba(0,120,212,0.10)" : "transparent")}}
+                      style={{ ...rowStyle, background: (hoverNavFavoriteId === id ? "rgba(0,120,212,0.10)" : "transparent") }}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
@@ -733,7 +734,9 @@ return (
                     <div
                       key={id || `${name}_${i}`}
                       onClick={() => !isActivating && id && onSelect({ id })}
-                      style={rowStyle}
+                      onMouseEnter={() => setHoverNavRecentId(id)}
+                      onMouseLeave={() => setHoverNavRecentId(null)}
+                      style={{ ...rowStyle, background: (hoverNavRecentId === id ? "rgba(0,120,212,0.10)" : "transparent") }}
                       role="button"
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -760,6 +763,7 @@ return (
             <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0" }}>
               <div style={{ marginBottom: 10 }}>
                 <input
+                  autoFocus
                   ref={searchInputRef}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -819,18 +823,21 @@ return (
                     .filter((s) => s && !isFavorite(s.id))
                     .map((s, i) => {
                       const isHovered = hoverFavTabAvailableId === s.id;
-                      const isHL = i === highlightIndex;
-                      const bg = isHL ? "rgba(0,120,212,0.12)" : isHovered ? "rgba(0,120,212,0.10)" : "transparent";
+                      const isSel = favTabSelectedAvailableId === s.id;
+                      const bg = isSel ? "rgba(0,120,212,0.12)" : isHovered ? "rgba(0,120,212,0.10)" : "transparent";
                       return (
                         <div
                           key={s.id}
                           onClick={() => {
                             if (isActivating) return;
                             setFavTabSelectedAvailableId(s.id);
+                            setFavTabSelectedFavoriteId(null);
+                            requestSearchFocus("fav-available-click");
                           }}
                           onDoubleClick={() => {
                             if (isActivating) return;
                             addFavoriteLocal(s.id);
+                            requestSearchFocus("fav-available-dblclick");
                           }}
                           onMouseEnter={() => setHoverFavTabAvailableId(s.id)}
                           onMouseLeave={() => setHoverFavTabAvailableId(null)}
@@ -885,10 +892,13 @@ return (
                         onClick={() => {
                           if (isActivating) return;
                           if (id) setFavTabSelectedFavoriteId(id);
-                        }}
+                          setFavTabSelectedAvailableId(null);
+                          requestSearchFocus("fav-favorite-click");
+}}
                         onDoubleClick={() => {
                           if (isActivating) return;
                           if (id) removeFavoriteLocal(id);
+                          requestSearchFocus("fav-favorite-dblclick");
                         }}
                         onMouseEnter={() => id && setHoverFavTabFavoriteId(id)}
                         onMouseLeave={() => setHoverFavTabFavoriteId(null)}
