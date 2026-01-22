@@ -87,6 +87,7 @@ function DialogApp() {
   // Favorites persistence (Favorites tab): debounce writes to minimize sheet churn
   const favPersistTimerRef = useRef(null);
   const favDirtyRef = useRef(false);
+  const favoritesRef = useRef([]);
 
 const [highlightIndex, setHighlightIndex] = useState(0);
   const requestedRef = useRef(false);
@@ -96,6 +97,7 @@ const [highlightIndex, setHighlightIndex] = useState(0);
   const searchInputRef = useRef(null);
   const listRowRefs = useRef([]);
   const focusTimersRef = useRef([]);
+  useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => { sheetsLenRef.current = allSheets.length; }, [allSheets]);
@@ -445,7 +447,7 @@ useEffect(() => {
     favPersistTimerRef.current = setTimeout(() => {
       favPersistTimerRef.current = null;
       try {
-        const ids = (Array.isArray(favorites) ? favorites : []).map((x) => x?.id).filter(Boolean);
+        const ids = (Array.isArray(favoritesRef.current) ? favoritesRef.current : []).map((x) => x?.id).filter(Boolean);
         sendSetFavoritesToParent(ids);
         favDirtyRef.current = false;
       } catch {
@@ -461,7 +463,7 @@ useEffect(() => {
       favPersistTimerRef.current = null;
     }
     try {
-      const ids = (Array.isArray(favorites) ? favorites : []).map((x) => x?.id).filter(Boolean);
+      const ids = (Array.isArray(favoritesRef.current) ? favoritesRef.current : []).map((x) => x?.id).filter(Boolean);
       sendSetFavoritesToParent(ids);
     } catch {
       // ignore
