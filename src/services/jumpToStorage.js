@@ -375,6 +375,24 @@ export async function moveFavorite(sheetId, direction) {
 }
 
 
+
+
+export async function setUiSettings(settingsPatch) {
+  const userKey = await getOrCreateUserKey();
+  if (!userKey) return;
+
+  const patch = (settingsPatch && typeof settingsPatch === "object") ? settingsPatch : {};
+
+  return Excel.run(async (context) => {
+    const settingsSheet = await ensureSettingsSheet(context);
+    const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
+
+    const { favorites, recents, settings } = await readUserCells(context, settingsSheet, colLetter);
+    const nextSettings = { ...(settings || {}), ...patch };
+
+    await writeUserCells(context, settingsSheet, colLetter, { favorites, recents, settings: nextSettings });
+  });
+}
 export async function recordActivation(sheetId) {
   const userKey = await getOrCreateUserKey();
   if (!userKey) return null;

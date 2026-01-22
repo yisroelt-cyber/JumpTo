@@ -7,6 +7,7 @@ import {
   toggleFavorite as toggleFavoriteInStorage,
   setFavorites as setFavoritesInStorage,
   recordActivation,
+  setUiSettings as setUiSettingsInStorage,
 } from "../services/jumpToStorage";
 
 let lockBusy = false;
@@ -151,6 +152,24 @@ function openJumpDialog(event) {
               reply({ type: "stateData", state: cachedState });
             });
             return;
+
+
+if (msg.type === "setUiSettings") {
+  const patch = (msg.settings && typeof msg.settings === "object") ? msg.settings : {};
+  await withLock(async () => {
+    await setUiSettingsInStorage(patch);
+    if (!cachedState) {
+      cachedState = await getJumpToState();
+    } else {
+      cachedState = {
+        ...cachedState,
+        settings: { ...(cachedState.settings || {}), ...patch },
+      };
+    }
+    reply({ type: "stateData", state: cachedState });
+  });
+  return;
+}
           }
 
 

@@ -84,6 +84,20 @@ function DialogApp() {
   const [hoverFavTabAvailableId, setHoverFavTabAvailableId] = useState(null);
   const [hoverFavTabFavoriteId, setHoverFavTabFavoriteId] = useState(null);
 
+  // UI layout settings (Navigation + Favorites tab right column)
+  const [uiAutoSplitEnabled, setUiAutoSplitEnabled] = useState(true);
+  const [uiFavPercentManual, setUiFavPercentManual] = useState(20); // 20..80 when manual
+  const [uiRecentsDisplayCount, setUiRecentsDisplayCount] = useState(10); // 1..20
+  const uiSettingsPersistTimerRef = useRef(null);
+  const uiSettingsReadyRef = useRef(false);
+
+  // Measured layout: keep dialog from scrolling; listboxes scroll internally
+  const rootRef = useRef(null);
+  const tabsRef = useRef(null);
+  const footerRef = useRef(null);
+  const [panelHeight, setPanelHeight] = useState(320); // computed at runtime
+
+
   // Favorites persistence (Favorites tab): debounce writes to minimize sheet churn
   const favPersistTimerRef = useRef(null);
   const favDirtyRef = useRef(false);
@@ -162,6 +176,39 @@ const [highlightIndex, setHighlightIndex] = useState(0);
 
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onUnhandled);
+  // Compute panel height so the dialog itself never scrolls (controls scroll internally).
+  useEffect(() => {
+    const compute = () => {
+      try {
+        const root = rootRef.current;
+        if (!root) return;
+        const rootRect = root.getBoundingClientRect();
+        const tabsH = tabsRef.current ? tabsRef.current.getBoundingClientRect().height : 0;
+        const footerH = footerRef.current ? footerRef.current.getBoundingClientRect().height : 0;
+        // Small padding budget (matches top-level padding).
+        const paddingBudget = 24;
+        const h = Math.max(220, Math.floor(rootRect.height - tabsH - footerH - paddingBudget));
+        setPanelHeight(h);
+      } catch {
+        // ignore
+      }
+    };
+    compute();
+    const onResize = () => compute();
+    window.addEventListener('resize', onResize);
+    let ro = null;
+    try {
+      if (window.ResizeObserver) {
+        ro = new ResizeObserver(() => compute());
+        if (rootRef.current) ro.observe(rootRef.current);
+      }
+    } catch {}
+    return () => {
+      window.removeEventListener('resize', onResize);
+      try { if (ro) ro.disconnect(); } catch {}
+    };
+  }, []);
+
     return () => {
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onUnhandled);
@@ -252,7 +299,7 @@ const [highlightIndex, setHighlightIndex] = useState(0);
             }
             requestSheets();
             // Re-assert focus after the parent handshake.
-            if (activeTab === "Navigation") requestSearchFocus("parentReady");
+            if (activeTab === "Navigation" || activeTab === "Favorites") requestSearchFocus("parentReady");
             return;
           }
 
@@ -263,10 +310,23 @@ const [highlightIndex, setHighlightIndex] = useState(0);
             setFavorites(Array.isArray(state.favorites) ? state.favorites : []);
             setRecents(Array.isArray(state.recents) ? state.recents : []);
             setGlobalOptions(state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Compact", baselineOrder: "workbook", frequentOnTop: true });
+            // UI settings (persisted per-user)
+            try {
+              const ui = state.settings || {};
+              const autoEnabled = (ui.autoSplitEnabled !== undefined) ? !!ui.autoSplitEnabled : true;
+              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 20;
+              const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
+              setUiAutoSplitEnabled(autoEnabled);
+              setUiFavPercentManual(Math.min(80, Math.max(20, Math.round(favPct))));
+              setUiRecentsDisplayCount(Math.min(20, Math.max(1, Math.round(recCnt))));
+            } catch {
+              // ignore
+            }
+            uiSettingsReadyRef.current = true;
             setStatus(sheets.length ? "" : "No visible worksheets found.");
 
             // Re-assert focus after data arrives (this is the moment users start typing).
-            if (activeTab === "Navigation") requestSearchFocus("sheetsData");
+            if (activeTab === "Navigation" || activeTab === "Favorites") requestSearchFocus("sheetsData");
             if (timeoutIdRef.current) {
               window.clearTimeout(timeoutIdRef.current);
               timeoutIdRef.current = null;
@@ -368,6 +428,21 @@ const [highlightIndex, setHighlightIndex] = useState(0);
 
   const favoriteIds = useMemo(() => new Set((favorites || []).map((f) => f?.id).filter(Boolean)), [favorites]);
 
+  // Right column sizing controls (Favorites/Recents split)
+  const favCountForAuto = (Array.isArray(favorites) ? favorites.length : 0);
+  const favPercentAuto = Math.min(80, Math.max(20, Math.round(20 + (Math.min(favCountForAuto, 20) / 20) * 60)));
+  const favPercentEffective = uiAutoSplitEnabled ? favPercentAuto : uiFavPercentManual;
+  const recPercentEffective = 100 - favPercentEffective;
+
+  // Compute fixed heights for the right column listboxes (px).
+  const RIGHT_CONTROLS_H = 54; // checkbox row + slider row (compact)
+  const LABEL_ROW_H = 18;
+  const GAP_H = 6;
+  const rightListsTotal = Math.max(120, Math.floor(panelHeight - RIGHT_CONTROLS_H - (LABEL_ROW_H * 2) - (GAP_H * 3)));
+  const navFavListHeight = Math.max(60, Math.floor((rightListsTotal * favPercentEffective) / 100));
+  const navRecListHeight = Math.max(60, rightListsTotal - navFavListHeight);
+
+
 // Listbox-like navigation: default highlight is first row after load/filter.
 useEffect(() => {
   if (activeTab !== "Navigation") return;
@@ -438,6 +513,63 @@ useEffect(() => {
       console.error("messageParent(setFavorites) failed:", err);
     }
   };
+
+  const sendSetUiSettingsToParent = (settings) => {
+    try {
+      Office.context.ui.messageParent(JSON.stringify({ type: "setUiSettings", settings }));
+    } catch (err) {
+      console.error("messageParent(setUiSettings) failed:", err);
+    }
+  };
+
+  const schedulePersistUiSettings = (reason) => {
+    if (!uiSettingsReadyRef.current) return;
+    if (uiSettingsPersistTimerRef.current) {
+      clearTimeout(uiSettingsPersistTimerRef.current);
+    }
+    uiSettingsPersistTimerRef.current = setTimeout(() => {
+      uiSettingsPersistTimerRef.current = null;
+      try {
+        sendSetUiSettingsToParent({
+          autoSplitEnabled: !!uiAutoSplitEnabled,
+          favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+          recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+        });
+      } catch {
+        // ignore
+      }
+    }, 700);
+  };
+
+  const flushPersistUiSettingsNow = (reason) => {
+    if (uiSettingsPersistTimerRef.current) {
+      clearTimeout(uiSettingsPersistTimerRef.current);
+      uiSettingsPersistTimerRef.current = null;
+    }
+    try {
+      sendSetUiSettingsToParent({
+        autoSplitEnabled: !!uiAutoSplitEnabled,
+        favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+        recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+      });
+    } catch {
+      // ignore
+    }
+  };
+
+  // Persist UI settings when they change (debounced).
+  useEffect(() => {
+    if (!parentReadyRef.current) return;
+    schedulePersistUiSettings("ui-change");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uiAutoSplitEnabled, uiFavPercentManual, uiRecentsDisplayCount]);
+
+  // Expose flush for Save & Close
+  useEffect(() => {
+    window.flushPersistUiSettingsNow = flushPersistUiSettingsNow;
+    return () => { try { delete window.flushPersistUiSettingsNow; } catch {} };
+  }, [uiAutoSplitEnabled, uiFavPercentManual, uiRecentsDisplayCount]);
+
 
   const schedulePersistFavorites = (reason) => {
     favDirtyRef.current = true;
@@ -519,7 +651,7 @@ const onCancel = () => {
 };
 
 return (
-    <div style={{ fontFamily: "Segoe UI, Arial, sans-serif", padding: 14 }}>
+    <div ref={rootRef} style={{ fontFamily: "Segoe UI, Arial, sans-serif", padding: 14, height: "100vh", boxSizing: "border-box", overflow: "hidden", display: "flex", flexDirection: "column" }}>
       {!!initError && (
         <div
           style={{
@@ -553,7 +685,7 @@ return (
         </div>
       )}
 
-      <div
+      <div ref={tabsRef}
         style={{
           display: "flex",
           borderBottom: "1px solid rgba(0,0,0,0.15)",
@@ -568,11 +700,13 @@ return (
         <TabButton label="Settings" active={activeTab === "Settings"} onClick={() => setActiveTab("Settings")} />
       </div>
 
+      <div style={{ flex: "1 1 auto", overflow: "hidden" }}>
+
       {activeTab === "Navigation" && (
         <>
-          <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ display: "flex", gap: 16, height: panelHeight, overflow: "hidden" }}>
             {/* Left: Search + All results */}
-            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0" }}>
+            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
                 <input
                   autoFocus
@@ -679,9 +813,9 @@ return (
               ) : (
                 <div
                   style={{
-                    maxHeight: 300,
-              minHeight: 300,
-                    overflowY: "auto",
+
+                    flex: "1 1 auto",
+                    minHeight: 0,
                     overscrollBehavior: "contain",
                     border: "1px solid rgba(0,0,0,0.1)",
                     borderRadius: 6,
@@ -726,19 +860,43 @@ return (
             </div>
 
             {/* Right: Favorites + Recents */}
-            <div style={{ flex: "0 0 45%", minWidth: 220 }}>
+            <div style={{ flex: "0 0 45%", minWidth: 220, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.9, userSelect: "none" }}>
+                  <input
+                    type="checkbox"
+                    checked={uiAutoSplitEnabled}
+                    onChange={(e) => { setUiAutoSplitEnabled(!!e.target.checked); }}
+                  />
+                  <span>Auto size Recents by # Favorites</span>
+                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+                  <input
+                    type="range"
+                    min={20}
+                    max={80}
+                    value={favPercentEffective}
+                    disabled={uiAutoSplitEnabled}
+                    onChange={(e) => { setUiFavPercentManual(Math.min(80, Math.max(20, Number(e.target.value) || 20))); }}
+                    style={{ flex: "1 1 auto" }}
+                  />
+                  <div style={{ width: 96, fontSize: 12, opacity: uiAutoSplitEnabled ? 0.55 : 0.85, textAlign: "right" }}>
+                    {favPercentEffective}% / {recPercentEffective}%
+                  </div>
+                </div>
+              </div>
+
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
                 style={{
-                  maxHeight: 150,
-                  minHeight: 150,
-                  overflowY: "auto",
+                  height: navFavListHeight,
+                  maxHeight: navFavListHeight,
+                  minHeight: navFavListHeight,
                   overscrollBehavior: "contain",
                   border: "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
-                  marginBottom: 12,
-                }}
-              >
+                  marginBottom: 6,
+                }}>
                 {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
                   const slot = i < 9 ? String(i + 1) : i === 9 ? "0" : "-";
                   const name = f?.name || "";
@@ -769,17 +927,35 @@ return (
                 )}
               </div>
 
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Recents</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>Recents</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.8 }}>
+                  <span>Show</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    step={1}
+                    value={uiRecentsDisplayCount}
+                    onChange={(e) => {
+                      const v = Math.min(20, Math.max(1, Number(e.target.value) || 1));
+                      setUiRecentsDisplayCount(v);
+                    }}
+                    style={{ width: 54, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
+                  />
+                </div>
+              </div>
               <div
                 style={{
-                  maxHeight: 150,
-                  overflowY: "auto",
+                  height: navRecListHeight,
+                  maxHeight: navRecListHeight,
+                  minHeight: navRecListHeight,
                   overscrollBehavior: "contain",
                   border: "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
                 }}
               >
-                {(Array.isArray(recents) ? recents : []).map((r, i) => {
+                {(Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount).map((r, i) => {
                   const name = r?.name || "";
                   const id = r?.id;
                   const fav = isFavorite(id);
@@ -811,15 +987,16 @@ return (
 
       {activeTab === "Favorites" && (
         <>
-          <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ display: "flex", gap: 16, height: panelHeight, overflow: "hidden" }}>
             {/* Left: Search + Available (non-favorites) */}
-            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0" }}>
+            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
                 <input
                   autoFocus
                   ref={searchInputRef}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  onBlur={() => requestSearchFocus("fav-search-blur")}
                   onKeyDown={(e) => {
                     try {
                       const key = e.key;
@@ -869,16 +1046,18 @@ return (
                   border: "1px solid rgba(0,0,0,0.15)",
                   borderRadius: 6,
                   overflow: "hidden",
-                }}
-              >
-                <div style={{ maxHeight: 300, minHeight: 300, overflowY: "auto", overscrollBehavior: "contain" }}>
+                  display: "flex",
+                  flexDirection: "column",
+                  flex: "1 1 auto",
+                  minHeight: 0,
+                  }}><div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}>
                   {(Array.isArray(filtered) ? filtered : [])
                     .filter((s) => s && !isFavorite(s.id))
                     .map((s, i) => {
                       const isHovered = hoverFavTabAvailableId === s.id;
                       const isSel = favTabSelectedAvailableId === s.id;
-                      const bg = isSel ? "rgba(0,120,212,0.18)" : (isHovered ? "rgba(0,120,212,0.05)" : "transparent");
-                      const boxShadow = isSel ? "inset 0 0 0 2px rgba(0,120,212,0.85)" : "none";
+                      const bg = (isSel || isHovered) ? "rgba(0,120,212,0.12)" : "transparent";
+                      const boxShadow = isSel ? "inset 0 0 0 1px rgba(0,120,212,0.95)" : "none";
                       return (
                         <div
                           key={s.id}
@@ -921,15 +1100,15 @@ return (
             </div>
 
             {/* Right: Favorites (top) + Controls (bottom, replaces Recents section) */}
-            <div style={{ flex: "0 0 45%", minWidth: 220, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ flex: "0 0 45%", minWidth: 220, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               {/* Favorites list */}
-              <div>
+              <div style={{ marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
                 <div
                   style={{
-                    maxHeight: 150,
-                    minHeight: 150,
-                    overflowY: "auto",
+                    height: navFavListHeight,
+                    maxHeight: navFavListHeight,
+                    minHeight: navFavListHeight,
                     overscrollBehavior: "contain",
                     border: "1px solid rgba(0,0,0,0.1)",
                     borderRadius: 6,
@@ -943,8 +1122,8 @@ return (
                     // Favorites tab favorites list: show a single highlight.
                     // - If a row is selected (clicked), highlight the selected row (needed for Up/Down).
                     // - If no selection, highlight follows mouse hover.
-                    const bg = isSelected ? "rgba(0,120,212,0.18)" : (isHovered ? "rgba(0,120,212,0.05)" : "transparent");
-                    const boxShadow = isSelected ? "inset 0 0 0 2px rgba(0,120,212,0.85)" : "none";
+                    const bg = (isSelected || isHovered) ? "rgba(0,120,212,0.12)" : "transparent";
+                    const boxShadow = isSelected ? "inset 0 0 0 1px rgba(0,120,212,0.95)" : "none";
                     return (
                       <div
                         key={id || `${name}_${i}`}
@@ -979,7 +1158,7 @@ return (
               </div>
 
               {/* Controls block (mirrors where Recents was, but without Recents title) */}
-              <div style={{ flex: "1 1 auto" }}>
+              <div style={{ height: navRecListHeight, maxHeight: navRecListHeight, minHeight: navRecListHeight, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "center" }}>
                 <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                   <button
                     type="button"
@@ -1014,12 +1193,25 @@ return (
 {activeTab === "Settings" && (
         <div style={{ fontSize: 13, opacity: 0.85 }}>Settings (coming soon)</div>
       )}
+      </div>
       {/* Global actions (outside tabs) */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, paddingTop: 8, borderTop: "1px solid #e0e0e0" }}>
+      <div ref={footerRef} style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, paddingTop: 8, borderTop: "1px solid #e0e0e0" }}>
         <button
           type="button"
-          onClick={() => { try { if (window.Office?.context?.ui?.messageParent) { window.flushPersistFavoritesNow("cancel");
-    Office.context.ui.messageParent(JSON.stringify({ type: "cancel" })); } else { window.close?.(); } } catch (e) { console.error("Cancel failed:", e); window.close?.(); } }}
+          onClick={() => {
+            try {
+              if (window.Office?.context?.ui?.messageParent) {
+                window.flushPersistFavoritesNow?.("close");
+                window.flushPersistUiSettingsNow?.("close");
+                Office.context.ui.messageParent(JSON.stringify({ type: "cancel" }));
+              } else {
+                window.close?.();
+              }
+            } catch (e) {
+              console.error("Close failed:", e);
+              window.close?.();
+            }
+          }}
           style={{
             padding: "6px 14px",
             fontSize: 12,
@@ -1029,7 +1221,7 @@ return (
             cursor: "pointer",
           }}
         >
-          Cancel
+          Close
         </button>
       </div>
     </div>
