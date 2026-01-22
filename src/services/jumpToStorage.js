@@ -314,6 +314,67 @@ export async function toggleFavorite(sheetId) {
   });
 }
 
+
+export async function setFavorites(favoriteIds) {
+  const userKey = await getOrCreateUserKey();
+  if (!userKey) return null;
+
+  const ids = Array.isArray(favoriteIds) ? favoriteIds.filter(Boolean).slice(0, MAX_FAVORITES) : [];
+
+  return Excel.run(async (context) => {
+    const sheet = await ensureSettingsSheet(context);
+    const { colLetter } = await getUserColumn(context, sheet, userKey);
+    const state = await readUserCells(context, sheet, colLetter);
+
+    // Reduce perceived lag: suppress UI work & calc for this sync (without changing global calc mode)
+    try {
+      context.workbook.application.suspendScreenUpdatingUntilNextSync();
+      context.workbook.application.suspendApiCalculationUntilNextSync();
+    } catch {
+      // ignore if host doesn't support
+    }
+
+    await writeUserCells(context, sheet, colLetter, { favorites: ids, recents: state.recents, settings: state.settings });
+    return ids;
+  });
+}
+
+export async function addFavorite(sheetId) {
+  if (!sheetId) return null;
+  const state = await getJumpToState();
+  const current = Array.isArray(state.favorites) ? state.favorites.map(x => x?.id).filter(Boolean) : [];
+  if (current.includes(sheetId)) return current;
+  const next = [...current, sheetId].slice(0, MAX_FAVORITES);
+  return setFavorites(next);
+}
+
+export async function removeFavorite(sheetId) {
+  if (!sheetId) return null;
+  const state = await getJumpToState();
+  const current = Array.isArray(state.favorites) ? state.favorites.map(x => x?.id).filter(Boolean) : [];
+  const next = current.filter(id => id !== sheetId);
+  return setFavorites(next);
+}
+
+export async function moveFavorite(sheetId, direction) {
+  if (!sheetId) return null;
+  if (direction !== "up" && direction !== "down") return null;
+
+  const state = await getJumpToState();
+  const current = Array.isArray(state.favorites) ? state.favorites.map(x => x?.id).filter(Boolean) : [];
+  const idx = current.indexOf(sheetId);
+  if (idx < 0) return current;
+
+  const to = direction === "up" ? idx - 1 : idx + 1;
+  if (to < 0 || to >= current.length) return current;
+
+  const next = current.slice();
+  const [item] = next.splice(idx, 1);
+  next.splice(to, 0, item);
+  return setFavorites(next);
+}
+
+
 export async function recordActivation(sheetId) {
   const userKey = await getOrCreateUserKey();
   if (!userKey) return null;

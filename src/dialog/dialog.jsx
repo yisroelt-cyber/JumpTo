@@ -83,6 +83,11 @@ function DialogApp() {
   const [hoverNavRecentId, setHoverNavRecentId] = useState(null);
   const [hoverFavTabAvailableId, setHoverFavTabAvailableId] = useState(null);
   const [hoverFavTabFavoriteId, setHoverFavTabFavoriteId] = useState(null);
+
+  // Favorites persistence (Favorites tab): debounce writes to minimize sheet churn
+  const favPersistTimerRef = useRef(null);
+  const favDirtyRef = useRef(false);
+
 const [highlightIndex, setHighlightIndex] = useState(0);
   const requestedRef = useRef(false);
   const timeoutIdRef = useRef(null);
@@ -398,12 +403,14 @@ useEffect(() => {
     });
     setFavTabSelectedFavoriteId(sheetId);
     setFavTabSelectedAvailableId(null);
+    schedulePersistFavorites("add");
   };
 
   const removeFavoriteLocal = (sheetId) => {
     if (!sheetId) return;
     setFavorites((prev) => (Array.isArray(prev) ? prev : []).filter((x) => x?.id !== sheetId));
     if (favTabSelectedFavoriteId === sheetId) setFavTabSelectedFavoriteId(null);
+    schedulePersistFavorites("remove");
   };
 
   const moveFavoriteLocal = (sheetId, direction) => {
@@ -419,7 +426,49 @@ useEffect(() => {
       arr.splice(to, 0, item);
       return arr;
     });
+    schedulePersistFavorites("move");
   };
+
+  const sendSetFavoritesToParent = (ids) => {
+    try {
+      Office.context.ui.messageParent(JSON.stringify({ type: "setFavorites", favorites: ids }));
+    } catch (err) {
+      console.error("messageParent(setFavorites) failed:", err);
+    }
+  };
+
+  const schedulePersistFavorites = (reason) => {
+    favDirtyRef.current = true;
+    if (favPersistTimerRef.current) {
+      clearTimeout(favPersistTimerRef.current);
+    }
+    favPersistTimerRef.current = setTimeout(() => {
+      favPersistTimerRef.current = null;
+      try {
+        const ids = (Array.isArray(favorites) ? favorites : []).map((x) => x?.id).filter(Boolean);
+        sendSetFavoritesToParent(ids);
+        favDirtyRef.current = false;
+      } catch {
+        // ignore
+      }
+    }, 900);
+  };
+
+  const flushPersistFavoritesNow = (reason) => {
+    if (!favDirtyRef.current) return;
+    if (favPersistTimerRef.current) {
+      clearTimeout(favPersistTimerRef.current);
+      favPersistTimerRef.current = null;
+    }
+    try {
+      const ids = (Array.isArray(favorites) ? favorites : []).map((x) => x?.id).filter(Boolean);
+      sendSetFavoritesToParent(ids);
+    } catch {
+      // ignore
+    }
+    favDirtyRef.current = false;
+  };
+
 const rowStyle = {
     padding: "2px 10px",
     fontSize: 12,
@@ -440,6 +489,7 @@ const onSelect = (sheet) => {
   setIsActivating(true);
   setStatus("Loading sheet…");
   try {
+    flushPersistFavoritesNow("selectSheet");
     Office.context.ui.messageParent(JSON.stringify({ type: "selectSheet", sheetId }));
   } catch (err) {
     console.error("messageParent(selectSheet) failed:", err);
@@ -459,6 +509,7 @@ const onToggleFavorite = (sheetId) => {
 
 const onCancel = () => {
   try {
+    flushPersistFavoritesNow("cancel");
     Office.context.ui.messageParent(JSON.stringify({ type: "cancel" }));
   } catch {
     // ignore
@@ -965,7 +1016,8 @@ return (
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, paddingTop: 8, borderTop: "1px solid #e0e0e0" }}>
         <button
           type="button"
-          onClick={() => { try { if (window.Office?.context?.ui?.messageParent) { window.Office.context.ui.messageParent(JSON.stringify({ type: "cancel" })); } else { window.close?.(); } } catch (e) { console.error("Cancel failed:", e); window.close?.(); } }}
+          onClick={() => { try { if (window.Office?.context?.ui?.messageParent) { window.flushPersistFavoritesNow("cancel");
+    Office.context.ui.messageParent(JSON.stringify({ type: "cancel" })); } else { window.close?.(); } } catch (e) { console.error("Cancel failed:", e); window.close?.(); } }}
           style={{
             padding: "6px 14px",
             fontSize: 12,

@@ -5,6 +5,7 @@
 import {
   getJumpToState,
   toggleFavorite as toggleFavoriteInStorage,
+  setFavorites as setFavoritesInStorage,
   recordActivation,
 } from "../services/jumpToStorage";
 
@@ -133,6 +134,25 @@ function openJumpDialog(event) {
             });
             return;
           }
+
+          if (msg.type === "setFavorites") {
+            const ids = Array.isArray(msg.favorites) ? msg.favorites.filter(Boolean) : [];
+            await withLock(async () => {
+              await setFavoritesInStorage(ids);
+              if (!cachedState) {
+                cachedState = await getJumpToState();
+              } else {
+                const idToName = new Map((cachedState.sheets || []).map((s) => [s.id, s.name]));
+                cachedState = {
+                  ...cachedState,
+                  favorites: ids.slice(0, 20).map((id) => ({ id, name: idToName.get(id) || "" })),
+                };
+              }
+              reply({ type: "stateData", state: cachedState });
+            });
+            return;
+          }
+
 
           if (msg.type === "selectSheet") {
             dialog.close();
