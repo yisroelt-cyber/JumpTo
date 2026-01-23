@@ -5,6 +5,7 @@ const CopyWebpackPlugin = require("copy-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const webpack = require("webpack");
 
+const path = require("path");
 const urlDev = "https://localhost:3000/";
 const urlProd = "https://yisroelt-cyber.github.io/JumpTo/"; // CHANGE THIS TO YOUR PRODUCTION DEPLOYMENT LOCATION
 
@@ -53,8 +54,15 @@ optimization: {
   },
 },
     resolve: {
-      extensions: [".js", ".jsx", ".html"],
-    },
+  extensions: [".js", ".jsx", ".html"],
+  // Ensure a single physical React + ReactDOM instance is used (prevents invalid hook call #321).
+  alias: {
+    react: path.resolve(__dirname, "node_modules/react"),
+    "react-dom": path.resolve(__dirname, "node_modules/react-dom"),
+  },
+  // If anything is symlinked (e.g., linked packages), don't create duplicate module instances.
+  symlinks: false,
+},
     module: {
       rules: [
         {
