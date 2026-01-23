@@ -111,7 +111,9 @@ function DialogApp() {
   const searchInputRef = useRef(null);
   const listRowRefs = useRef([]);
   const focusTimersRef = useRef([]);
-  useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
+  
+  const parentReadyRef = useRef(false);
+useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => { sheetsLenRef.current = allSheets.length; }, [allSheets]);
@@ -236,8 +238,6 @@ function DialogApp() {
     let disposed = false;
     let pingTimer = null;
     let pingCount = 0;
-    const parentReadyRef = { current: false };
-
     const canMessageParent = () => {
       try {
         return !!(
