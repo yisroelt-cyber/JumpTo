@@ -29,16 +29,19 @@ module.exports = async (env, options) => {
       },
     },
     output: {
-      clean: true,
+      
+clean: true,
+// Cache-bust in production to avoid Office/WebView and GitHub Pages serving stale JS (common cause of #321 persisting)
+filename: dev ? "[name].js" : "[name].[contenthash].js",
+chunkFilename: dev ? "[name].js" : "[name].[contenthash].js",
+publicPath: "", // keep relative for GitHub Pages subpath deployments
     },
+
 optimization: {
-  // Prevent multiple webpack runtimes / module caches per entrypoint,
-  // which can manifest as "Invalid Hook Call" when React gets duplicated.
   runtimeChunk: "single",
   splitChunks: {
     chunks: "all",
     cacheGroups: {
-      // Force React into a single shared chunk.
       reactVendor: {
         test: /[\\/]node_modules[\\/](react|react-dom)[\\/]/,
         name: "react-vendor",
@@ -49,7 +52,6 @@ optimization: {
     },
   },
 },
-
     resolve: {
       extensions: [".js", ".jsx", ".html"],
     },
