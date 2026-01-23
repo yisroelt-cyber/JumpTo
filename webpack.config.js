@@ -34,6 +34,16 @@ module.exports = async (env, options) => {
     output: {
       clean: true,
     },
+    optimization: {
+      // Ensure a SINGLE webpack runtime across entrypoints.
+      // Without this, shared entrypoints (like `react`) can create a second module cache,
+      // which leads to duplicate React instances and Invalid Hook Call (#321).
+      runtimeChunk: "single",
+      // Be explicit: allow webpack to factor common deps into shared chunks.
+      splitChunks: {
+        chunks: "all",
+      },
+    },
     resolve: {
       extensions: [".js", ".jsx", ".html"],
     },
