@@ -19,31 +19,37 @@ module.exports = async (env, options) => {
     devtool: "source-map",
     entry: {
       polyfill: ["core-js/stable", "regenerator-runtime/runtime"],
-      react: ["react", "react-dom"],
       taskpane: {
         // Iteration 36: return to the full React taskpane as the primary UI.
         import: ["./src/taskpane/index.jsx", "./src/taskpane/taskpane.html"],
-        dependOn: "react",
       },
       commands: "./src/commands/commands.js",
       dialog: {
         import: ["./src/dialog/dialog.jsx", "./src/dialog/dialog.html"],
-        dependOn: "react",
       },
     },
     output: {
       clean: true,
     },
-    optimization: {
-      // Ensure a SINGLE webpack runtime across entrypoints.
-      // Without this, shared entrypoints (like `react`) can create a second module cache,
-      // which leads to duplicate React instances and Invalid Hook Call (#321).
-      runtimeChunk: "single",
-      // Be explicit: allow webpack to factor common deps into shared chunks.
-      splitChunks: {
+optimization: {
+  // Prevent multiple webpack runtimes / module caches per entrypoint,
+  // which can manifest as "Invalid Hook Call" when React gets duplicated.
+  runtimeChunk: "single",
+  splitChunks: {
+    chunks: "all",
+    cacheGroups: {
+      // Force React into a single shared chunk.
+      reactVendor: {
+        test: /[\\/]node_modules[\\/](react|react-dom)[\\/]/,
+        name: "react-vendor",
         chunks: "all",
+        enforce: true,
+        priority: 40,
       },
     },
+  },
+},
+
     resolve: {
       extensions: [".js", ".jsx", ".html"],
     },
@@ -77,7 +83,7 @@ module.exports = async (env, options) => {
         scriptLoading: "defer",
         // Iteration 19: Inject taskpane bundles so the dev "Open JumpTo" button works.
         inject: true,
-        chunks: ["polyfill", "taskpane", "commands", "react"],
+        chunks: ["polyfill", "taskpane", "commands"],
       }),
       new CopyWebpackPlugin({
         patterns: [
@@ -109,7 +115,7 @@ module.exports = async (env, options) => {
         filename: "dialog.html",
         template: "./src/dialog/dialog.html",
         scriptLoading: "defer",
-        chunks: ["polyfill", "dialog", "react"],
+        chunks: ["polyfill", "dialog"],
       }),
       new webpack.ProvidePlugin({
         Promise: ["es6-promise", "Promise"],
