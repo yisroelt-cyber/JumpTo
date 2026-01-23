@@ -176,6 +176,19 @@ function DialogApp() {
 
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onUnhandled);
+
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandled);
+      try {
+        (focusTimersRef.current || []).forEach((t) => window.clearTimeout(t));
+      } catch {
+        // ignore
+      }
+      focusTimersRef.current = [];
+    };
+  }, []);
+
   // Compute panel height so the dialog itself never scrolls (controls scroll internally).
   useEffect(() => {
     const compute = () => {
@@ -209,17 +222,6 @@ function DialogApp() {
     };
   }, []);
 
-    return () => {
-      window.removeEventListener("error", onError);
-      window.removeEventListener("unhandledrejection", onUnhandled);
-      try {
-        (focusTimersRef.current || []).forEach((t) => window.clearTimeout(t));
-      } catch {
-        // ignore
-      }
-      focusTimersRef.current = [];
-    };
-  }, []);
 
   // Office dialog webviews sometimes ignore the HTML autoFocus attribute.
   // Use a small focus retry sequence to reliably place the caret in the search box.
