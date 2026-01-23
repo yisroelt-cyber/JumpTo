@@ -103,7 +103,7 @@ function DialogApp() {
   const favDirtyRef = useRef(false);
   const favoritesRef = useRef([]);
 
-const [highlightIndex, setHighlightIndex] = useState(0);
+  const [highlightIndex, setHighlightIndex] = useState(0);
   const requestedRef = useRef(false);
   const timeoutIdRef = useRef(null);
   const statusRef = useRef("Loading…");
@@ -443,28 +443,6 @@ const [highlightIndex, setHighlightIndex] = useState(0);
   const navRecListHeight = Math.max(60, rightListsTotal - navFavListHeight);
 
 
-// Listbox-like navigation: default highlight is first row after load/filter.
-useEffect(() => {
-  if (activeTab !== "Navigation") return;
-  setHighlightIndex(0);
-  // Do NOT re-select the search text on every keystroke; that would cause each new character to replace the previous.
-  requestSearchFocus("resetHighlight");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [filtered.length, activeTab]);
-
-// Keep the highlighted row visible when navigating with arrow keys.
-useEffect(() => {
-  if (activeTab !== "Navigation") return;
-  const el = listRowRefs.current?.[highlightIndex];
-  if (el && typeof el.scrollIntoView === "function") {
-    try {
-      el.scrollIntoView({ block: "nearest" });
-    } catch {
-      // ignore
-    }
-  }
-}, [highlightIndex, activeTab]);
-
 
   const isFavorite = (sheetId) => favoriteIds.has(sheetId);
 
@@ -649,6 +627,28 @@ const onCancel = () => {
     // ignore
   }
 };
+
+  // Listbox-like navigation: default highlight is first row after load/filter.
+useEffect(() => {
+  if (activeTab !== "Navigation") return;
+  setHighlightIndex(0);
+  // Do NOT re-select the search text on every keystroke; that would cause each new character to replace the previous.
+  requestSearchFocus("resetHighlight");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [filtered.length, activeTab]);
+
+// Keep the highlighted row visible when navigating with arrow keys.
+useEffect(() => {
+  if (activeTab !== "Navigation") return;
+  const el = listRowRefs.current?.[highlightIndex];
+  if (el && typeof el.scrollIntoView === "function") {
+    try {
+      el.scrollIntoView({ block: "nearest" });
+    } catch {
+      // ignore
+    }
+  }
+}, [highlightIndex, activeTab]);
 
 return (
     <div ref={rootRef} style={{ fontFamily: "Segoe UI, Arial, sans-serif", padding: 14, height: "100vh", boxSizing: "border-box", overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -1226,6 +1226,10 @@ return (
       </div>
     </div>
   );
+
+
+
+
 }
 
 
