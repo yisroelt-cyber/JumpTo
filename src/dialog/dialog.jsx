@@ -111,9 +111,8 @@ function DialogApp() {
   const searchInputRef = useRef(null);
   const listRowRefs = useRef([]);
   const focusTimersRef = useRef([]);
-  
   const parentReadyRef = useRef(false);
-useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
+  useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => { sheetsLenRef.current = allSheets.length; }, [allSheets]);
@@ -238,6 +237,7 @@ useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
     let disposed = false;
     let pingTimer = null;
     let pingCount = 0;
+
     const canMessageParent = () => {
       try {
         return !!(
@@ -427,29 +427,6 @@ useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
     return items;
   }, [allSheets, query, globalOptions]);
-
-  // Listbox-like navigation: default highlight is first row after load/filter.
-  useEffect(() => {
-    if (activeTab !== "Navigation") return;
-    setHighlightIndex(0);
-    // Do NOT re-select the search text on every keystroke; that would cause each new character to replace the previous.
-    requestSearchFocus("resetHighlight");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered.length, activeTab]);
-
-  // Keep the highlighted row visible when navigating with arrow keys.
-  useEffect(() => {
-    if (activeTab !== "Navigation") return;
-    const el = listRowRefs.current?.[highlightIndex];
-    if (el && typeof el.scrollIntoView === "function") {
-      try {
-        el.scrollIntoView({ block: "nearest" });
-      } catch {
-        // ignore
-      }
-    }
-  }, [highlightIndex, activeTab]);
-
 
   const favoriteIds = useMemo(() => new Set((favorites || []).map((f) => f?.id).filter(Boolean)), [favorites]);
 
@@ -652,6 +629,28 @@ const onCancel = () => {
     // ignore
   }
 };
+
+  // Listbox-like navigation: default highlight is first row after load/filter.
+useEffect(() => {
+  if (activeTab !== "Navigation") return;
+  setHighlightIndex(0);
+  // Do NOT re-select the search text on every keystroke; that would cause each new character to replace the previous.
+  requestSearchFocus("resetHighlight");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [filtered.length, activeTab]);
+
+// Keep the highlighted row visible when navigating with arrow keys.
+useEffect(() => {
+  if (activeTab !== "Navigation") return;
+  const el = listRowRefs.current?.[highlightIndex];
+  if (el && typeof el.scrollIntoView === "function") {
+    try {
+      el.scrollIntoView({ block: "nearest" });
+    } catch {
+      // ignore
+    }
+  }
+}, [highlightIndex, activeTab]);
 
 return (
     <div ref={rootRef} style={{ fontFamily: "Segoe UI, Arial, sans-serif", padding: 14, height: "100vh", boxSizing: "border-box", overflow: "hidden", display: "flex", flexDirection: "column" }}>
