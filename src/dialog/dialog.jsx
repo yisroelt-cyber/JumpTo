@@ -24,7 +24,6 @@ if (typeof window !== "undefined") {
 }
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ListBox, RowLabel } from "./components/uiPrimitives";
 import { createRoot } from "react-dom/client";
 
 /* global Office */
@@ -314,16 +313,20 @@ function DialogApp() {
             setRecents(Array.isArray(state.recents) ? state.recents : []);
             setGlobalOptions(state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Compact", baselineOrder: "workbook", frequentOnTop: true });
             // UI settings (persisted per-user)
-            try {
-              const ui = state.settings || {};
-              const autoEnabled = (ui.autoSplitEnabled !== undefined) ? !!ui.autoSplitEnabled : true;
-              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 20;
-              const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
-              setUiAutoSplitEnabled(autoEnabled);
-              setUiFavPercentManual(Math.min(80, Math.max(20, Math.round(favPct))));
-              setUiRecentsDisplayCount(Math.min(20, Math.max(1, Math.round(recCnt))));
-            } catch {
-              // ignore
+            // Hydrate ONCE from parent. After hydration, dialog-local state is authoritative.
+            // This prevents UI "reverting" if a stateData refresh arrives before debounced settings persistence flushes.
+            if (!uiSettingsReadyRef.current) {
+              try {
+                const ui = state.settings || {};
+                const autoEnabled = (ui.autoSplitEnabled !== undefined) ? !!ui.autoSplitEnabled : true;
+                const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 20;
+                const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
+                setUiAutoSplitEnabled(autoEnabled);
+                setUiFavPercentManual(Math.min(80, Math.max(20, Math.round(favPct))));
+                setUiRecentsDisplayCount(Math.min(20, Math.max(1, Math.round(recCnt))));
+              } catch {
+                // ignore
+              }
             }
             uiSettingsReadyRef.current = true;
             setStatus(sheets.length ? "" : "No visible worksheets found.");
@@ -848,7 +851,7 @@ return (
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <RowLabel>{s.name}</RowLabel>
+                        <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
                       </div>
                     </div>
                   ))}
@@ -866,12 +869,16 @@ return (
             <div style={{ flex: "0 0 45%", minWidth: 220, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
-              <ListBox
-                height={navFavListHeight}
+              <div
                 style={{
-                marginBottom: 6,
-                }}
-              >
+                  height: navFavListHeight,
+                  maxHeight: navFavListHeight,
+                  minHeight: navFavListHeight,
+                  overscrollBehavior: "contain",
+                  border: "1px solid rgba(0,0,0,0.1)",
+                  borderRadius: 6,
+                  marginBottom: 6,
+                }}>
                 {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
                   const slot = i < 9 ? String(i + 1) : i === 9 ? "0" : "-";
                   const name = f?.name || "";
@@ -892,7 +899,7 @@ return (
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{slot}</div>
-                        <RowLabel>{name}</RowLabel>
+                        <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
                       </div>
                     </div>
                   );
@@ -900,14 +907,22 @@ return (
                 {(Array.isArray(favorites) ? favorites : []).length === 0 && (
                   <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No favorites yet.</div>
                 )}
-              </ListBox>
+              </div>
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>Recents</div>
               </div>
-              <ListBox
-                height={navRecListHeight}
+              <div
                 style={{
+                  height: navRecListHeight,
+                  maxHeight: navRecListHeight,
+                  minHeight: navRecListHeight,
+                  overscrollBehavior: "contain",
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  boxSizing: "border-box",
+                  border: "1px solid rgba(0,0,0,0.1)",
+                  borderRadius: 6,
                 }}
               >
                 {(Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount).map((r, i) => {
@@ -924,7 +939,7 @@ return (
                       role="button"
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <RowLabel>{name}</RowLabel>
+                        <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
                       </div>
                     </div>
                   );
@@ -932,7 +947,7 @@ return (
                 {(Array.isArray(recents) ? recents : []).length === 0 && (
                   <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No recents yet.</div>
                 )}
-              </ListBox>
+              </div>
             </div>
           </div>
         </>
@@ -1038,7 +1053,9 @@ return (
                           tabIndex={0}
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <RowLabel>{s.name}</RowLabel>
+                            <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {s.name}
+                            </div>
                           </div>
                         </div>
                       );
@@ -1057,9 +1074,14 @@ return (
               {/* Favorites list */}
               <div style={{ marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
-                <ListBox
-                  height={navFavListHeight}
+                <div
                   style={{
+                    height: navFavListHeight,
+                    maxHeight: navFavListHeight,
+                    minHeight: navFavListHeight,
+                    overscrollBehavior: "contain",
+                    border: "1px solid rgba(0,0,0,0.1)",
+                    borderRadius: 6,
                   }}
                 >
                   {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
@@ -1094,7 +1116,7 @@ return (
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{i < 9 ? String(i + 1) : ""}</div>
-                          <RowLabel>{name}</RowLabel>
+                          <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
                         </div>
                       </div>
                     );
@@ -1102,7 +1124,7 @@ return (
                   {(Array.isArray(favorites) ? favorites : []).length === 0 && (
                     <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No favorites yet.</div>
                   )}
-                </ListBox>
+                </div>
               </div>
 
               {/* Controls block (mirrors where Recents was, but without Recents title) */}
