@@ -432,7 +432,7 @@ function DialogApp() {
 
   // Right column sizing controls (Favorites/Recents split)
   const favCountForAuto = (Array.isArray(favorites) ? favorites.length : 0);
-  const favPercentAuto = Math.min(80, Math.max(20, Math.round(20 + (Math.min(favCountForAuto, 20) / 20) * 60)));
+  const favPercentAuto = Math.min(80, Math.max(20, Math.round(20 + (Math.min(favCountForAuto, 10) / 10) * 60)));
   const favPercentEffective = uiAutoSplitEnabled ? favPercentAuto : uiFavPercentManual;
   const recPercentEffective = 100 - favPercentEffective;
 
@@ -873,8 +873,6 @@ return (
                   overscrollBehavior: "contain",
                   border: "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
-                  overflowY: "auto",
-                  overflowX: "hidden",
                   marginBottom: 6,
                 }}>
                 {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
@@ -918,8 +916,6 @@ return (
                   overscrollBehavior: "contain",
                   border: "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
-                  overflowY: "auto",
-                  overflowX: "hidden",
                 }}
               >
                 {(Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount).map((r, i) => {
@@ -1079,8 +1075,6 @@ return (
                     overscrollBehavior: "contain",
                     border: "1px solid rgba(0,0,0,0.1)",
                     borderRadius: 6,
-                    overflowY: "auto",
-                    overflowX: "hidden",
                   }}
                 >
                   {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
@@ -1191,7 +1185,7 @@ return (
     </div>
 
     <div style={{ marginTop: 8, fontSize: 12, opacity: 0.72 }}>
-      Range: 20/80 ↔ 80/20 (Favorites never exceed 80%).
+      Range: 20/80 ↔ 80/20 (Auto: 0–10 favorites ramps 20%→80%; cap at 80%).
     </div>
   </div>
 
