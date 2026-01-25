@@ -863,30 +863,6 @@ return (
 
             {/* Right: Favorites + Recents */}
             <div style={{ flex: "0 0 45%", minWidth: 220, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <div style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.9, userSelect: "none" }}>
-                  <input
-                    type="checkbox"
-                    checked={uiAutoSplitEnabled}
-                    onChange={(e) => { setUiAutoSplitEnabled(!!e.target.checked); }}
-                  />
-                  <span>Auto size Recents by # Favorites</span>
-                </label>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
-                  <input
-                    type="range"
-                    min={20}
-                    max={80}
-                    value={favPercentEffective}
-                    disabled={uiAutoSplitEnabled}
-                    onChange={(e) => { setUiFavPercentManual(Math.min(80, Math.max(20, Number(e.target.value) || 20))); }}
-                    style={{ flex: "1 1 auto" }}
-                  />
-                  <div style={{ width: 96, fontSize: 12, opacity: uiAutoSplitEnabled ? 0.55 : 0.85, textAlign: "right" }}>
-                    {favPercentEffective}% / {recPercentEffective}%
-                  </div>
-                </div>
-              </div>
 
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
@@ -931,21 +907,6 @@ return (
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>Recents</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.8 }}>
-                  <span>Show</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    step={1}
-                    value={uiRecentsDisplayCount}
-                    onChange={(e) => {
-                      const v = Math.min(20, Math.max(1, Number(e.target.value) || 1));
-                      setUiRecentsDisplayCount(v);
-                    }}
-                    style={{ width: 54, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
-                  />
-                </div>
               </div>
               <div
                 style={{
@@ -1193,7 +1154,66 @@ return (
         </>
       )}
 {activeTab === "Settings" && (
-        <div style={{ fontSize: 13, opacity: 0.85 }}>Settings (coming soon)</div>
+        <div style={{ height: panelHeight, overflow: "auto", paddingRight: 4 }}>
+  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Settings</div>
+
+  <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+    <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Favorites / Recents split</div>
+
+    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.9, userSelect: "none" }}>
+      <input
+        type="checkbox"
+        checked={uiAutoSplitEnabled}
+        onChange={(e) => { setUiAutoSplitEnabled(!!e.target.checked); }}
+      />
+      <span>Auto size Recents by # Favorites</span>
+    </label>
+
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+      <input
+        type="range"
+        min={20}
+        max={80}
+        value={favPercentEffective}
+        disabled={uiAutoSplitEnabled}
+        onChange={(e) => { setUiFavPercentManual(Math.min(80, Math.max(20, Number(e.target.value) || 20))); }}
+        style={{ flex: "1 1 auto" }}
+      />
+      <div style={{ width: 96, fontSize: 12, opacity: uiAutoSplitEnabled ? 0.55 : 0.85, textAlign: "right" }}>
+        {favPercentEffective}% / {recPercentEffective}%
+      </div>
+    </div>
+
+    <div style={{ marginTop: 8, fontSize: 12, opacity: 0.72 }}>
+      Range: 20/80 ↔ 80/20 (Favorites never exceed 80%).
+    </div>
+  </div>
+
+  <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+    <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Recents</div>
+
+    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.9 }}>
+      <span>Show</span>
+      <input
+        type="number"
+        min={1}
+        max={20}
+        step={1}
+        value={uiRecentsDisplayCount}
+        onChange={(e) => {
+          const v = Math.min(20, Math.max(1, Number(e.target.value) || 1));
+          setUiRecentsDisplayCount(v);
+        }}
+        style={{ width: 64, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
+      />
+      <span>items</span>
+    </div>
+  </div>
+
+  <div style={{ fontSize: 12, opacity: 0.7 }}>
+    Note: Navigation provides worksheet access via Search, Favorites, and Recents. This tab is for configuration only.
+  </div>
+</div>
       )}
       </div>
       {/* Global actions (outside tabs) */}
