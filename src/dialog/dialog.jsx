@@ -873,6 +873,8 @@ return (
                   overscrollBehavior: "contain",
                   border: "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
+                  overflowY: "auto",
+                  overflowX: "hidden",
                   marginBottom: 6,
                 }}>
                 {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
@@ -916,6 +918,8 @@ return (
                   overscrollBehavior: "contain",
                   border: "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
+                  overflowY: "auto",
+                  overflowX: "hidden",
                 }}
               >
                 {(Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount).map((r, i) => {
@@ -1075,6 +1079,8 @@ return (
                     overscrollBehavior: "contain",
                     border: "1px solid rgba(0,0,0,0.1)",
                     borderRadius: 6,
+                    overflowY: "auto",
+                    overflowX: "hidden",
                   }}
                 >
                   {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
