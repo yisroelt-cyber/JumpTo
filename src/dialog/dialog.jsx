@@ -862,8 +862,8 @@ return (
             </div>
 
             {/* Right: Favorites + Recents */}
-            <div style={{ flex: "0 0 45%", minWidth: 220, height: "100%", minHeight: 0, display: "grid", gridTemplateRows: "auto 1fr", rowGap: 8, overflow: "hidden" }}>
-              <div style={{ minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <div style={{ flex: "0 0 45%", minWidth: 220, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
                 style={{
@@ -871,11 +871,11 @@ return (
                   maxHeight: navFavListHeight,
                   minHeight: navFavListHeight,
                   overscrollBehavior: "contain",
+                  overflowY: "auto",
+                  overflowX: "hidden",
                   border: "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
                   marginBottom: 6,
-                  flex: "0 0 auto",
-                  overflow: "hidden",
                 }}>
                 {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
                   const slot = i < 9 ? String(i + 1) : i === 9 ? "0" : "-";
@@ -907,16 +907,14 @@ return (
                 )}
               </div>
 
-              </div>
-              <div style={{ minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>Recents</div>
               </div>
               <div
                 style={{
-                  flex: "1 1 auto",
-                  minHeight: 0,
-                  overflow: "hidden",
+                  height: navRecListHeight,
+                  maxHeight: navRecListHeight,
+                  minHeight: navRecListHeight,
                   overscrollBehavior: "contain",
                   border: "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
@@ -944,7 +942,6 @@ return (
                 {(Array.isArray(recents) ? recents : []).length === 0 && (
                   <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No recents yet.</div>
                 )}
-              </div>
               </div>
             </div>
           </div>
@@ -1068,7 +1065,7 @@ return (
             </div>
 
             {/* Right: Favorites (top) + Controls (bottom, replaces Recents section) */}
-            <div style={{ flex: "0 0 45%", minWidth: 220, display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflow: "hidden" }}>
+            <div style={{ flex: "0 0 45%", minWidth: 220, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               {/* Favorites list */}
               <div style={{ marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
@@ -1078,6 +1075,8 @@ return (
                     maxHeight: navFavListHeight,
                     minHeight: navFavListHeight,
                     overscrollBehavior: "contain",
+                  overflowY: "auto",
+                  overflowX: "hidden",
                     border: "1px solid rgba(0,0,0,0.1)",
                     borderRadius: 6,
                   }}
