@@ -871,8 +871,6 @@ return (
                   maxHeight: navFavListHeight,
                   minHeight: navFavListHeight,
                   overscrollBehavior: "contain",
-                  overflowY: "auto",
-                  overflowX: "hidden",
                   border: "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
                   marginBottom: 6,
@@ -916,6 +914,9 @@ return (
                   maxHeight: navRecListHeight,
                   minHeight: navRecListHeight,
                   overscrollBehavior: "contain",
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  boxSizing: "border-box",
                   border: "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
                 }}
@@ -1075,8 +1076,6 @@ return (
                     maxHeight: navFavListHeight,
                     minHeight: navFavListHeight,
                     overscrollBehavior: "contain",
-                  overflowY: "auto",
-                  overflowX: "hidden",
                     border: "1px solid rgba(0,0,0,0.1)",
                     borderRadius: 6,
                   }}
