@@ -88,6 +88,7 @@ function DialogApp() {
   const [uiAutoSplitEnabled, setUiAutoSplitEnabled] = useState(true);
   const [uiFavPercentManual, setUiFavPercentManual] = useState(20); // 20..80 when manual
   const [uiRecentsDisplayCount, setUiRecentsDisplayCount] = useState(10); // 1..20
+  const [uiConflictPolicy, setUiConflictPolicy] = useState("ratio"); // "ratio" | "prioritizeFavorites"
   const uiSettingsPersistTimerRef = useRef(null);
   const uiSettingsReadyRef = useRef(false);
 
@@ -318,10 +319,12 @@ function DialogApp() {
               const autoEnabled = (ui.autoSplitEnabled !== undefined) ? !!ui.autoSplitEnabled : true;
               const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 20;
               const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
+              const policy = (typeof ui.conflictPolicy === "string") ? ui.conflictPolicy : "ratio";
               setUiAutoSplitEnabled(autoEnabled);
               setUiFavPercentManual(Math.min(80, Math.max(20, Math.round(favPct))));
               setUiRecentsDisplayCount(Math.min(20, Math.max(1, Math.round(recCnt))));
-            } catch {
+              setUiConflictPolicy((policy === "prioritizeFavorites") ? "prioritizeFavorites" : "ratio");
+            } catch (e) {
               // ignore
             }
             uiSettingsReadyRef.current = true;
@@ -436,13 +439,102 @@ function DialogApp() {
   const favPercentEffective = uiAutoSplitEnabled ? favPercentAuto : uiFavPercentManual;
   const recPercentEffective = 100 - favPercentEffective;
 
-  // Compute fixed heights for the right column listboxes (px).
-  const RIGHT_CONTROLS_H = 54; // checkbox row + slider row (compact)
+  // Layout constants (px) – tuned for Office dialog webviews
   const LABEL_ROW_H = 18;
   const GAP_H = 6;
-  const rightListsTotal = Math.max(120, Math.floor(panelHeight - RIGHT_CONTROLS_H - (LABEL_ROW_H * 2) - (GAP_H * 3)));
-  const navFavListHeight = Math.max(60, Math.floor((rightListsTotal * favPercentEffective) / 100));
-  const navRecListHeight = Math.max(60, rightListsTotal - navFavListHeight);
+  const ROW_EST_H = 22; // estimated row height for a single list item (padding + lineHeight + border)
+
+  // Favorites tab right column: keep the legacy fixed split for now (Favorites list + controls block).
+  // (We will revisit exact controls sizing when we focus on the Favorites tab UX.)
+  const FAVTAB_RIGHT_CONTROLS_H = 54; // compact budget for bottom controls block chrome
+  const favTabListsTotal = Math.max(
+    120,
+    Math.floor(panelHeight - FAVTAB_RIGHT_CONTROLS_H - (LABEL_ROW_H * 2) - (GAP_H * 3))
+  );
+  const favTabFavListHeight = Math.max(60, Math.floor((favTabListsTotal * favPercentEffective) / 100));
+  const favTabBottomBlockHeight = Math.max(60, favTabListsTotal - favTabFavListHeight);
+
+  // Navigation tab right column: two scenarios
+  //  1) No-conflict: show all (subject to minimum shares), ignore ratio/settings; put any extra space in the middle.
+  //  2) Conflict: apply user-selected policy (fixed ratio with surplus-donation, or prioritize Favorites up to 80%).
+  const navRightOverhead = (LABEL_ROW_H * 2) + (GAP_H * 3);
+  const navRightH = Math.max(140, Math.floor(panelHeight - navRightOverhead));
+
+  const navFavMin = Math.max(60, Math.floor(navRightH * 0.20));
+  const navRecMin = Math.max(60, Math.floor(navRightH * 0.20));
+
+  const navFavRowsNeed = Math.max(1, (Array.isArray(favorites) ? favorites : []).length);
+  const navRecRowsNeed = Math.max(
+    1,
+    Math.min((Array.isArray(recents) ? recents : []).length, uiRecentsDisplayCount)
+  );
+
+  const navFavNeed = Math.max(navFavMin, (navFavRowsNeed * ROW_EST_H) + 8);
+  const navRecNeed = Math.max(navRecMin, (navRecRowsNeed * ROW_EST_H) + 8);
+
+  let navTabHasExtraSpace = false;
+  let navTabFavListHeight = navFavMin;
+  let navTabRecListHeight = navRecMin;
+
+  if (navFavNeed + navRecNeed <= navRightH) {
+    // No conflict – show all and push the extra into the middle spacer.
+    navTabHasExtraSpace = true;
+    navTabFavListHeight = navFavNeed;
+    navTabRecListHeight = navRecNeed;
+  } else {
+    // Conflict – apply policy.
+    navTabHasExtraSpace = false;
+
+    if (uiConflictPolicy === "prioritizeFavorites") {
+      // Favorites can grow up to 80% (but Recents keeps its minimum).
+      const favCap = Math.floor(navRightH * 0.80);
+      navTabFavListHeight = Math.min(Math.max(navFavMin, navFavNeed), favCap);
+      navTabRecListHeight = navRightH - navTabFavListHeight;
+
+      if (navTabRecListHeight < navRecMin) {
+        navTabRecListHeight = navRecMin;
+        navTabFavListHeight = navRightH - navTabRecListHeight;
+      }
+      if (navTabFavListHeight < navFavMin) {
+        navTabFavListHeight = navFavMin;
+        navTabRecListHeight = navRightH - navTabFavListHeight;
+      }
+    } else {
+      // Fixed ratio (20..80 ↔ 80..20), with "surplus donation" (do not waste rows on the side that doesn't need them).
+      let favH = Math.floor((navRightH * favPercentEffective) / 100);
+      let recH = navRightH - favH;
+
+      // Enforce minimums.
+      if (favH < navFavMin) { favH = navFavMin; recH = navRightH - favH; }
+      if (recH < navRecMin) { recH = navRecMin; favH = navRightH - recH; }
+
+      // Donate surplus only (never take below what the other side needs).
+      if (navRecNeed < recH) {
+        const surplus = recH - navRecNeed;
+        // Give surplus to Favorites, but only if Favorites needs it.
+        if (navFavNeed > favH) {
+          const give = Math.min(surplus, navFavNeed - favH);
+          favH += give;
+          recH = navRightH - favH;
+        }
+      } else if (navFavNeed < favH) {
+        const surplus = favH - navFavNeed;
+        if (navRecNeed > recH) {
+          const give = Math.min(surplus, navRecNeed - recH);
+          recH += give;
+          favH = navRightH - recH;
+        }
+      }
+
+      // Final safety clamps.
+      if (favH < navFavMin) { favH = navFavMin; recH = navRightH - favH; }
+      if (recH < navRecMin) { recH = navRecMin; favH = navRightH - recH; }
+
+      navTabFavListHeight = favH;
+      navTabRecListHeight = recH;
+    }
+  }
+
 
 
 
@@ -514,6 +606,7 @@ function DialogApp() {
           autoSplitEnabled: !!uiAutoSplitEnabled,
           favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
           recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+                  conflictPolicy: uiConflictPolicy,
         });
       } catch {
         // ignore
@@ -531,7 +624,8 @@ function DialogApp() {
         autoSplitEnabled: !!uiAutoSplitEnabled,
         favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
         recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
-      });
+                conflictPolicy: uiConflictPolicy,
+        });
     } catch {
       // ignore
     }
@@ -564,13 +658,13 @@ function DialogApp() {
     if (!parentReadyRef.current) return;
     schedulePersistUiSettings("ui-change");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uiAutoSplitEnabled, uiFavPercentManual, uiRecentsDisplayCount]);
+  }, [uiAutoSplitEnabled, uiFavPercentManual, uiRecentsDisplayCount, uiConflictPolicy]);
 
   // Expose flush for Save & Close
   useEffect(() => {
     window.flushPersistUiSettingsNow = flushPersistUiSettingsNow;
     return () => { try { delete window.flushPersistUiSettingsNow; } catch {} };
-  }, [uiAutoSplitEnabled, uiFavPercentManual, uiRecentsDisplayCount]);
+  }, [uiAutoSplitEnabled, uiFavPercentManual, uiRecentsDisplayCount, uiConflictPolicy]);
 
 
   const schedulePersistFavorites = (reason) => {
@@ -633,6 +727,7 @@ const onSelect = (sheet) => {
       autoSplitEnabled: !!uiAutoSplitEnabled,
       favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
       recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+      conflictPolicy: uiConflictPolicy,
     }}));
   } catch (err) {
     console.error("messageParent(selectSheet) failed:", err);
@@ -658,6 +753,7 @@ const onCancel = () => {
       autoSplitEnabled: !!uiAutoSplitEnabled,
       favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
       recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+      conflictPolicy: uiConflictPolicy,
     }}));
   } catch {
     // ignore
@@ -903,10 +999,13 @@ return (
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
                 style={{
-                  height: navFavListHeight,
-                  maxHeight: navFavListHeight,
-                  minHeight: navFavListHeight,
+                  height: navTabFavListHeight,
+                  maxHeight: navTabFavListHeight,
+                  minHeight: navTabFavListHeight,
                   overscrollBehavior: "contain",
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  boxSizing: "border-box",
                   border: "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
                   marginBottom: 6,
@@ -941,14 +1040,16 @@ return (
                 )}
               </div>
 
+              <div style={{ flex: navTabHasExtraSpace ? "1 1 auto" : "0 0 0px", minHeight: 0 }} />
+
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>Recents</div>
               </div>
               <div
                 style={{
-                  height: navRecListHeight,
-                  maxHeight: navRecListHeight,
-                  minHeight: navRecListHeight,
+                  height: navTabRecListHeight,
+                  maxHeight: navTabRecListHeight,
+                  minHeight: navTabRecListHeight,
                   overscrollBehavior: "contain",
                   overflowY: "auto",
                   overflowX: "hidden",
@@ -1108,9 +1209,9 @@ return (
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
                 <div
                   style={{
-                    height: navFavListHeight,
-                    maxHeight: navFavListHeight,
-                    minHeight: navFavListHeight,
+                    height: favTabFavListHeight,
+                    maxHeight: favTabFavListHeight,
+                    minHeight: favTabFavListHeight,
                     overscrollBehavior: "contain",
                     border: "1px solid rgba(0,0,0,0.1)",
                     borderRadius: 6,
@@ -1160,7 +1261,7 @@ return (
               </div>
 
               {/* Controls block (mirrors where Recents was, but without Recents title) */}
-              <div style={{ height: navRecListHeight, maxHeight: navRecListHeight, minHeight: navRecListHeight, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+              <div style={{ height: favTabBottomBlockHeight, maxHeight: favTabBottomBlockHeight, minHeight: favTabBottomBlockHeight, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "center" }}>
                 <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                   <button
                     type="button"
@@ -1192,7 +1293,10 @@ return (
           </div>
         </>
       )}
-{activeTab === "Settings" && (
+
+      {activeTab === "Settings" && (
+        <div style={{ height: panelHeight, overflow: "auto", paddingRight: 4 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Settings</div>
         <div style={{ height: panelHeight, overflow: "auto", paddingRight: 4 }}>
   <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Settings</div>
 
@@ -1214,17 +1318,44 @@ return (
         min={20}
         max={80}
         value={favPercentEffective}
-        disabled={uiAutoSplitEnabled}
+        disabled={uiAutoSplitEnabled || uiConflictPolicy === "prioritizeFavorites"}
         onChange={(e) => { setUiFavPercentManual(Math.min(80, Math.max(20, Number(e.target.value) || 20))); }}
         style={{ flex: "1 1 auto" }}
       />
-      <div style={{ width: 96, fontSize: 12, opacity: uiAutoSplitEnabled ? 0.55 : 0.85, textAlign: "right" }}>
+      <div style={{ width: 96, fontSize: 12, opacity: (uiAutoSplitEnabled || uiConflictPolicy === "prioritizeFavorites") ? 0.55 : 0.85, textAlign: "right" }}>
         {favPercentEffective}% / {recPercentEffective}%
       </div>
     </div>
 
     <div style={{ marginTop: 8, fontSize: 12, opacity: 0.72 }}>
       Range: 20/80 ↔ 80/20 (Auto: 0–10 favorites ramps 20%→80%; cap at 80%).
+    </div>
+
+    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.9 }}>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>When space is limited</div>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, cursor: "pointer" }}>
+        <input
+          type="radio"
+          name="jt-conflict-policy"
+          checked={uiConflictPolicy === "ratio"}
+          onChange={() => setUiConflictPolicy("ratio")}
+        />
+        <span>Use the split ratio (and donate unused space to the other side)</span>
+      </label>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+        <input
+          type="radio"
+          name="jt-conflict-policy"
+          checked={uiConflictPolicy === "prioritizeFavorites"}
+          onChange={() => setUiConflictPolicy("prioritizeFavorites")}
+        />
+        <span>Prioritize Favorites (Favorites can take up to 80%)</span>
+      </label>
+      <div style={{ marginTop: 6, opacity: 0.72 }}>
+        Note: These options apply only when there isn’t enough room to show all Favorites and Recents.
+      </div>
+    </div>
+
     </div>
   </div>
 
@@ -1268,6 +1399,7 @@ return (
       autoSplitEnabled: !!uiAutoSplitEnabled,
       favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
       recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+      conflictPolicy: uiConflictPolicy,
     }}));
               } else {
                 window.close?.();
