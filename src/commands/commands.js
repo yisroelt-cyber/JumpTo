@@ -176,6 +176,15 @@ if (msg.type === "setUiSettings") {
           if (msg.type === "selectSheet") {
             dialog.close();
             await withLock(async () => {
+              if (msg.uiSettings && typeof msg.uiSettings === "object") {
+                await setUiSettingsInStorage(msg.uiSettings);
+                if (cachedState) {
+                  cachedState = {
+                    ...cachedState,
+                    settings: { ...(cachedState.settings || {}), ...msg.uiSettings },
+                  };
+                }
+              }
               await activateSheetById(msg.sheetId);
               await recordActivation(msg.sheetId);
             });
@@ -185,6 +194,17 @@ if (msg.type === "setUiSettings") {
 
           if (msg.type === "cancel") {
             dialog.close();
+            await withLock(async () => {
+              if (msg.uiSettings && typeof msg.uiSettings === "object") {
+                await setUiSettingsInStorage(msg.uiSettings);
+                if (cachedState) {
+                  cachedState = {
+                    ...cachedState,
+                    settings: { ...(cachedState.settings || {}), ...msg.uiSettings },
+                  };
+                }
+              }
+            });
             event.completed();
             return;
           }

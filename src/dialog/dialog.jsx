@@ -629,7 +629,11 @@ const onSelect = (sheet) => {
     // the dialog will close immediately. Flush debounced state now so it persists.
     flushPersistUiSettingsNow("selectSheet");
     flushPersistFavoritesNow("selectSheet");
-    Office.context.ui.messageParent(JSON.stringify({ type: "selectSheet", sheetId }));
+    Office.context.ui.messageParent(JSON.stringify({ type: "selectSheet", sheetId, uiSettings: {
+      autoSplitEnabled: !!uiAutoSplitEnabled,
+      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+      recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+    }}));
   } catch (err) {
     console.error("messageParent(selectSheet) failed:", err);
     setIsActivating(false);
@@ -650,7 +654,11 @@ const onCancel = () => {
   try {
     flushPersistUiSettingsNow("cancel");
     flushPersistFavoritesNow("cancel");
-    Office.context.ui.messageParent(JSON.stringify({ type: "cancel" }));
+    Office.context.ui.messageParent(JSON.stringify({ type: "cancel", uiSettings: {
+      autoSplitEnabled: !!uiAutoSplitEnabled,
+      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+      recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+    }}));
   } catch {
     // ignore
   }
@@ -1256,7 +1264,11 @@ return (
               if (window.Office?.context?.ui?.messageParent) {
                 window.flushPersistFavoritesNow?.("close");
                 window.flushPersistUiSettingsNow?.("close");
-                Office.context.ui.messageParent(JSON.stringify({ type: "cancel" }));
+                Office.context.ui.messageParent(JSON.stringify({ type: "cancel", uiSettings: {
+      autoSplitEnabled: !!uiAutoSplitEnabled,
+      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+      recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+    }}));
               } else {
                 window.close?.();
               }
