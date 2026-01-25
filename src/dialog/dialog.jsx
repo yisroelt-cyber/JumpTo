@@ -313,20 +313,16 @@ function DialogApp() {
             setRecents(Array.isArray(state.recents) ? state.recents : []);
             setGlobalOptions(state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Compact", baselineOrder: "workbook", frequentOnTop: true });
             // UI settings (persisted per-user)
-            // Hydrate ONCE from parent. After hydration, dialog-local state is authoritative.
-            // This prevents UI "reverting" if a stateData refresh arrives before debounced settings persistence flushes.
-            if (!uiSettingsReadyRef.current) {
-              try {
-                const ui = state.settings || {};
-                const autoEnabled = (ui.autoSplitEnabled !== undefined) ? !!ui.autoSplitEnabled : true;
-                const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 20;
-                const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
-                setUiAutoSplitEnabled(autoEnabled);
-                setUiFavPercentManual(Math.min(80, Math.max(20, Math.round(favPct))));
-                setUiRecentsDisplayCount(Math.min(20, Math.max(1, Math.round(recCnt))));
-              } catch {
-                // ignore
-              }
+            try {
+              const ui = state.settings || {};
+              const autoEnabled = (ui.autoSplitEnabled !== undefined) ? !!ui.autoSplitEnabled : true;
+              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 20;
+              const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
+              setUiAutoSplitEnabled(autoEnabled);
+              setUiFavPercentManual(Math.min(80, Math.max(20, Math.round(favPct))));
+              setUiRecentsDisplayCount(Math.min(20, Math.max(1, Math.round(recCnt))));
+            } catch {
+              // ignore
             }
             uiSettingsReadyRef.current = true;
             setStatus(sheets.length ? "" : "No visible worksheets found.");
@@ -541,6 +537,28 @@ function DialogApp() {
     }
   };
 
+  // Lock the dialog viewport: prevent the browser (body/html) from scrolling.
+  // Office dialogs can have the default browser body margin, which creates a
+  // small page scroll that hides the search box. Per the LPD, the dialog frame
+  // must not scroll in Navigation/Favorites; only internal listboxes may scroll.
+  useEffect(() => {
+    try {
+      const html = document.documentElement;
+      const body = document.body;
+      if (html) {
+        html.style.height = "100%";
+        html.style.overflow = "hidden";
+      }
+      if (body) {
+        body.style.margin = "0";
+        body.style.height = "100%";
+        body.style.overflow = "hidden";
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // Persist UI settings when they change (debounced).
   useEffect(() => {
     if (!parentReadyRef.current) return;
@@ -607,6 +625,9 @@ const onSelect = (sheet) => {
   setIsActivating(true);
   setStatus("Loading sheet…");
   try {
+    // If the user changed Settings (e.g., Recents count) and then activates a sheet,
+    // the dialog will close immediately. Flush debounced state now so it persists.
+    flushPersistUiSettingsNow("selectSheet");
     flushPersistFavoritesNow("selectSheet");
     Office.context.ui.messageParent(JSON.stringify({ type: "selectSheet", sheetId }));
   } catch (err) {
@@ -627,6 +648,7 @@ const onToggleFavorite = (sheetId) => {
 
 const onCancel = () => {
   try {
+    flushPersistUiSettingsNow("cancel");
     flushPersistFavoritesNow("cancel");
     Office.context.ui.messageParent(JSON.stringify({ type: "cancel" }));
   } catch {
@@ -822,6 +844,8 @@ return (
 
                     flex: "1 1 auto",
                     minHeight: 0,
+                    overflowY: "auto",
+                    overflowX: "hidden",
                     overscrollBehavior: "contain",
                     border: "1px solid rgba(0,0,0,0.1)",
                     borderRadius: 6,
