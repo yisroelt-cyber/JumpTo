@@ -1058,7 +1058,10 @@ return (
                   borderRadius: 6,
                 }}
               >
-                {(Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount).map((r, i) => {
+                {(Array.isArray(recents) ? recents : [])
+                  .filter(r => r && r.id && r.id !== activeSheetId)
+                  .slice(0, uiRecentsDisplayCount)
+                  .map((r, i) => {
                   const name = r?.name || "";
                   const id = r?.id;
                   const fav = isFavorite(id);
