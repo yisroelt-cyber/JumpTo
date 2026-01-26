@@ -86,9 +86,10 @@ function DialogApp() {
   const [hoverFavTabAvailableId, setHoverFavTabAvailableId] = useState(null);
   const [hoverFavTabFavoriteId, setHoverFavTabFavoriteId] = useState(null);
 
-  // UI layout settings (Navigation + Favorites tab right column)  const [uiFavPercentManual, setUiFavPercentManual] = useState(50); // 20..80 when manual
-  const [uiRecentsDisplayCount, setUiRecentsDisplayCount] = useState(10); // 1..20  const uiSettingsPersistTimerRef = useRef(null);
-  const uiSettingsReadyRef = useRef(false);
+  // UI layout settings (Navigation + Favorites tab right column)
+  const [uiFavPercentManual, setUiFavPercentManual] = useState(50); // 20..80 (Favorites share when space is limited)
+  const [uiRecentsDisplayCount, setUiRecentsDisplayCount] = useState(10); // 1..MAX_RECENTS
+  const uiSettingsPersistTimerRef = useRef(null);
 
   // Measured layout: keep dialog from scrolling; listboxes scroll internally
   const rootRef = useRef(null);
@@ -1307,7 +1308,7 @@ return (
             Note: Navigation provides worksheet access via Search, Favorites, and Recents. This tab is for configuration only.
           </div>
         </div>
-      )}      
+      )} 
       </div>
       {/* Global actions (outside tabs) */}
       <div ref={footerRef} style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, paddingTop: 8, borderTop: "1px solid #e0e0e0" }}>
