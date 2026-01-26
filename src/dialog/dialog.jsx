@@ -438,7 +438,14 @@ function DialogApp() {
   const GAP_H = 6;
   const ROW_EST_H = 22; // estimated row height for a single list item (padding + lineHeight + border)
 
-  // Favorites tab right column:
+  // Favorites tab right column height budget.
+// We split the right column into 70% favorites list + 30% controls.
+// Important: the "Favorites" label + margins consume extra vertical space,
+// so subtract a small overhead from the panelHeight to avoid clipping.
+const favTabRightOverhead = (LABEL_ROW_H * 1) + (GAP_H * 2);
+const favTabListsTotal = Math.max(140, Math.floor(panelHeight - favTabRightOverhead));
+
+// Favorites tab right column:
 // - Top: Favorites list (scrolls internally)
 // - Bottom: Controls block (Up/Down + transfer guidance)
 //
