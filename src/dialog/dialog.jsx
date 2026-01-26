@@ -86,11 +86,8 @@ function DialogApp() {
   const [hoverFavTabAvailableId, setHoverFavTabAvailableId] = useState(null);
   const [hoverFavTabFavoriteId, setHoverFavTabFavoriteId] = useState(null);
 
-  // UI layout settings (Navigation + Favorites tab right column)
-  const [uiFavPercentManual, setUiFavPercentManual] = useState(20); // 20..80 when manual
-  const [uiRecentsDisplayCount, setUiRecentsDisplayCount] = useState(10); // 1..20
-  const [uiConflictPolicy, setUiConflictPolicy] = useState("ratio"); // "ratio" | "prioritizeFavorites"
-  const uiSettingsPersistTimerRef = useRef(null);
+  // UI layout settings (Navigation + Favorites tab right column)  const [uiFavPercentManual, setUiFavPercentManual] = useState(50); // 20..80 when manual
+  const [uiRecentsDisplayCount, setUiRecentsDisplayCount] = useState(10); // 1..20  const uiSettingsPersistTimerRef = useRef(null);
   const uiSettingsReadyRef = useRef(false);
 
   // Measured layout: keep dialog from scrolling; listboxes scroll internally
@@ -315,10 +312,11 @@ function DialogApp() {
             setRecents(Array.isArray(state.recents) ? state.recents : []);
             setGlobalOptions(state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Compact", baselineOrder: "workbook", frequentOnTop: true });
             // UI settings (persisted per-user)
-            try {              const ui = state.settings || {};
+            try {
+              const ui = state.settings || {};              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 50;
+              const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
               setUiFavPercentManual(Math.min(80, Math.max(20, Math.round(favPct))));
               setUiRecentsDisplayCount(Math.min(MAX_RECENTS, Math.max(1, Math.round(recCnt))));
-              setUiConflictPolicy((policy === "prioritizeFavorites") ? "prioritizeFavorites" : "ratio");
             } catch (e) {
               // ignore
             }
@@ -429,7 +427,6 @@ function DialogApp() {
   const favoriteIds = useMemo(() => new Set((favorites || []).map((f) => f?.id).filter(Boolean)), [favorites]);
 
   // Right column sizing controls (Favorites/Recents split)
-  // Note: "Auto size" option was removed; split ratio is user-selected (20..80) and used only when space is limited.
   const favPercentEffective = Math.min(80, Math.max(20, Math.round(uiFavPercentManual)));
   const recPercentEffective = 100 - favPercentEffective;
 
@@ -476,24 +473,9 @@ function DialogApp() {
     navTabFavListHeight = navFavNeed;
     navTabRecListHeight = navRecNeed;
   } else {
-    // Conflict – apply policy.
+    // Conflict – apply fixed ratio (20..80 ↔ 80..20), with "surplus donation" (do not waste rows on the side that does not need them).
     navTabHasExtraSpace = false;
 
-    if (uiConflictPolicy === "prioritizeFavorites") {
-      // Favorites can grow up to 80% (but Recents keeps its minimum).
-      const favCap = Math.floor(navRightH * 0.80);
-      navTabFavListHeight = Math.min(Math.max(navFavMin, navFavNeed), favCap);
-      navTabRecListHeight = navRightH - navTabFavListHeight;
-
-      if (navTabRecListHeight < navRecMin) {
-        navTabRecListHeight = navRecMin;
-        navTabFavListHeight = navRightH - navTabRecListHeight;
-      }
-      if (navTabFavListHeight < navFavMin) {
-        navTabFavListHeight = navFavMin;
-        navTabRecListHeight = navRightH - navTabFavListHeight;
-      }
-    } else {
       // Fixed ratio (20..80 ↔ 80..20), with "surplus donation" (do not waste rows on the side that doesn't need them).
       let favH = Math.floor((navRightH * favPercentEffective) / 100);
       let recH = navRightH - favH;
@@ -526,7 +508,6 @@ function DialogApp() {
 
       navTabFavListHeight = favH;
       navTabRecListHeight = recH;
-    }
   }
 
 
@@ -596,11 +577,8 @@ function DialogApp() {
     uiSettingsPersistTimerRef.current = setTimeout(() => {
       uiSettingsPersistTimerRef.current = null;
       try {
-        sendSetUiSettingsToParent({
-          favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-          recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
-          conflictPolicy: uiConflictPolicy,
-        });
+        sendSetUiSettingsToParent({          favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+          recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),        });
       } catch {
         // ignore
       }
@@ -613,11 +591,8 @@ function DialogApp() {
       uiSettingsPersistTimerRef.current = null;
     }
     try {
-      sendSetUiSettingsToParent({
-        favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-        recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
-        conflictPolicy: uiConflictPolicy,
-        });
+      sendSetUiSettingsToParent({        favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+        recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),        });
     } catch {
       // ignore
     }
@@ -650,13 +625,13 @@ function DialogApp() {
     if (!parentReadyRef.current) return;
     schedulePersistUiSettings("ui-change");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uiFavPercentManual, uiRecentsDisplayCount, uiConflictPolicy]);
+  }, [uiFavPercentManual, uiRecentsDisplayCount]);
 
   // Expose flush for Save & Close
   useEffect(() => {
     window.flushPersistUiSettingsNow = flushPersistUiSettingsNow;
     return () => { try { delete window.flushPersistUiSettingsNow; } catch {} };
-  }, [uiFavPercentManual, uiRecentsDisplayCount, uiConflictPolicy]);
+  }, [uiFavPercentManual, uiRecentsDisplayCount]);
 
 
   const schedulePersistFavorites = (reason) => {
@@ -715,11 +690,8 @@ const onSelect = (sheet) => {
     // the dialog will close immediately. Flush debounced state now so it persists.
     flushPersistUiSettingsNow("selectSheet");
     flushPersistFavoritesNow("selectSheet");
-    Office.context.ui.messageParent(JSON.stringify({ type: "selectSheet", sheetId, uiSettings: {
-      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
-      conflictPolicy: uiConflictPolicy,
-    }}));
+    Office.context.ui.messageParent(JSON.stringify({ type: "selectSheet", sheetId, uiSettings: {      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),    }}));
   } catch (err) {
     console.error("messageParent(selectSheet) failed:", err);
     setIsActivating(false);
@@ -740,11 +712,8 @@ const onCancel = () => {
   try {
     flushPersistUiSettingsNow("cancel");
     flushPersistFavoritesNow("cancel");
-    Office.context.ui.messageParent(JSON.stringify({ type: "cancel", uiSettings: {
-      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
-      conflictPolicy: uiConflictPolicy,
-    }}));
+    Office.context.ui.messageParent(JSON.stringify({ type: "cancel", uiSettings: {      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),    }}));
   } catch {
     // ignore
   }
@@ -984,7 +953,7 @@ return (
             </div>
 
             {/* Right: Favorites + Recents */}
-            <div style={{ flex: "0 0 45%", minWidth: 220, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
+            <div style={{ flex: "0 0 45%", minWidth: 220, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
@@ -1286,12 +1255,14 @@ return (
         </>
       )}
 
-      {activeTab === "Settings" && (
+            {activeTab === "Settings" && (
         <div style={{ height: panelHeight, overflow: "auto", paddingRight: 4 }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Settings</div>
 
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Favorites / Recents split</div>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
+              When space is limited, give more room to:
+            </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
               <input
@@ -1299,38 +1270,16 @@ return (
                 min={20}
                 max={80}
                 value={favPercentEffective}
-                disabled={uiConflictPolicy === "prioritizeFavorites"}
                 onChange={(e) => { setUiFavPercentManual(Math.min(80, Math.max(20, Number(e.target.value) || 20))); }}
                 style={{ flex: "1 1 auto" }}
               />
-              <div style={{ width: 96, fontSize: 12, opacity: (uiConflictPolicy === "prioritizeFavorites") ? 0.55 : 0.85, textAlign: "right" }}>
+              <div style={{ width: 96, fontSize: 12, opacity: 0.85, textAlign: "right" }}>
                 {favPercentEffective}% / {recPercentEffective}%
               </div>
             </div>
 
-            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.9 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>When space is limited</div>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, cursor: "pointer" }}>
-                <input
-                  type="radio"
-                  name="jt-conflict-policy"
-                  checked={uiConflictPolicy === "ratio"}
-                  onChange={() => setUiConflictPolicy("ratio")}
-                />
-                <span>Use the split ratio (and donate unused space to the other side)</span>
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                <input
-                  type="radio"
-                  name="jt-conflict-policy"
-                  checked={uiConflictPolicy === "prioritizeFavorites"}
-                  onChange={() => setUiConflictPolicy("prioritizeFavorites")}
-                />
-                <span>Prioritize Favorites (Favorites can take up to 80%; unused space goes to Recents)</span>
-              </label>
-              <div style={{ marginTop: 6, opacity: 0.72 }}>
-                Note: These options apply only when there isn’t enough room to show all Favorites and Recents.
-              </div>
+            <div style={{ marginTop: 6, opacity: 0.72, fontSize: 12 }}>
+              Note: This setting applies only when there isn’t enough room to show all Favorites and Recents without scrolling.
             </div>
           </div>
 
@@ -1343,7 +1292,6 @@ return (
                 type="number"
                 min={1}
                 max={MAX_RECENTS}
-                step={1}
                 value={uiRecentsDisplayCount}
                 onChange={(e) => {
                   const v = Math.min(MAX_RECENTS, Math.max(1, Number(e.target.value) || 1));
@@ -1359,7 +1307,7 @@ return (
             Note: Navigation provides worksheet access via Search, Favorites, and Recents. This tab is for configuration only.
           </div>
         </div>
-      )}
+      )}      
       </div>
       {/* Global actions (outside tabs) */}
       <div ref={footerRef} style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, paddingTop: 8, borderTop: "1px solid #e0e0e0" }}>
@@ -1370,11 +1318,8 @@ return (
               if (window.Office?.context?.ui?.messageParent) {
                 window.flushPersistFavoritesNow?.("close");
                 window.flushPersistUiSettingsNow?.("close");
-                Office.context.ui.messageParent(JSON.stringify({ type: "cancel", uiSettings: {
-      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
-      conflictPolicy: uiConflictPolicy,
-    }}));
+                Office.context.ui.messageParent(JSON.stringify({ type: "cancel", uiSettings: {      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),    }}));
               } else {
                 window.close?.();
               }
@@ -1397,12 +1342,7 @@ return (
       </div>
     </div>
   );
-
-
-
-
 }
-
 
 const addFavorite = (sheetId) => {
   if (!sheetId) return;
