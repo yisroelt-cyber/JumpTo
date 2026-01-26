@@ -66,6 +66,47 @@ async function ensureFreshState() {
   return true;
 }
 
+
+async function getActiveWorksheetId() {
+  return Excel.run(async (context) => {
+    const ws = context.workbook.worksheets.getActiveWorksheet();
+    ws.load("id");
+    await context.sync();
+    return ws.id;
+  });
+}
+
+async function buildDialogState(baseState) {
+  if (!baseState) return baseState;
+
+  const activeId = await getActiveWorksheetId();
+
+  const sheetsArr = Array.isArray(baseState.sheets) ? baseState.sheets : [];
+  const visibleIds = new Set(sheetsArr.map((s) => s.id));
+  const idToName = new Map(sheetsArr.map((s) => [s.id, s.name]));
+
+  const nRaw = baseState.settings?.recentsDisplayCount;
+  const n = Number.isFinite(nRaw) ? Math.max(1, Math.min(20, Math.floor(nRaw))) : 20;
+
+  const baseRecents = Array.isArray(baseState.recents) ? baseState.recents : [];
+  const recentIds = baseRecents
+    .map((r) => (typeof r === "string" ? r : r?.id))
+    .filter(Boolean);
+
+  const filtered = [];
+  for (const id of recentIds) {
+    if (id === activeId) continue;
+    if (!visibleIds.has(id)) continue;
+    filtered.push(id);
+    if (filtered.length >= n) break;
+  }
+
+  return {
+    ...baseState,
+    recents: filtered.map((id) => ({ id, name: idToName.get(id) || "" })),
+  };
+}
+
 async function activateSheetById(sheetId) {
   return Excel.run(async (context) => {
     const sheets = context.workbook.worksheets;
@@ -93,128 +134,135 @@ function openJumpDialog(event) {
       const dialog = result.value;
 
       const reply = (msg) => {
-        try { dialog.messageChild(JSON.stringify(msg)); } catch {}
+        try {
+          dialog.messageChild(JSON.stringify(msg));
+        } catch {}
       };
 
       const flushStateQueue = async () => {
         if (cachedState) {
+          const state = await buildDialogState(cachedState);
           while (pendingStateRequests.length) {
             pendingStateRequests.pop();
-            reply({ type: "stateData", state: cachedState });
+            reply({ type: "stateData", state });
           }
         }
 
         const changed = await ensureFreshState();
         if (changed && cachedState) {
-          reply({ type: "stateData", state: cachedState });
+          const state = await buildDialogState(cachedState);
+          reply({ type: "stateData", state });
         }
       };
 
-      dialog.addEventHandler(
-        Office.EventType.DialogMessageReceived,
-        async (arg) => {
-          let msg;
-          try { msg = JSON.parse(arg.message); } catch { return; }
+      dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
+        let msg;
+        try {
+          msg = JSON.parse(arg.message);
+        } catch {
+          return;
+        }
 
-          if (msg.type === "ping") {
-            reply({ type: "parentReady" });
-            return;
-          }
+        if (msg.type === "ping") {
+          reply({ type: "parentReady" });
+          return;
+        }
 
-          if (msg.type === "getSheets") {
-            pendingStateRequests.push(true);
-            await withLock(flushStateQueue);
-            return;
-          }
+        if (msg.type === "getSheets") {
+          pendingStateRequests.push(true);
+          await withLock(flushStateQueue);
+          return;
+        }
 
-          if (msg.type === "toggleFavorite") {
-            await withLock(async () => {
-              await toggleFavoriteInStorage(msg.sheetId);
+        if (msg.type === "toggleFavorite") {
+          await withLock(async () => {
+            await toggleFavoriteInStorage(msg.sheetId);
+            cachedState = await getJumpToState();
+            const state = await buildDialogState(cachedState);
+            reply({ type: "stateData", state });
+          });
+          return;
+        }
+
+        if (msg.type === "setFavorites") {
+          const ids = Array.isArray(msg.favorites) ? msg.favorites.filter(Boolean) : [];
+          await withLock(async () => {
+            await setFavoritesInStorage(ids);
+            if (!cachedState) {
               cachedState = await getJumpToState();
-              reply({ type: "stateData", state: cachedState });
-            });
-            return;
-          }
+            } else {
+              const idToName = new Map((cachedState.sheets || []).map((s) => [s.id, s.name]));
+              cachedState = {
+                ...cachedState,
+                favorites: ids.slice(0, 20).map((id) => ({ id, name: idToName.get(id) || "" })),
+              };
+            }
+            const state = await buildDialogState(cachedState);
+            reply({ type: "stateData", state });
+          });
+          return;
+        }
 
-          if (msg.type === "setFavorites") {
-            const ids = Array.isArray(msg.favorites) ? msg.favorites.filter(Boolean) : [];
-            await withLock(async () => {
-              await setFavoritesInStorage(ids);
-              if (!cachedState) {
-                cachedState = await getJumpToState();
-              } else {
-                const idToName = new Map((cachedState.sheets || []).map((s) => [s.id, s.name]));
+        if (msg.type === "setUiSettings") {
+          const patch = msg.settings && typeof msg.settings === "object" ? msg.settings : {};
+          await withLock(async () => {
+            await setUiSettingsInStorage(patch);
+            if (!cachedState) {
+              cachedState = await getJumpToState();
+            } else {
+              cachedState = {
+                ...cachedState,
+                settings: { ...(cachedState.settings || {}), ...patch },
+              };
+            }
+            const state = await buildDialogState(cachedState);
+            reply({ type: "stateData", state });
+          });
+          return;
+        }
+
+        if (msg.type === "selectSheet") {
+          dialog.close();
+          await withLock(async () => {
+            if (msg.uiSettings && typeof msg.uiSettings === "object") {
+              await setUiSettingsInStorage(msg.uiSettings);
+              if (cachedState) {
                 cachedState = {
                   ...cachedState,
-                  favorites: ids.slice(0, 20).map((id) => ({ id, name: idToName.get(id) || "" })),
+                  settings: { ...(cachedState.settings || {}), ...msg.uiSettings },
                 };
               }
-              reply({ type: "stateData", state: cachedState });
-            });
-            return;
-
-
-if (msg.type === "setUiSettings") {
-  const patch = (msg.settings && typeof msg.settings === "object") ? msg.settings : {};
-  await withLock(async () => {
-    await setUiSettingsInStorage(patch);
-    if (!cachedState) {
-      cachedState = await getJumpToState();
-    } else {
-      cachedState = {
-        ...cachedState,
-        settings: { ...(cachedState.settings || {}), ...patch },
-      };
-    }
-    reply({ type: "stateData", state: cachedState });
-  });
-  return;
-}
-          }
-
-
-          if (msg.type === "selectSheet") {
-            dialog.close();
-            await withLock(async () => {
-              if (msg.uiSettings && typeof msg.uiSettings === "object") {
-                await setUiSettingsInStorage(msg.uiSettings);
-                if (cachedState) {
-                  cachedState = {
-                    ...cachedState,
-                    settings: { ...(cachedState.settings || {}), ...msg.uiSettings },
-                  };
-                }
-              }
-              await activateSheetById(msg.sheetId);
-              await recordActivation(msg.sheetId);
-            });
-            event.completed();
-            return;
-          }
-
-          if (msg.type === "cancel") {
-            dialog.close();
-            await withLock(async () => {
-              if (msg.uiSettings && typeof msg.uiSettings === "object") {
-                await setUiSettingsInStorage(msg.uiSettings);
-                if (cachedState) {
-                  cachedState = {
-                    ...cachedState,
-                    settings: { ...(cachedState.settings || {}), ...msg.uiSettings },
-                  };
-                }
-              }
-            });
-            event.completed();
-            return;
-          }
+            }
+            await activateSheetById(msg.sheetId);
+            await recordActivation(msg.sheetId);
+          });
+          event.completed();
+          return;
         }
-      );
+
+        if (msg.type === "cancel") {
+          dialog.close();
+          await withLock(async () => {
+            if (msg.uiSettings && typeof msg.uiSettings === "object") {
+              await setUiSettingsInStorage(msg.uiSettings);
+              if (cachedState) {
+                cachedState = {
+                  ...cachedState,
+                  settings: { ...(cachedState.settings || {}), ...msg.uiSettings },
+                };
+              }
+            }
+          });
+          event.completed();
+          return;
+        }
+      });
 
       reply({ type: "parentReady" });
       event.completed();
     }
   );
 }
+
 
 Office.actions.associate("openJumpDialog", openJumpDialog);

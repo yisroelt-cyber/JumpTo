@@ -95,6 +95,7 @@ function DialogApp() {
   const rootRef = useRef(null);
   const tabsRef = useRef(null);
   const footerRef = useRef(null);
+  const bodyRef = useRef(null);
   const [panelHeight, setPanelHeight] = useState(320); // computed at runtime
 
 
@@ -195,14 +196,10 @@ function DialogApp() {
   useEffect(() => {
     const compute = () => {
       try {
-        const root = rootRef.current;
-        if (!root) return;
-        const rootRect = root.getBoundingClientRect();
-        const tabsH = tabsRef.current ? tabsRef.current.getBoundingClientRect().height : 0;
-        const footerH = footerRef.current ? footerRef.current.getBoundingClientRect().height : 0;
-        // Small padding budget (matches top-level padding).
-        const paddingBudget = 24;
-        const h = Math.max(220, Math.floor(rootRect.height - tabsH - footerH - paddingBudget));
+        const body = bodyRef.current;
+        if (!body) return;
+        const bodyRect = body.getBoundingClientRect();
+        const h = Math.max(220, Math.floor(bodyRect.height));
         setPanelHeight(h);
       } catch {
         // ignore
@@ -210,17 +207,19 @@ function DialogApp() {
     };
     compute();
     const onResize = () => compute();
-    window.addEventListener('resize', onResize);
+    window.addEventListener("resize", onResize);
     let ro = null;
     try {
       if (window.ResizeObserver) {
         ro = new ResizeObserver(() => compute());
-        if (rootRef.current) ro.observe(rootRef.current);
+        if (bodyRef.current) ro.observe(bodyRef.current);
       }
     } catch {}
     return () => {
-      window.removeEventListener('resize', onResize);
-      try { if (ro) ro.disconnect(); } catch {}
+      window.removeEventListener("resize", onResize);
+      try {
+        if (ro) ro.disconnect();
+      } catch {}
     };
   }, []);
 
@@ -793,7 +792,7 @@ return (
         <TabButton label="Settings" active={activeTab === "Settings"} onClick={() => setActiveTab("Settings")} />
       </div>
 
-      <div style={{ flex: "1 1 auto", overflow: "hidden" }}>
+      <div ref={bodyRef} style={{ flex: "1 1 auto", overflow: "hidden" }}>
 
       {activeTab === "Navigation" && (
         <>
@@ -1258,30 +1257,30 @@ return (
       )}
 
             {activeTab === "Settings" && (
-        <div style={{ height: panelHeight, overflow: "auto", paddingRight: 4 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Settings</div>
-
-          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+        <div style={{ height: panelHeight, overflow: "hidden", paddingRight: 4 }}>
+                    <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
               When space is limited, give more room to:
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+              <div style={{ width: 66, fontSize: 12, opacity: 0.85 }}>Favorites</div>
               <input
                 type="range"
                 min={20}
                 max={80}
-                value={favPercentEffective}
-                onChange={(e) => { setUiFavPercentManual(Math.min(80, Math.max(20, Number(e.target.value) || 20))); }}
+                step={5}
+                value={100 - favPercentEffective}
+                onChange={(e) => {
+                  const v = Math.min(80, Math.max(20, Number(e.target.value) || 20));
+                  setUiFavPercentManual(100 - v);
+                }}
                 style={{ flex: "1 1 auto" }}
               />
-              <div style={{ width: 96, fontSize: 12, opacity: 0.85, textAlign: "right" }}>
-                {favPercentEffective}% / {recPercentEffective}%
+              <div style={{ width: 66, fontSize: 12, opacity: 0.85, textAlign: "right" }}>Recents</div>
+              <div style={{ width: 170, fontSize: 12, opacity: 0.85, textAlign: "right" }}>
+                Favorites {favPercentEffective}% / Recents {recPercentEffective}%
               </div>
-            </div>
-
-            <div style={{ marginTop: 6, opacity: 0.72, fontSize: 12 }}>
-              Note: This setting applies only when there isn’t enough room to show all Favorites and Recents without scrolling.
             </div>
           </div>
 
@@ -1303,10 +1302,6 @@ return (
               />
               <span>items</span>
             </div>
-          </div>
-
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
-            Note: Navigation provides worksheet access via Search, Favorites, and Recents. This tab is for configuration only.
           </div>
         </div>
       )}
