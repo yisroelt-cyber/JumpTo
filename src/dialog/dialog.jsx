@@ -989,9 +989,10 @@ return (
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
                 style={{
+                  flex: "0 1 auto",
                   height: navTabFavListHeight,
                   maxHeight: navTabFavListHeight,
-                  minHeight: navTabFavListHeight,
+                  minHeight: 0,
                   overscrollBehavior: "contain",
                   overflowY: "auto",
                   overflowX: "hidden",
@@ -1037,9 +1038,10 @@ return (
               </div>
               <div
                 style={{
+                  flex: "0 1 auto",
                   height: navTabRecListHeight,
                   maxHeight: navTabRecListHeight,
-                  minHeight: navTabRecListHeight,
+                  minHeight: 0,
                   overscrollBehavior: "contain",
                   overflowY: "auto",
                   overflowX: "hidden",
