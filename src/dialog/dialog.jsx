@@ -112,6 +112,7 @@ function DialogApp() {
   const listRowRefs = useRef([]);
   const focusTimersRef = useRef([]);
   const parentReadyRef = useRef(false);
+  const uiSettingsReadyRef = useRef(false);
   useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
@@ -1308,7 +1309,7 @@ return (
             Note: Navigation provides worksheet access via Search, Favorites, and Recents. This tab is for configuration only.
           </div>
         </div>
-      )} 
+      )}
       </div>
       {/* Global actions (outside tabs) */}
       <div ref={footerRef} style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, paddingTop: 8, borderTop: "1px solid #e0e0e0" }}>
@@ -1367,7 +1368,6 @@ const requestMoveFavorite = (sheetId, direction) => {
     console.warn("messageParent(moveFavorite) failed:", err);
   }
 };
-
 
 const rootEl = document.getElementById("root");
 function boot() {
