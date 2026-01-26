@@ -96,6 +96,8 @@ function DialogApp() {
   const tabsRef = useRef(null);
   const footerRef = useRef(null);
   const bodyRef = useRef(null);
+  const favTabFavListRef = useRef(null);
+  const favTabPendingScrollIdRef = useRef(null);
   const [panelHeight, setPanelHeight] = useState(320); // computed at runtime
 
 
@@ -443,8 +445,21 @@ function DialogApp() {
     120,
     Math.floor(panelHeight - FAVTAB_RIGHT_CONTROLS_H - (LABEL_ROW_H * 2) - (GAP_H * 3))
   );
-  const favTabFavListHeight = Math.max(60, Math.floor((favTabListsTotal * favPercentEffective) / 100));
-  const favTabBottomBlockHeight = Math.max(60, favTabListsTotal - favTabFavListHeight);
+
+  // Favorites tab right column:
+  // - Top: Favorites list (scrolls internally)
+  // - Bottom: Controls block (Up/Down + transfer note), bottom-aligned.
+  // Ensure the controls block never gets clipped by giving it a stronger minimum
+  // (roughly the same "20% minimum" idea as NavTab's Recents).
+  const favTabBottomMin = Math.max(120, Math.floor(favTabListsTotal * 0.20));
+  const favTabFavListHeight = Math.max(
+    60,
+    Math.min(
+      favTabListsTotal - favTabBottomMin,
+      Math.floor((favTabListsTotal * favPercentEffective) / 100)
+    )
+  );
+  const favTabBottomBlockHeight = Math.max(favTabBottomMin, favTabListsTotal - favTabFavListHeight);
 
   // Navigation tab right column: two scenarios
   //  1) No-conflict: show all (subject to minimum shares), ignore ratio/settings; put any extra space in the middle.
@@ -528,6 +543,7 @@ function DialogApp() {
     });
     setFavTabSelectedFavoriteId(sheetId);
     setFavTabSelectedAvailableId(null);
+    favTabPendingScrollIdRef.current = sheetId;
     schedulePersistFavorites("add");
   };
 
@@ -633,6 +649,42 @@ function DialogApp() {
     window.flushPersistUiSettingsNow = flushPersistUiSettingsNow;
     return () => { try { delete window.flushPersistUiSettingsNow; } catch {} };
   }, [uiFavPercentManual, uiRecentsDisplayCount]);
+
+  // Favorites tab: when a new favorite is added, keep it selected and scroll it into view.
+  useEffect(() => {
+    try {
+      if (activeTab !== "Favorites") return;
+      const id = favTabPendingScrollIdRef.current;
+      if (!id) return;
+
+      // Defer until after layout/paint so the row exists.
+      const doScroll = () => {
+        const host = favTabFavListRef.current;
+        if (!host) return false;
+        const el = host.querySelector(`[data-sheetid="${String(id)}"]`);
+        if (!el) return false;
+        try {
+          el.scrollIntoView({ block: "nearest" });
+        } catch {
+          // ignore
+        }
+        return true;
+      };
+
+      // Try immediately, then on next frame if needed.
+      if (doScroll()) {
+        favTabPendingScrollIdRef.current = null;
+        return;
+      }
+      const raf = window.requestAnimationFrame(() => {
+        if (doScroll()) favTabPendingScrollIdRef.current = null;
+      });
+      return () => window.cancelAnimationFrame(raf);
+    } catch {
+      // ignore
+    }
+  }, [activeTab, favorites]);
+
 
 
   const schedulePersistFavorites = (reason) => {
@@ -1170,6 +1222,7 @@ return (
               <div style={{ marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
                 <div
+                  ref={favTabFavListRef}
                   style={{
                     height: favTabFavListHeight,
                     maxHeight: favTabFavListHeight,
@@ -1193,6 +1246,7 @@ return (
                     return (
                       <div
                         key={id || `${name}_${i}`}
+                        data-sheetid={id || ""}
                         onClick={() => {
                           if (isActivating) return;
                           if (id) setFavTabSelectedFavoriteId(id);
@@ -1224,8 +1278,8 @@ return (
               </div>
 
               {/* Controls block (mirrors where Recents was, but without Recents title) */}
-              <div style={{ height: favTabBottomBlockHeight, maxHeight: favTabBottomBlockHeight, minHeight: favTabBottomBlockHeight, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingBottom: 8 }}>
-                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              <div style={{ height: favTabBottomBlockHeight, maxHeight: favTabBottomBlockHeight, minHeight: favTabBottomBlockHeight, overflow: "visible", display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingBottom: 8 }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                   <button
                     type="button"
                     disabled={!favTabSelectedFavoriteId || (Array.isArray(favorites) ? favorites : []).findIndex((x) => x?.id === favTabSelectedFavoriteId) <= 0}
@@ -1248,7 +1302,7 @@ return (
                   </button>
                 </div>
 
-                <div style={{ textAlign: "center", fontSize: 14, fontWeight: 600, marginTop: 10, opacity: 0.85, userSelect: "none" }}>
+                <div style={{ textAlign: "center", fontSize: 14, fontWeight: 600, marginTop: 6, opacity: 0.85, userSelect: "none" }}>
                   ⇄&nbsp;&nbsp;&nbsp;Double-click to transfer&nbsp;&nbsp;&nbsp;⇄
                 </div>
               </div>
