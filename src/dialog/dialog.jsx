@@ -436,6 +436,8 @@ function DialogApp() {
   // Layout constants (px) – tuned for Office dialog webviews
   const LABEL_ROW_H = 18;
   const GAP_H = 6;
+const NAV_MID_GAP_H = 10; // extra breathing room between Favorites list and Recents label (Nav tab right column)
+
   const ROW_EST_H = 22; // estimated row height for a single list item (padding + lineHeight + border)
 
   // Favorites tab right column height budget.
@@ -1046,7 +1048,7 @@ return (
                 )}
               </div>
 
-              <div style={{ flex: navTabHasExtraSpace ? "1 1 auto" : "0 0 0px", minHeight: 0 }} />
+              <div style={{ flex: navTabHasExtraSpace ? "1 1 auto" : `0 0 ${NAV_MID_GAP_H}px`, minHeight: NAV_MID_GAP_H }} />
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>Recents</div>
