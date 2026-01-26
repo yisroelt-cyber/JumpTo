@@ -438,28 +438,14 @@ function DialogApp() {
   const GAP_H = 6;
   const ROW_EST_H = 22; // estimated row height for a single list item (padding + lineHeight + border)
 
-  // Favorites tab right column: keep the legacy fixed split for now (Favorites list + controls block).
-  // (We will revisit exact controls sizing when we focus on the Favorites tab UX.)
-  const FAVTAB_RIGHT_CONTROLS_H = 54; // compact budget for bottom controls block chrome
-  const favTabListsTotal = Math.max(
-    120,
-    Math.floor(panelHeight - FAVTAB_RIGHT_CONTROLS_H - (LABEL_ROW_H * 2) - (GAP_H * 3))
-  );
-
   // Favorites tab right column:
-  // - Top: Favorites list (scrolls internally)
-  // - Bottom: Controls block (Up/Down + transfer note), bottom-aligned.
-  // Ensure the controls block never gets clipped by giving it a stronger minimum
-  // (roughly the same "20% minimum" idea as NavTab's Recents).
-  const favTabBottomMin = Math.max(120, Math.floor(favTabListsTotal * 0.20));
-  const favTabFavListHeight = Math.max(
-    60,
-    Math.min(
-      favTabListsTotal - favTabBottomMin,
-      Math.floor((favTabListsTotal * favPercentEffective) / 100)
-    )
-  );
-  const favTabBottomBlockHeight = Math.max(favTabBottomMin, favTabListsTotal - favTabFavListHeight);
+// - Top: Favorites list (scrolls internally)
+// - Bottom: Controls block (Up/Down + transfer guidance)
+//
+// Layout rule (current): fixed 70/30 split.
+// Rationale: give the Favorites listbox most of the real estate; keep controls anchored low.
+const favTabFavListHeight = Math.max(80, Math.floor(favTabListsTotal * 0.70));
+const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHeight);
 
   // Navigation tab right column: two scenarios
   //  1) No-conflict: show all (subject to minimum shares), ignore ratio/settings; put any extra space in the middle.
