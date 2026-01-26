@@ -1,12 +1,11 @@
 // src/services/jumpToStorage.js
 /* global Excel, OfficeRuntime */
 
+import { MAX_RECENTS } from "../shared/constants";
 const SETTINGS_SHEET_NAME = "_JumpToAddinSettings";
 const USERKEY_STORAGE_KEY = "JumpTo.UserKey";
 
 export const MAX_FAVORITES = 20;
-export const MAX_RECENTS = 10;
-
 // Row indices (1-based)
 const ROW_USERKEY = 1;
 const ROW_FAVORITES = 2;

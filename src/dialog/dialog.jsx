@@ -24,6 +24,8 @@ if (typeof window !== "undefined") {
 }
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { MAX_RECENTS } from "../shared/constants";
+
 import { createRoot } from "react-dom/client";
 
 /* global Office */
@@ -322,7 +324,7 @@ function DialogApp() {
               const policy = (typeof ui.conflictPolicy === "string") ? ui.conflictPolicy : "ratio";
               setUiAutoSplitEnabled(autoEnabled);
               setUiFavPercentManual(Math.min(80, Math.max(20, Math.round(favPct))));
-              setUiRecentsDisplayCount(Math.min(20, Math.max(1, Math.round(recCnt))));
+              setUiRecentsDisplayCount(Math.min(MAX_RECENTS, Math.max(1, Math.round(recCnt))));
               setUiConflictPolicy((policy === "prioritizeFavorites") ? "prioritizeFavorites" : "ratio");
             } catch (e) {
               // ignore
@@ -605,7 +607,7 @@ function DialogApp() {
         sendSetUiSettingsToParent({
           autoSplitEnabled: !!uiAutoSplitEnabled,
           favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-          recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+          recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
                   conflictPolicy: uiConflictPolicy,
         });
       } catch {
@@ -623,7 +625,7 @@ function DialogApp() {
       sendSetUiSettingsToParent({
         autoSplitEnabled: !!uiAutoSplitEnabled,
         favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-        recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+        recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
                 conflictPolicy: uiConflictPolicy,
         });
     } catch {
@@ -726,7 +728,7 @@ const onSelect = (sheet) => {
     Office.context.ui.messageParent(JSON.stringify({ type: "selectSheet", sheetId, uiSettings: {
       autoSplitEnabled: !!uiAutoSplitEnabled,
       favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-      recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
       conflictPolicy: uiConflictPolicy,
     }}));
   } catch (err) {
@@ -752,7 +754,7 @@ const onCancel = () => {
     Office.context.ui.messageParent(JSON.stringify({ type: "cancel", uiSettings: {
       autoSplitEnabled: !!uiAutoSplitEnabled,
       favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-      recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
       conflictPolicy: uiConflictPolicy,
     }}));
   } catch {
@@ -1058,10 +1060,7 @@ return (
                   borderRadius: 6,
                 }}
               >
-                {(Array.isArray(recents) ? recents : [])
-                  .filter(r => r && r.id && r.id !== activeSheetId)
-                  .slice(0, uiRecentsDisplayCount)
-                  .map((r, i) => {
+                {(Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount).map((r, i) => {
                   const name = r?.name || "";
                   const id = r?.id;
                   const fav = isFavorite(id);
@@ -1370,11 +1369,11 @@ return (
       <input
         type="number"
         min={1}
-        max={20}
+        max={MAX_RECENTS}
         step={1}
         value={uiRecentsDisplayCount}
         onChange={(e) => {
-          const v = Math.min(20, Math.max(1, Number(e.target.value) || 1));
+          const v = Math.min(MAX_RECENTS, Math.max(1, Number(e.target.value) || 1));
           setUiRecentsDisplayCount(v);
         }}
         style={{ width: 64, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
@@ -1401,7 +1400,7 @@ return (
                 Office.context.ui.messageParent(JSON.stringify({ type: "cancel", uiSettings: {
       autoSplitEnabled: !!uiAutoSplitEnabled,
       favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-      recentsDisplayCount: Math.min(20, Math.max(1, Math.round(uiRecentsDisplayCount))),
+      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
       conflictPolicy: uiConflictPolicy,
     }}));
               } else {
