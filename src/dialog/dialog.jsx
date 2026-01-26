@@ -1174,6 +1174,7 @@ return (
                     height: favTabFavListHeight,
                     maxHeight: favTabFavListHeight,
                     minHeight: favTabFavListHeight,
+                    overflowY: "auto",
                     overscrollBehavior: "contain",
                     border: "1px solid rgba(0,0,0,0.1)",
                     borderRadius: 6,
@@ -1223,7 +1224,7 @@ return (
               </div>
 
               {/* Controls block (mirrors where Recents was, but without Recents title) */}
-              <div style={{ height: favTabBottomBlockHeight, maxHeight: favTabBottomBlockHeight, minHeight: favTabBottomBlockHeight, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+              <div style={{ height: favTabBottomBlockHeight, maxHeight: favTabBottomBlockHeight, minHeight: favTabBottomBlockHeight, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingBottom: 8 }}>
                 <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                   <button
                     type="button"
@@ -1247,7 +1248,7 @@ return (
                   </button>
                 </div>
 
-                <div style={{ textAlign: "center", fontSize: 14, fontWeight: 600, marginTop: 18, opacity: 0.85, userSelect: "none" }}>
+                <div style={{ textAlign: "center", fontSize: 14, fontWeight: 600, marginTop: 10, opacity: 0.85, userSelect: "none" }}>
                   ⇄&nbsp;&nbsp;&nbsp;Double-click to transfer&nbsp;&nbsp;&nbsp;⇄
                 </div>
               </div>
