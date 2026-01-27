@@ -1,36 +1,36 @@
-
-// JumpTo: harden dialog startup diagnostics
-if (typeof window !== "undefined") {
-  window.addEventListener("error", (e) => {
-    // eslint-disable-next-line no-console
-    console.error("JumpTo dialog startup error:", e?.error || e?.message || e);
-    try {
-      const el = document.getElementById("jumpto-startup-error") || (() => {
-        const d = document.createElement("pre");
-        d.id = "jumpto-startup-error";
-        d.style.cssText = "white-space:pre-wrap;background:#fff3cd;border:1px solid #ffeeba;padding:10px;margin:10px;font-size:12px;color:#856404;";
-        document.body.prepend(d);
-        return d;
-      })();
-      el.textContent = String(e?.error?.stack || e?.error || e?.message || e);
-    } catch {}
-  });
-  window.addEventListener("unhandledrejection", (e) => {
-    // eslint-disable-next-line no-console
-    console.error("JumpTo dialog unhandled rejection:", e?.reason || e);
-  });
-  // eslint-disable-next-line no-console
-  console.log("JumpTo: dialog.jsx loaded");
-}
-
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS } from "../shared/constants";
 
 import { createRoot } from "react-dom/client";
 
 /* global Office */
-
-const JT_BUILD = "37";
+S
+const ROW_HEIGHT_PRESETS = {
+  Compact: {
+    fontSize: 10,
+    lineHeight: 15,
+    paddingY: 1,
+    estRowHeight: 17, // 15 + 1 + 1
+  },
+  Standard: {
+    fontSize: 12,
+    lineHeight: 16,
+    paddingY: 2,
+    estRowHeight: 20, // legacy/current
+  },
+  Comfortable: {
+    fontSize: 14,
+    lineHeight: 20,
+    paddingY: 3,
+    estRowHeight: 26,
+  },
+  Expanded: {
+    fontSize: 16,
+    lineHeight: 24,
+    paddingY: 4,
+    estRowHeight: 32,
+  },
+};
 
 
 function safeJsonParse(str) {
@@ -71,30 +71,12 @@ function clampNumber(n, min, max) {
   return Math.min(max, Math.max(min, v));
 }
 
-// Row height presets (temporary calibration: values are editable in the Lab tab).
-// NOTE: These are *initial* values only. The intent is for the user to tune them
-// visually in the Lab tab before we lock them in as final.
-const ROW_HEIGHT_PRESET_DEFAULTS = {
-  Compact: { fontSize: 11, lineHeight: 14, padY: 1 },
-  Standard: { fontSize: 12, lineHeight: 16, padY: 2 },
-  Comfortable: { fontSize: 13, lineHeight: 18, padY: 3 },
-  Expanded: { fontSize: 15, lineHeight: 22, padY: 4 },
-};
-
-function computeRowEstHeightPx(cfg) {
-  // Estimated list row height (padding + lineHeight + bottom border).
-  const lh = clampNumber(cfg?.lineHeight, 10, 40);
-  const py = clampNumber(cfg?.padY, 0, 16);
-  return Math.max(14, Math.round(lh + (2 * py) + 1));
-}
 
 function DialogApp() {
   const [allSheets, setAllSheets] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [recents, setRecents] = useState([]);
-  const [globalOptions, setGlobalOptions] = useState({ oneDigitActivationEnabled: true, rowHeightPreset: "Compact", baselineOrder: "workbook", frequentOnTop: true });
-  // Row height calibration (temporary): per-preset values stored in-memory only.
-  const [rowHeightTuning, setRowHeightTuning] = useState(() => ({ ...ROW_HEIGHT_PRESET_DEFAULTS }));
+  const [globalOptions, setGlobalOptions] = useState({ oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true });
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Loading…");
   const [isActivating, setIsActivating] = useState(false);
@@ -116,7 +98,7 @@ function DialogApp() {
   const [uiRecentsDisplayCount, setUiRecentsDisplayCount] = useState(10); // 1..MAX_RECENTS
   const uiSettingsPersistTimerRef = useRef(null);
 
-  // Global options persistence (debounced): rowHeightPreset (for the Row Height Lab).
+  // Global options persistence (debounced): rowHeightPreset.
   const globalOptionsPersistTimerRef = useRef(null);
 
   // Measured layout: keep dialog from scrolling; listboxes scroll internally
@@ -341,7 +323,7 @@ function DialogApp() {
             setAllSheets(sheets);
             setFavorites(Array.isArray(state.favorites) ? state.favorites : []);
             setRecents(Array.isArray(state.recents) ? state.recents : []);
-            setGlobalOptions(state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Compact", baselineOrder: "workbook", frequentOnTop: true });
+            setGlobalOptions(state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true });
             // UI settings (persisted per-user)
             try {
               const ui = state.settings || {};              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 50;
@@ -462,17 +444,17 @@ function DialogApp() {
   const recPercentEffective = 100 - favPercentEffective;
 
   // Row height metrics (applies to all listboxes).
-  const activePresetName = String(globalOptions?.rowHeightPreset || "Compact");
-  const rowCfg = rowHeightTuning?.[activePresetName] || ROW_HEIGHT_PRESET_DEFAULTS?.[activePresetName] || ROW_HEIGHT_PRESET_DEFAULTS.Compact;
-  const rowFontSize = clampNumber(rowCfg?.fontSize, 9, 22);
-  const rowLineHeight = clampNumber(rowCfg?.lineHeight, 10, 40);
-  const rowPadY = clampNumber(rowCfg?.padY, 0, 16);
-  const rowEstHeightPx = computeRowEstHeightPx({ lineHeight: rowLineHeight, padY: rowPadY });
+  const activePresetName = String(globalOptions?.rowHeightPreset || "Standard");
+  const activeRowPreset = ROW_HEIGHT_PRESETS[activePresetName] || ROW_HEIGHT_PRESETS.Standard;
+  const rowFontSize = activeRowPreset.fontSize;
+  const rowLineHeight = activeRowPreset.lineHeight;
+  const rowPadY = activeRowPreset.paddingY;
+  const rowEstHeightPx = activeRowPreset.estRowHeight;
 
   // Layout constants (px) – tuned for Office dialog webviews
   const LABEL_ROW_H = 18;
   const GAP_H = 6;
-const NAV_MID_GAP_H = 10; // extra breathing room between Favorites list and Recents label (Nav tab right column)
+  const NAV_MID_GAP_H = 10; // extra breathing room between Favorites list and Recents label (Nav tab right column)
 
   const ROW_EST_H = rowEstHeightPx; // estimated row height for a single list item (padding + lineHeight + border)
 
@@ -653,7 +635,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     globalOptionsPersistTimerRef.current = setTimeout(() => {
       globalOptionsPersistTimerRef.current = null;
       try {
-        const preset = String(globalOptions?.rowHeightPreset || "Compact");
+        const preset = String(globalOptions?.rowHeightPreset || "Standard");
         const rt = globalThis?.OfficeRuntime;
         if (rt?.storage?.setItem) {
           rt.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
@@ -670,7 +652,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       globalOptionsPersistTimerRef.current = null;
     }
     try {
-      const preset = String(globalOptions?.rowHeightPreset || "Compact");
+      const preset = String(globalOptions?.rowHeightPreset || "Standard");
       const rt = globalThis?.OfficeRuntime;
       if (rt?.storage?.setItem) {
         rt.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
@@ -921,7 +903,6 @@ return (
         <TabButton label="Navigation" active={activeTab === "Navigation"} onClick={() => setActiveTab("Navigation")} />
         <TabButton label="Favorites" active={activeTab === "Favorites"} onClick={() => setActiveTab("Favorites")} />
         <TabButton label="Settings" active={activeTab === "Settings"} onClick={() => setActiveTab("Settings")} />
-        <TabButton label="Lab" active={activeTab === "Lab"} onClick={() => setActiveTab("Lab")} />
       </div>
 
       <div ref={bodyRef} style={{ flex: "1 1 auto", overflow: "hidden" }}>
@@ -1054,15 +1035,10 @@ return (
                       onMouseEnter={() => { try { setHighlightIndex(i); } catch {} }}
                       onClick={() => { if (!isActivating) { try { setHighlightIndex(i); } catch {} onSelect(s); } }}
                       style={{
-                        padding: "2px 10px",
-                        fontSize: 12,
-                        lineHeight: "16px",
-                        cursor: isActivating ? "default" : "pointer",
-                        borderBottom: "1px solid rgba(0,0,0,0.06)",
-                        userSelect: "none",
-                        opacity: isActivating ? 0.65 : 1,
+                        ...rowStyle,
                         background: i === highlightIndex ? "rgba(0,120,212,0.12)" : "transparent",
                       }}
+
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
@@ -1391,9 +1367,9 @@ return (
         </>
       )}
 
-            {activeTab === "Settings" && (
+      {activeTab === "Settings" && (
         <div style={{ height: panelHeight, overflow: "hidden", paddingRight: 4 }}>
-                    <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
               When space is limited, give more room to:
             </div>
@@ -1416,6 +1392,24 @@ return (
               <div style={{ width: 170, fontSize: 12, opacity: 0.85, textAlign: "right" }}>
                 Favorites {favPercentEffective}% / Recents {recPercentEffective}%
               </div>
+            </div>
+          </div>
+          
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Row height</div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", fontSize: 12, opacity: 0.95 }}>
+              {["Compact", "Standard", "Comfortable", "Expanded"].map((name) => (
+                <label key={name} style={{ display: "flex", alignItems: "center", gap: 6, userSelect: "none" }}>
+                  <input
+                    type="radio"
+                    name="rowHeightPreset_final"
+                    checked={activePresetName === name}
+                    onChange={() => setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: name }))}
+                  />
+                  {name}
+                </label>
+              ))}
             </div>
           </div>
 
@@ -1441,116 +1435,6 @@ return (
         </div>
       )}
 
-      {activeTab === "Lab" && (
-        <div style={{ height: panelHeight, overflow: "auto", paddingRight: 6 }}>
-          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Row height presets (temporary lab)</div>
-            <div style={{ fontSize: 12, lineHeight: 1.4, opacity: 0.85, marginBottom: 10 }}>
-              Tune the preset values below and see the preview update immediately. When you pick a preset, it applies to all listboxes.
-              Only the chosen preset name is persisted right now.
-            </div>
-
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", marginBottom: 10 }}>
-              {["Compact", "Standard", "Comfortable", "Expanded"].map((name) => (
-                <label key={name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, userSelect: "none" }}>
-                  <input
-                    type="radio"
-                    name="rowHeightPreset"
-                    checked={activePresetName === name}
-                    onChange={() => {
-                      setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: name }));
-                    }}
-                  />
-                  {name}
-                </label>
-              ))}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setRowHeightTuning((prev) => ({
-                    ...(prev || {}),
-                    [activePresetName]: { ...(ROW_HEIGHT_PRESET_DEFAULTS?.[activePresetName] || ROW_HEIGHT_PRESET_DEFAULTS.Compact) },
-                  }));
-                }}
-                style={{ marginLeft: "auto", padding: "4px 10px", fontSize: 12, border: "1px solid rgba(0,0,0,0.2)", borderRadius: 8, background: "white", cursor: "pointer" }}
-              >
-                Reset this preset
-              </button>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 60px", gap: 8, alignItems: "center", fontSize: 12, marginBottom: 10 }}>
-              <div style={{ opacity: 0.85 }}>Font size</div>
-              <input
-                type="range"
-                min={9}
-                max={18}
-                step={1}
-                value={rowFontSize}
-                onChange={(e) => {
-                  const v = clampNumber(e.target.value, 9, 18);
-                  setRowHeightTuning((prev) => ({
-                    ...(prev || {}),
-                    [activePresetName]: { ...(prev?.[activePresetName] || ROW_HEIGHT_PRESET_DEFAULTS?.[activePresetName] || {}), fontSize: v },
-                  }));
-                }}
-              />
-              <div style={{ textAlign: "right", opacity: 0.85 }}>{rowFontSize}</div>
-
-              <div style={{ opacity: 0.85 }}>Line height</div>
-              <input
-                type="range"
-                min={10}
-                max={28}
-                step={1}
-                value={rowLineHeight}
-                onChange={(e) => {
-                  const v = clampNumber(e.target.value, 10, 28);
-                  setRowHeightTuning((prev) => ({
-                    ...(prev || {}),
-                    [activePresetName]: { ...(prev?.[activePresetName] || ROW_HEIGHT_PRESET_DEFAULTS?.[activePresetName] || {}), lineHeight: v },
-                  }));
-                }}
-              />
-              <div style={{ textAlign: "right", opacity: 0.85 }}>{rowLineHeight}</div>
-
-              <div style={{ opacity: 0.85 }}>Padding (top/bot)</div>
-              <input
-                type="range"
-                min={0}
-                max={8}
-                step={1}
-                value={rowPadY}
-                onChange={(e) => {
-                  const v = clampNumber(e.target.value, 0, 8);
-                  setRowHeightTuning((prev) => ({
-                    ...(prev || {}),
-                    [activePresetName]: { ...(prev?.[activePresetName] || ROW_HEIGHT_PRESET_DEFAULTS?.[activePresetName] || {}), padY: v },
-                  }));
-                }}
-              />
-              <div style={{ textAlign: "right", opacity: 0.85 }}>{rowPadY}</div>
-            </div>
-
-            <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>
-              Estimated row height: <b>{rowEstHeightPx}px</b>.
-            </div>
-
-            <div style={{ border: "1px solid rgba(0,0,0,0.15)", borderRadius: 10, overflow: "hidden" }}>
-              <div style={{ padding: "8px 10px", borderBottom: "1px solid rgba(0,0,0,0.10)", fontSize: 12, fontWeight: 700, opacity: 0.9 }}>
-                Live preview
-              </div>
-              <div style={{ maxHeight: 220, overflow: "auto" }}>
-                {Array.from({ length: 30 }).map((_, i) => (
-                  <div key={i} style={{ ...rowStyle, opacity: 1, cursor: "default" }}>
-                    Sample row {i + 1}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
       {/* Global actions (outside tabs) */}
       <div ref={footerRef} style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, paddingTop: 8, borderTop: "1px solid #e0e0e0" }}>
@@ -1587,29 +1471,6 @@ return (
     </div>
   );
 }
-
-const addFavorite = (sheetId) => {
-  if (!sheetId) return;
-  // Until engine/storage Patch 2, use toggleFavorite to persist add/remove.
-  onToggleFavorite(sheetId);
-};
-
-const removeFavorite = (sheetId) => {
-  if (!sheetId) return;
-  // Until engine/storage Patch 2, use toggleFavorite to persist add/remove.
-  onToggleFavorite(sheetId);
-};
-
-const requestMoveFavorite = (sheetId, direction) => {
-  if (!sheetId) return;
-  if (direction !== "up" && direction !== "down") return;
-  try {
-    Office.context.ui.messageParent(JSON.stringify({ type: "moveFavorite", sheetId, direction }));
-  } catch (err) {
-    // It's OK if not supported yet.
-    console.warn("messageParent(moveFavorite) failed:", err);
-  }
-};
 
 const rootEl = document.getElementById("root");
 function boot() {
