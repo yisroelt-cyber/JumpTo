@@ -35,11 +35,57 @@ function safeJsonStringify(obj) {
 }
 
 async function getOrCreateUserKey() {
-  if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage) return null;
-  const existing = await OfficeRuntime.storage.getItem(USERKEY_STORAGE_KEY);
-  if (existing) return existing;
-  const key = (globalThis.crypto?.randomUUID?.() || `u_${Date.now()}_${Math.random().toString(16).slice(2)}`);
-  await OfficeRuntime.storage.setItem(USERKEY_STORAGE_KEY, key);
+  // Prefer OfficeRuntime.storage, but fall back to Office.context.roamingSettings if storage is unavailable
+  // or not persisting across sessions in this host.
+  let existing = null;
+
+  // 1) OfficeRuntime.storage (Shared Runtime)
+  try {
+    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
+      existing = await OfficeRuntime.storage.getItem(USERKEY_STORAGE_KEY);
+      if (existing) return existing;
+    }
+  } catch {}
+
+  // 2) Roaming settings (per-user, persists across sessions)
+  try {
+    const rs = Office?.context?.roamingSettings;
+    if (rs?.get) {
+      existing = rs.get(USERKEY_STORAGE_KEY);
+      if (existing) return existing;
+    }
+  } catch {}
+
+  // 3) localStorage (last resort; persists per-browser)
+  try {
+    existing = globalThis?.localStorage?.getItem?.(USERKEY_STORAGE_KEY);
+    if (existing) return existing;
+  } catch {}
+
+  // Create new key
+  const key =
+    (globalThis.crypto?.randomUUID?.() ||
+      `u_${Date.now()}_${Math.random().toString(16).slice(2)}`);
+
+  // Persist to all backends that are available.
+  try {
+    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+      await OfficeRuntime.storage.setItem(USERKEY_STORAGE_KEY, key);
+    }
+  } catch {}
+
+  try {
+    const rs = Office?.context?.roamingSettings;
+    if (rs?.set && rs?.saveAsync) {
+      rs.set(USERKEY_STORAGE_KEY, key);
+      await new Promise((resolve) => rs.saveAsync(() => resolve()));
+    }
+  } catch {}
+
+  try {
+    globalThis?.localStorage?.setItem?.(USERKEY_STORAGE_KEY, key);
+  } catch {}
+
   return key;
 }
 
@@ -271,7 +317,7 @@ export async function getJumpToState() {
       const freqOnTop = await OfficeRuntime.storage.getItem("JumpTo.Option.FrequentOnTop");
       global = {
         oneDigitActivationEnabled: oneDigit !== "false",
-        rowHeightPreset: rowHeight || "Standard",
+        rowHeightPreset: rowHeight || "Compact",
         baselineOrder: baseline || "workbook",
         frequentOnTop: freqOnTop !== "false",
       };
