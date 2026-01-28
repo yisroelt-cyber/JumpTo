@@ -4,7 +4,7 @@ import { MAX_RECENTS } from "../shared/constants";
 import { createRoot } from "react-dom/client";
 
 /* global Office */
-S
+
 const ROW_HEIGHT_PRESETS = {
   Compact: {
     fontSize: 10,
