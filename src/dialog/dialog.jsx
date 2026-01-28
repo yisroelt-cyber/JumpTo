@@ -4,6 +4,7 @@ import { MAX_RECENTS } from "../shared/constants";
 import { createRoot } from "react-dom/client";
 
 /* global Office */
+S
 const ROW_HEIGHT_PRESETS = {
   Compact: {
     fontSize: 10,
@@ -635,11 +636,20 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       globalOptionsPersistTimerRef.current = null;
       try {
         const preset = String(globalOptions?.rowHeightPreset || "Standard");
-        const rt = globalThis?.OfficeRuntime;
-        if (rt?.storage?.setItem) {
-          void rt.storage.setItem("JumpTo.Option.RowHeightPreset", preset).catch(() => {});
-        }
-      } catch {
+
+        try {
+
+          if (Office?.context?.ui?.messageParent) {
+
+            Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
+
+          }
+
+        } catch (err) {
+
+          console.error("messageParent(setRowHeightPreset) failed:", err);
+
+        }} catch {
         // ignore
       }
     }, 600);
@@ -652,11 +662,20 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     }
     try {
       const preset = String(globalOptions?.rowHeightPreset || "Standard");
-      const rt = globalThis?.OfficeRuntime;
-      if (rt?.storage?.setItem) {
-        void rt.storage.setItem("JumpTo.Option.RowHeightPreset", preset).catch(() => {});
-      }
-    } catch {
+
+      try {
+
+        if (Office?.context?.ui?.messageParent) {
+
+          Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
+
+        }
+
+      } catch (err) {
+
+        console.error("messageParent(setRowHeightPreset) failed:", err);
+
+      }} catch {
       // ignore
     }
   };

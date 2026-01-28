@@ -221,6 +221,23 @@ function openJumpDialog(event) {
           return;
         }
 
+
+if (msg.type === "setRowHeightPreset") {
+  const preset = typeof msg.preset === "string" ? msg.preset : "";
+  if (!preset) return;
+  await withLock(async () => {
+    try {
+      if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+        await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
+      }
+    } catch {}
+    cachedState = await getJumpToState();
+    const state = await buildDialogState(cachedState);
+    reply({ type: "stateData", state });
+  });
+  return;
+}
+
         if (msg.type === "selectSheet") {
           dialog.close();
           await withLock(async () => {
