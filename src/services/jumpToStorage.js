@@ -271,7 +271,7 @@ export async function getJumpToState() {
       const freqOnTop = await OfficeRuntime.storage.getItem("JumpTo.Option.FrequentOnTop");
       global = {
         oneDigitActivationEnabled: oneDigit !== "false",
-        rowHeightPreset: rowHeight || "Compact",
+        rowHeightPreset: rowHeight || "Standard",
         baselineOrder: baseline || "workbook",
         frequentOnTop: freqOnTop !== "false",
       };
