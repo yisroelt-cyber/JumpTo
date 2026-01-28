@@ -1402,7 +1402,7 @@ return (
       )}
 
       {activeTab === "Settings" && (
-        <div style={{ height: panelHeight, overflow: "hidden", paddingRight: 4 }}>
+        <div style={{ height: panelHeight, overflow: "auto", paddingRight: 4 }}>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
               When space is limited, give more room to:
