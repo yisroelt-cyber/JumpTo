@@ -101,6 +101,9 @@ function DialogApp() {
   // Global options persistence (debounced): rowHeightPreset.
   const globalOptionsPersistTimerRef = useRef(null);
 
+  const suppressGlobalOptionsPersistRef = useRef(false);
+  const lastSentGlobalOptionsRef = useRef({ rowHeightPreset: null, oneDigitActivationEnabled: null });
+
   // Measured layout: keep dialog from scrolling; listboxes scroll internally
   const rootRef = useRef(null);
   const tabsRef = useRef(null);
@@ -323,7 +326,11 @@ function DialogApp() {
             setAllSheets(sheets);
             setFavorites(Array.isArray(state.favorites) ? state.favorites : []);
             setRecents(Array.isArray(state.recents) ? state.recents : []);
+            // Apply authoritative global options from parent state sync.
+            // Guard: do not immediately re-persist these back to parent (prevents feedback loops).
+            suppressGlobalOptionsPersistRef.current = true;
             setGlobalOptions(state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true });
+            setTimeout(() => { suppressGlobalOptionsPersistRef.current = false; }, 0);
             // UI settings (persisted per-user)
             try {
               const ui = state.settings || {};              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 50;
@@ -641,7 +648,14 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
           if (Office?.context?.ui?.messageParent) {
 
-            Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
+                        // Avoid spamming parent with identical values (prevents state echo loops)
+            const nextSig = { rowHeightPreset: preset, oneDigitActivationEnabled: !!globalOptions?.oneDigitActivationEnabled };
+            const lastSig = lastSentGlobalOptionsRef.current || {};
+            const unchanged = (lastSig.rowHeightPreset === nextSig.rowHeightPreset) && (lastSig.oneDigitActivationEnabled === nextSig.oneDigitActivationEnabled);
+            if (unchanged) return;
+            lastSentGlobalOptionsRef.current = nextSig;
+
+Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
             Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!globalOptions?.oneDigitActivationEnabled }));
 
           }
@@ -714,6 +728,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   // Persist global options when they change (debounced).
   useEffect(() => {
     if (!parentReadyRef.current) return;
+    if (suppressGlobalOptionsPersistRef.current) return;
     schedulePersistGlobalOptions("global-change");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled]);
@@ -890,7 +905,7 @@ useEffect(() => {
 }, [highlightIndex, activeTab]);
 
 return (
-    <div ref={rootRef} style={{ fontFamily: "Segoe UI, Arial, sans-serif", padding: 14, height: "100vh", boxSizing: "border-box", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+    <div ref={rootRef} style={{ fontFamily: "Segoe UI, Arial, sans-serif", padding: 14, height: "100vh", boxSizing: "border-box", overflow: "auto", display: "flex", flexDirection: "column" }}>
       {!!initError && (
         <div
           style={{
@@ -939,13 +954,13 @@ return (
         <TabButton label="Settings" active={activeTab === "Settings"} onClick={() => setActiveTab("Settings")} />
       </div>
 
-      <div ref={bodyRef} style={{ flex: "1 1 auto", overflow: "hidden" }}>
+      <div ref={bodyRef} style={{ flex: "1 1 auto", overflow: "auto" }}>
 
       {activeTab === "Navigation" && (
         <>
-          <div style={{ display: "flex", gap: 16, height: panelHeight, overflow: "hidden" }}>
+          <div style={{ display: "flex", gap: 16, height: panelHeight, overflow: "auto" }}>
             {/* Left: Search + All results */}
-            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0", display: "flex", flexDirection: "column", height: "100%", overflow: "auto" }}>
               <div style={{ marginBottom: 10 }}>
                 <input
                   autoFocus
@@ -1081,7 +1096,7 @@ return (
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
+                        <div style={{ flex: "1 1 auto", overflow: "auto", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
                       </div>
                     </div>
                   ))}
@@ -1096,7 +1111,7 @@ return (
             </div>
 
             {/* Right: Favorites + Recents */}
-            <div style={{ flex: "0 0 45%", minWidth: 220, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ flex: "0 0 45%", minWidth: 220, height: "100%", display: "flex", flexDirection: "column", overflow: "auto" }}>
 
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
@@ -1133,7 +1148,7 @@ return (
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{slot}</div>
-                        <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                        <div style={{ flex: "1 1 auto", overflow: "auto", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
                       </div>
                     </div>
                   );
@@ -1176,7 +1191,7 @@ return (
                       role="button"
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                        <div style={{ flex: "1 1 auto", overflow: "auto", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
                       </div>
                     </div>
                   );
@@ -1194,9 +1209,9 @@ return (
 
       {activeTab === "Favorites" && (
         <>
-          <div style={{ display: "flex", gap: 16, height: panelHeight, overflow: "hidden" }}>
+          <div style={{ display: "flex", gap: 16, height: panelHeight, overflow: "auto" }}>
             {/* Left: Search + Available (non-favorites) */}
-            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0", display: "flex", flexDirection: "column", height: "100%", overflow: "auto" }}>
               <div style={{ marginBottom: 10 }}>
                 <input
                   autoFocus
@@ -1252,7 +1267,7 @@ return (
                 style={{
                   border: "1px solid rgba(0,0,0,0.15)",
                   borderRadius: 6,
-                  overflow: "hidden",
+                  overflow: "auto",
                   display: "flex",
                   flexDirection: "column",
                   flex: "1 1 auto",
@@ -1290,7 +1305,7 @@ return (
                           tabIndex={0}
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            <div style={{ flex: "1 1 auto", overflow: "auto", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {s.name}
                             </div>
                           </div>
@@ -1307,7 +1322,7 @@ return (
             </div>
 
             {/* Right: Favorites (top) + Controls (bottom, replaces Recents section) */}
-            <div style={{ flex: "0 0 45%", minWidth: 220, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div style={{ flex: "0 0 45%", minWidth: 220, display: "flex", flexDirection: "column", height: "100%", overflow: "auto" }}>
               {/* Favorites list */}
               <div style={{ marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
@@ -1356,7 +1371,7 @@ return (
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{i < 9 ? String(i + 1) : ""}</div>
-                          <div style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                          <div style={{ flex: "1 1 auto", overflow: "auto", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
                         </div>
                       </div>
                     );
@@ -1402,7 +1417,7 @@ return (
       )}
 
       {activeTab === "Settings" && (
-        <div style={{ height: panelHeight, overflow: "hidden", paddingRight: 4 }}>
+        <div style={{ height: panelHeight, overflow: "auto", paddingRight: 4 }}>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
               When space is limited, give more room to:
