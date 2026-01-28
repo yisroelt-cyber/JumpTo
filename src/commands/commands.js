@@ -319,12 +319,6 @@ if (msg.type === "setRowHeightPreset") {
               cachedState = await getJumpToState();
             });
           })().catch((err) => console.error("cancel background handler failed:", err));
-
-          return;
-        }
-            }
-          });
-          event.completed();
           return;
         }
       });
