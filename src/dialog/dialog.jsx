@@ -809,20 +809,36 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
 
   
+
+  // Build a "last known state" snapshot for actions that may close the dialog quickly
+  // (e.g., selecting a sheet or cancelling). This avoids needing to flush multiple debounced
+  // persistence paths before the action can proceed.
+  const buildPersistSnapshot = () => {
+    const uiSettings = {
+      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+    };
+
+    const favoritesIds = (Array.isArray(favoritesRef.current) ? favoritesRef.current : [])
+      .map((x) => x?.id)
+      .filter(Boolean);
+
+    const rowHeightPreset = String(globalOptions?.rowHeightPreset || "Standard");
+
+    return { uiSettings, favorites: favoritesIds, rowHeightPreset };
+  };
+
 const onSelect = (sheet) => {
   if (!sheet || isActivating) return;
   const sheetId = typeof sheet === "string" ? sheet : sheet.id;
   if (!sheetId) return;
+
   setIsActivating(true);
   setStatus("Loading sheet…");
+
   try {
-    // If the user changed Settings (e.g., Recents count) and then activates a sheet,
-    // the dialog will close immediately. Flush debounced state now so it persists.
-    flushPersistUiSettingsNow("selectSheet");
-    flushPersistGlobalOptionsNow("selectSheet");
-    flushPersistFavoritesNow("selectSheet");
-    Office.context.ui.messageParent(JSON.stringify({ type: "selectSheet", sheetId, uiSettings: {      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),    }}));
+    const snapshot = buildPersistSnapshot();
+    Office.context.ui.messageParent(JSON.stringify({ type: "selectSheet", sheetId, snapshot }));
   } catch (err) {
     console.error("messageParent(selectSheet) failed:", err);
     setIsActivating(false);
@@ -841,11 +857,8 @@ const onToggleFavorite = (sheetId) => {
 
 const onCancel = () => {
   try {
-    flushPersistUiSettingsNow("cancel");
-    flushPersistGlobalOptionsNow("cancel");
-    flushPersistFavoritesNow("cancel");
-    Office.context.ui.messageParent(JSON.stringify({ type: "cancel", uiSettings: {      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),    }}));
+    const snapshot = buildPersistSnapshot();
+    Office.context.ui.messageParent(JSON.stringify({ type: "cancel", snapshot }));
   } catch {
     // ignore
   }

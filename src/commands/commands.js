@@ -237,37 +237,91 @@ if (msg.type === "setRowHeightPreset") {
   });
   return;
 }
-
         if (msg.type === "selectSheet") {
-          dialog.close();
-          await withLock(async () => {
-            if (msg.uiSettings && typeof msg.uiSettings === "object") {
-              await setUiSettingsInStorage(msg.uiSettings);
-              if (cachedState) {
-                cachedState = {
-                  ...cachedState,
-                  settings: { ...(cachedState.settings || {}), ...msg.uiSettings },
-                };
-              }
-            }
-            await activateSheetById(msg.sheetId);
-            await recordActivation(msg.sheetId);
-          });
+          const sheetId = msg.sheetId;
+
+          // Snapshot-based persistence: the dialog may close immediately after selection,
+          // so carry the latest state in the select message and persist it from the parent
+          // *after* the sheet activation has been initiated.
+          const snapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
+          const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
+          const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
+          const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
+
+          // Close + complete immediately so the dialog feels instant.
+          try {
+            dialog.close();
+          } catch {}
           event.completed();
+
+          // Continue work in the background so UI close is not blocked by Excel writes.
+          (async () => {
+            await withLock(async () => {
+              if (sheetId) {
+                await activateSheetById(sheetId);
+                await recordActivation(sheetId);
+              }
+
+              // Persist latest state AFTER activation so persistence work doesn't delay the jump.
+              if (rowHeightPreset) {
+                try {
+                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                  }
+                } catch {}
+              }
+
+              if (uiSettings) {
+                await setUiSettingsInStorage(uiSettings);
+              }
+
+              if (favorites) {
+                await setFavoritesInStorage(favorites);
+              }
+
+              // Keep cache coherent for the next dialog open.
+              cachedState = await getJumpToState();
+            });
+          })().catch((err) => console.error("selectSheet background handler failed:", err));
+
           return;
         }
 
         if (msg.type === "cancel") {
-          dialog.close();
-          await withLock(async () => {
-            if (msg.uiSettings && typeof msg.uiSettings === "object") {
-              await setUiSettingsInStorage(msg.uiSettings);
-              if (cachedState) {
-                cachedState = {
-                  ...cachedState,
-                  settings: { ...(cachedState.settings || {}), ...msg.uiSettings },
-                };
+          const snapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
+          const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
+          const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
+          const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
+
+          try {
+            dialog.close();
+          } catch {}
+          event.completed();
+
+          (async () => {
+            await withLock(async () => {
+              if (rowHeightPreset) {
+                try {
+                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                  }
+                } catch {}
               }
+
+              if (uiSettings) {
+                await setUiSettingsInStorage(uiSettings);
+              }
+
+              if (favorites) {
+                await setFavoritesInStorage(favorites);
+              }
+
+              cachedState = await getJumpToState();
+            });
+          })().catch((err) => console.error("cancel background handler failed:", err));
+
+          return;
+        }
             }
           });
           event.completed();
