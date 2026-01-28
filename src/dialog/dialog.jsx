@@ -1402,7 +1402,7 @@ return (
       )}
 
       {activeTab === "Settings" && (
-        <div style={{ height: panelHeight, overflow: "auto", paddingRight: 4 }}>
+        <div style={{ height: panelHeight, overflow: "hidden", paddingRight: 4 }}>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
               When space is limited, give more room to:
@@ -1459,7 +1459,7 @@ return (
               />
               <div>
                 <div style={{ fontWeight: 600 }}>Enable one-digit activation</div>
-                <div style={{ marginTop: 4, opacity: 0.85 }}>Jump instantly to a sheet by typing a single digit (1–9).</div>
+                <div style={{ marginTop: 4, opacity: 0.85 }}>Jump instantly to a Favorite by typing a single digit (1–9, 0).</div>
                 <div style={{ marginTop: 4, opacity: 0.85 }}>Tip: To search for numbers (e.g. 2024), start the search with a space.</div>
               </div>
             </label>

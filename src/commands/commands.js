@@ -228,7 +228,7 @@ function openJumpDialog(event) {
           await withLock(async () => {
             try {
               if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                  await OfficeRuntime.storage.setItem("JumpTo.Option.OneDigitActivation", oneDigitActivationEnabled ? "true" : "false");
+                  await OfficeRuntime.storage.setItem("JumpTo.Option.OneDigitActivation", enabled ? "true" : "false");
               }
             } catch {}
             cachedState = await getJumpToState();
