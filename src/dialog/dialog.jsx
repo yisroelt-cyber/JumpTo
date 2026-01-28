@@ -637,7 +637,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
         const preset = String(globalOptions?.rowHeightPreset || "Standard");
         const rt = globalThis?.OfficeRuntime;
         if (rt?.storage?.setItem) {
-          rt.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
+          void rt.storage.setItem("JumpTo.Option.RowHeightPreset", preset).catch(() => {});
         }
       } catch {
         // ignore
@@ -654,7 +654,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       const preset = String(globalOptions?.rowHeightPreset || "Standard");
       const rt = globalThis?.OfficeRuntime;
       if (rt?.storage?.setItem) {
-        rt.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
+        void rt.storage.setItem("JumpTo.Option.RowHeightPreset", preset).catch(() => {});
       }
     } catch {
       // ignore
