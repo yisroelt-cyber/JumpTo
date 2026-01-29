@@ -127,6 +127,7 @@ function DialogApp() {
   const parentReadyRef = useRef(false);
   const uiSettingsReadyRef = useRef(false);
   const globalOptionsDirtyRef = useRef(false);
+  const globalOptionsDirtyDesiredRef = useRef(null);
   useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
@@ -328,7 +329,21 @@ function DialogApp() {
               const incoming = state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true };
               // If the user has changed global options locally (e.g. clicked a checkbox) and we're still waiting
               // for parent persistence to catch up, don't let late-arriving stateData overwrite the user's intent.
-              if (globalOptionsDirtyRef.current) return prev || incoming;
+                            if (globalOptionsDirtyRef.current) {
+                const desired = globalOptionsDirtyDesiredRef.current;
+                if (
+                  desired &&
+                  !!incoming.oneDigitActivationEnabled === !!desired.oneDigitActivationEnabled &&
+                  String(incoming.rowHeightPreset || "Standard") === String(desired.rowHeightPreset || "Standard")
+                ) {
+                  // Parent has caught up; accept incoming and clear dirty.
+                  globalOptionsDirtyRef.current = false;
+                  globalOptionsDirtyDesiredRef.current = null;
+                  return incoming;
+                }
+                // Ignore stale incoming globals while dirty.
+                return prev || incoming;
+              }
               return incoming;
             });
             // UI settings (persisted per-user)
@@ -614,10 +629,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     uiSettingsPersistTimerRef.current = setTimeout(() => {
       uiSettingsPersistTimerRef.current = null;
       try {
-        sendSetUiSettingsToParent({
-          favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-          recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
-        });
+        sendSetUiSettingsToParent({          favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+          recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),        });
       } catch {
         // ignore
       }
@@ -630,10 +643,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       uiSettingsPersistTimerRef.current = null;
     }
     try {
-      sendSetUiSettingsToParent({
-        favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-        recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
-      });
+      sendSetUiSettingsToParent({        favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+        recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),        });
     } catch {
       // ignore
     }
@@ -647,20 +658,20 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       globalOptionsPersistTimerRef.current = null;
       try {
         const preset = String(globalOptions?.rowHeightPreset || "Standard");
+
         try {
+
           if (Office?.context?.ui?.messageParent) {
-            // We are now sending the user's intent to the parent; allow subsequent stateData to refresh globals.
-            if (globalOptionsDirtyRef) globalOptionsDirtyRef.current = false;
+
             Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
-            Office.context.ui.messageParent(
-              JSON.stringify({
-                type: "setOneDigitActivation",
-                enabled: !!globalOptions?.oneDigitActivationEnabled,
-              })
-            );
+            Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!globalOptions?.oneDigitActivationEnabled }));
+
           }
+
         } catch (err) {
-          console.error("messageParent(setRowHeightPreset/setOneDigitActivation) failed:", err);
+
+          console.error("messageParent(setRowHeightPreset) failed:", err);
+
         }
       } catch {
         // ignore
@@ -675,21 +686,21 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     }
     try {
       const preset = String(globalOptions?.rowHeightPreset || "Standard");
+
       try {
+
         if (Office?.context?.ui?.messageParent) {
-          if (globalOptionsDirtyRef) globalOptionsDirtyRef.current = false;
+
           Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
-          Office.context.ui.messageParent(
-            JSON.stringify({
-              type: "setOneDigitActivation",
-              enabled: !!globalOptions?.oneDigitActivationEnabled,
-            })
-          );
+          Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!globalOptions?.oneDigitActivationEnabled }));
+
         }
+
       } catch (err) {
-        console.error("messageParent(setRowHeightPreset/setOneDigitActivation) failed:", err);
-      }
-    } catch {
+
+        console.error("messageParent(setRowHeightPreset) failed:", err);
+
+      }} catch {
       // ignore
     }
   };
@@ -1467,8 +1478,14 @@ return (
                 type="checkbox"
                 checked={!!globalOptions?.oneDigitActivationEnabled}
                 onChange={(e) => {
+                  const nextEnabled = !!e.target.checked;
                   globalOptionsDirtyRef.current = true;
-                  setGlobalOptions((prev) => ({ ...(prev || {}), oneDigitActivationEnabled: !!e.target.checked }));
+                  // Capture desired globals so we can ignore stale stateData until parent echoes the same values back.
+                  globalOptionsDirtyDesiredRef.current = {
+                    oneDigitActivationEnabled: nextEnabled,
+                    rowHeightPreset: String(globalOptions?.rowHeightPreset || "Standard"),
+                  };
+                  setGlobalOptions((prev) => ({ ...(prev || {}), oneDigitActivationEnabled: nextEnabled }));
                 }}
                 style={{ marginTop: 2 }}
               />
