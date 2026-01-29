@@ -126,6 +126,7 @@ function DialogApp() {
   const focusTimersRef = useRef([]);
   const parentReadyRef = useRef(false);
   const uiSettingsReadyRef = useRef(false);
+  const globalOptionsDirtyRef = useRef(false);
   useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
@@ -323,7 +324,13 @@ function DialogApp() {
             setAllSheets(sheets);
             setFavorites(Array.isArray(state.favorites) ? state.favorites : []);
             setRecents(Array.isArray(state.recents) ? state.recents : []);
-            setGlobalOptions(state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true });
+                        setGlobalOptions((prev) => {
+              const incoming = state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true };
+              // If the user has changed global options locally (e.g. clicked a checkbox) and we're still waiting
+              // for parent persistence to catch up, don't let late-arriving stateData overwrite the user's intent.
+              if (globalOptionsDirtyRef.current) return prev || incoming;
+              return incoming;
+            });
             // UI settings (persisted per-user)
             try {
               const ui = state.settings || {};              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 50;
@@ -334,7 +341,6 @@ function DialogApp() {
               // ignore
             }
             uiSettingsReadyRef.current = true;
-            globalOptionsReadyRef.current = true;
             setStatus(sheets.length ? "" : "No visible worksheets found.");
 
             // Re-assert focus after data arrives (this is the moment users start typing).
@@ -608,8 +614,10 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     uiSettingsPersistTimerRef.current = setTimeout(() => {
       uiSettingsPersistTimerRef.current = null;
       try {
-        sendSetUiSettingsToParent({          favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-          recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),        });
+        sendSetUiSettingsToParent({
+          favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+          recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+        });
       } catch {
         // ignore
       }
@@ -622,15 +630,16 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       uiSettingsPersistTimerRef.current = null;
     }
     try {
-      sendSetUiSettingsToParent({        favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-        recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),        });
+      sendSetUiSettingsToParent({
+        favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+        recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+      });
     } catch {
       // ignore
     }
   };
 
   const schedulePersistGlobalOptions = (reason) => {
-    if (!globalOptionsReadyRef.current) return;
     if (globalOptionsPersistTimerRef.current) {
       clearTimeout(globalOptionsPersistTimerRef.current);
     }
@@ -638,19 +647,20 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       globalOptionsPersistTimerRef.current = null;
       try {
         const preset = String(globalOptions?.rowHeightPreset || "Standard");
-
         try {
-
           if (Office?.context?.ui?.messageParent) {
-
+            // We are now sending the user's intent to the parent; allow subsequent stateData to refresh globals.
+            if (globalOptionsDirtyRef) globalOptionsDirtyRef.current = false;
             Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
-
+            Office.context.ui.messageParent(
+              JSON.stringify({
+                type: "setOneDigitActivation",
+                enabled: !!globalOptions?.oneDigitActivationEnabled,
+              })
+            );
           }
-
         } catch (err) {
-
-          console.error("messageParent(setRowHeightPreset) failed:", err);
-
+          console.error("messageParent(setRowHeightPreset/setOneDigitActivation) failed:", err);
         }
       } catch {
         // ignore
@@ -659,27 +669,27 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   };
 
   const flushPersistGlobalOptionsNow = (reason) => {
-    if (!globalOptionsReadyRef.current) return;
     if (globalOptionsPersistTimerRef.current) {
       clearTimeout(globalOptionsPersistTimerRef.current);
       globalOptionsPersistTimerRef.current = null;
     }
     try {
       const preset = String(globalOptions?.rowHeightPreset || "Standard");
-
       try {
-
         if (Office?.context?.ui?.messageParent) {
-
+          if (globalOptionsDirtyRef) globalOptionsDirtyRef.current = false;
           Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
-
+          Office.context.ui.messageParent(
+            JSON.stringify({
+              type: "setOneDigitActivation",
+              enabled: !!globalOptions?.oneDigitActivationEnabled,
+            })
+          );
         }
-
       } catch (err) {
-
-        console.error("messageParent(setRowHeightPreset) failed:", err);
-
-      }} catch {
+        console.error("messageParent(setRowHeightPreset/setOneDigitActivation) failed:", err);
+      }
+    } catch {
       // ignore
     }
   };
@@ -718,7 +728,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     if (!parentReadyRef.current) return;
     schedulePersistGlobalOptions("global-change");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [globalOptions?.rowHeightPreset]);
+  }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled]);
 
   // Expose flush for Save & Close
   useEffect(() => {
@@ -729,7 +739,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   useEffect(() => {
     window.flushPersistGlobalOptionsNow = flushPersistGlobalOptionsNow;
     return () => { try { delete window.flushPersistGlobalOptionsNow; } catch {} };
-  }, [globalOptions?.rowHeightPreset]);
+  }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled]);
 
   // Favorites tab: when a new favorite is added, keep it selected and scroll it into view.
   useEffect(() => {
@@ -828,8 +838,9 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       .filter(Boolean);
 
     const rowHeightPreset = String(globalOptions?.rowHeightPreset || "Standard");
+    const oneDigitActivationEnabled = !!globalOptions?.oneDigitActivationEnabled;
 
-    return { uiSettings, favorites: favoritesIds, rowHeightPreset };
+    return { uiSettings, favorites: favoritesIds, rowHeightPreset, oneDigitActivationEnabled };
   };
 
 const onSelect = (sheet) => {
@@ -1446,6 +1457,27 @@ return (
                 </label>
               ))}
             </div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Keyboard</div>
+
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: 0.95, userSelect: "none" }}>
+              <input
+                type="checkbox"
+                checked={!!globalOptions?.oneDigitActivationEnabled}
+                onChange={(e) => {
+                  globalOptionsDirtyRef.current = true;
+                  setGlobalOptions((prev) => ({ ...(prev || {}), oneDigitActivationEnabled: !!e.target.checked }));
+                }}
+                style={{ marginTop: 2 }}
+              />
+              <div>
+                <div style={{ fontWeight: 600 }}>Enable one-digit activation</div>
+                <div style={{ marginTop: 4, opacity: 0.85 }}>Jump instantly to a Favorite by typing a single digit (1–9, 0).</div>
+                <div style={{ marginTop: 4, opacity: 0.85 }}>Tip: To search for numbers (e.g. 2024), start the search with a space.</div>
+              </div>
+            </label>
           </div>
 
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>

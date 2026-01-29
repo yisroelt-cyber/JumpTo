@@ -237,26 +237,6 @@ if (msg.type === "setRowHeightPreset") {
   });
   return;
 }
-        if (msg.type === "setGlobalOptions") {
-          const g = msg.global && typeof msg.global === "object" ? msg.global : {};
-          const preset = typeof g.rowHeightPreset === "string" ? g.rowHeightPreset : "";
-          const oneDigitActivationEnabled = !!g.oneDigitActivationEnabled;
-          await withLock(async () => {
-            try {
-              if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                if (preset) {
-                  await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
-                }
-                await OfficeRuntime.storage.setItem("JumpTo.Option.OneDigitActivation", oneDigitActivationEnabled ? "true" : "false");
-              }
-            } catch {}
-            cachedState = await getJumpToState();
-            const state = await buildDialogState(cachedState);
-            reply({ type: "stateData", state });
-          });
-          return;
-        }
-
         if (msg.type === "selectSheet") {
           const sheetId = msg.sheetId;
 
@@ -290,6 +270,17 @@ if (msg.type === "setRowHeightPreset") {
                   }
                 } catch {}
               }
+
+              const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
+
+              try {
+                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                  await OfficeRuntime.storage.setItem(
+                    "JumpTo.Option.OneDigitActivation",
+                    oneDigitActivationEnabled ? "true" : "false"
+                  );
+                }
+              } catch {}
 
               if (uiSettings) {
                 await setUiSettingsInStorage(uiSettings);
@@ -327,6 +318,17 @@ if (msg.type === "setRowHeightPreset") {
                   }
                 } catch {}
               }
+
+              const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
+
+              try {
+                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                  await OfficeRuntime.storage.setItem(
+                    "JumpTo.Option.OneDigitActivation",
+                    oneDigitActivationEnabled ? "true" : "false"
+                  );
+                }
+              } catch {}
 
               if (uiSettings) {
                 await setUiSettingsInStorage(uiSettings);
