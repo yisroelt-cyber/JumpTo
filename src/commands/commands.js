@@ -237,6 +237,25 @@ if (msg.type === "setRowHeightPreset") {
   });
   return;
 }
+
+        if (msg.type === "setOneDigitActivation") {
+          const enabled = !!msg.enabled;
+          await withLock(async () => {
+            try {
+              if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                await OfficeRuntime.storage.setItem(
+                  "JumpTo.Option.OneDigitActivation",
+                  enabled ? "true" : "false"
+                );
+              }
+            } catch {}
+            cachedState = await getJumpToState();
+            const state = await buildDialogState(cachedState);
+            reply({ type: "stateData", state });
+          });
+          return;
+        }
+
         if (msg.type === "selectSheet") {
           const sheetId = msg.sheetId;
 

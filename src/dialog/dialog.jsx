@@ -1527,11 +1527,7 @@ return (
           onClick={() => {
             try {
               if (window.Office?.context?.ui?.messageParent) {
-                window.flushPersistFavoritesNow?.("close");
-                window.flushPersistUiSettingsNow?.("close");
-                window.flushPersistGlobalOptionsNow?.("close");
-                Office.context.ui.messageParent(JSON.stringify({ type: "cancel", uiSettings: {      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),    }}));
+                onCancel();
               } else {
                 window.close?.();
               }
