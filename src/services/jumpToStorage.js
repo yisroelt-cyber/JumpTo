@@ -15,6 +15,104 @@ const ROW_SETTINGS = 4;
 // Inventory table start (1-based)
 const INV_START_ROW = 52;
 
+
+// OfficeRuntime.storage — LRU-10 safety-net cache (Favorites + Settings only)
+// Identity is keyed by (workbookGuid + filenameFingerprint). We encode this into a compact key
+// using workbookGuid plus a short hash of filenameFingerprint.
+const RT10_INDEX_KEY = "JumpTo.RT10.Index";
+const RT10_ENTRY_PREFIX = "JumpTo.RT10.Entry.";
+const RT10_MAX = 10;
+
+function hashStringToBase36(s) {
+  // Stable, fast, non-cryptographic hash (djb2) -> unsigned 32-bit -> base36
+  let h = 5381;
+  const str = String(s || "");
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) + h) + str.charCodeAt(i); // h*33 + c
+    h = h >>> 0;
+  }
+  return h.toString(36);
+}
+
+function makeRt10EntryKey(workbookGuid, filenameFingerprint) {
+  const g = String(workbookGuid || "").trim();
+  const f = String(filenameFingerprint || "").trim();
+  return `${RT10_ENTRY_PREFIX}${g}.${hashStringToBase36(f)}`;
+}
+
+async function rt10GetIndex() {
+  try {
+    const raw = await OfficeRuntime.storage.getItem(RT10_INDEX_KEY);
+    const idx = safeJsonParse(raw, { v: 1, entries: [] });
+    if (!idx || typeof idx !== "object" || !Array.isArray(idx.entries)) return { v: 1, entries: [] };
+    return idx;
+  } catch {
+    return { v: 1, entries: [] };
+  }
+}
+
+async function rt10SetIndex(idx) {
+  try {
+    await OfficeRuntime.storage.setItem(RT10_INDEX_KEY, safeJsonStringify(idx));
+  } catch {}
+}
+
+async function rt10Touch(key) {
+  const idx = await rt10GetIndex();
+  const now = Date.now();
+  const entries = idx.entries.filter(e => e && e.key && e.key !== key);
+  entries.unshift({ key, lastAccess: now });
+  idx.entries = entries.slice(0, RT10_MAX);
+  await rt10SetIndex(idx);
+}
+
+async function rt10EvictOverflow() {
+  const idx = await rt10GetIndex();
+  if (idx.entries.length <= RT10_MAX) return;
+  const keep = idx.entries.slice(0, RT10_MAX);
+  const evict = idx.entries.slice(RT10_MAX);
+  idx.entries = keep;
+  await rt10SetIndex(idx);
+  for (const e of evict) {
+    try { await OfficeRuntime.storage.removeItem(e.key); } catch {}
+  }
+}
+
+async function rt10Read(workbookGuid, filenameFingerprint) {
+  if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage?.getItem) return null;
+  const key = makeRt10EntryKey(workbookGuid, filenameFingerprint);
+  try {
+    const raw = await OfficeRuntime.storage.getItem(key);
+    if (!raw) return null;
+    const obj = safeJsonParse(raw, null);
+    if (!obj || typeof obj !== "object") return null;
+    // Validate identity match
+    if (obj.workbookGuid !== workbookGuid) return null;
+    if (obj.filenameFingerprint !== filenameFingerprint) return null;
+    await rt10Touch(key);
+    return obj;
+  } catch {
+    return null;
+  }
+}
+
+async function rt10Write(workbookGuid, filenameFingerprint, favorites, settings) {
+  if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage?.setItem) return;
+  const key = makeRt10EntryKey(workbookGuid, filenameFingerprint);
+  const payload = {
+    workbookGuid,
+    filenameFingerprint,
+    dts: Date.now(),
+    favorites: Array.isArray(favorites) ? favorites : [],
+    settings: (settings && typeof settings === "object") ? settings : {}
+  };
+  try {
+    await OfficeRuntime.storage.setItem(key, safeJsonStringify(payload));
+  } catch {}
+  await rt10Touch(key);
+  await rt10EvictOverflow();
+}
+
 function safeJsonParse(str, fallback) {
   try {
     if (typeof str !== "string") return fallback;
@@ -33,6 +131,12 @@ function safeJsonStringify(obj) {
     return "[]";
   }
 }
+
+function isPlainObjectEmpty(o) {
+  if (!o || typeof o !== "object" || Array.isArray(o)) return true;
+  return Object.keys(o).length === 0;
+}
+
 
 async function getOrCreateUserKey() {
   // Prefer OfficeRuntime.storage, but fall back to Office.context.roamingSettings if storage is unavailable
@@ -358,8 +462,10 @@ export async function getJumpToState() {
     return { userKey: null, sheets: [], favorites: [], recents: [], settings: {}, global: {} };
   }
 
-  return Excel.run(async (context) => {
+  // Read workbook state first (includes ensuring workbook identity fields exist).
+  const wb = await Excel.run(async (context) => {
     const settingsSheet = await ensureSettingsSheet(context);
+    const wbId = await ensureWorkbookIdentity(context, settingsSheet);
     const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
 
     // Load visible sheets with id+name and workbook order
@@ -385,33 +491,46 @@ export async function getJumpToState() {
       if (r.id) freqById[r.id] = Number(r.freq || 0);
     }
 
-    // Global options
-    let global = {};
-    try {
-      const oneDigit = await OfficeRuntime.storage.getItem("JumpTo.Option.OneDigitActivation");
-      const rowHeight = await OfficeRuntime.storage.getItem("JumpTo.Option.RowHeightPreset");
-      const baseline = await OfficeRuntime.storage.getItem("JumpTo.Option.BaselineOrder"); // "workbook" | "alpha"
-      const freqOnTop = await OfficeRuntime.storage.getItem("JumpTo.Option.FrequentOnTop");
-      global = {
-        oneDigitActivationEnabled: oneDigit !== "false",
-        rowHeightPreset: rowHeight || "Compact",
-        baselineOrder: baseline || "workbook",
-        frequentOnTop: freqOnTop !== "false",
-      };
-    } catch {
-      global = { oneDigitActivationEnabled: true, rowHeightPreset: "Compact", baselineOrder: "workbook", frequentOnTop: true };
-    }
-
     return {
+      __wbId: wbId,
       userKey,
-      sheets: visibleSheets.map(s => ({ ...s, freq: freqById[s.id] || 0 })),
+      sheets: visibleSheets,
       favorites: favObjs,
       recents: recObjs,
-      settings: settings || {},
-      global,
+      settings: (settings && typeof settings === "object") ? settings : {},
+      global: { freqById }
     };
   });
+
+  // Phase 2: runtime safety net (Favorites + Settings only) gated by (GUID + filename fingerprint).
+  const { workbookGuid, filenameFingerprint } = wb.__wbId || {};
+  let favorites = wb.favorites;
+  let settings = wb.settings;
+
+  if (workbookGuid && filenameFingerprint) {
+    const rt = await rt10Read(workbookGuid, filenameFingerprint);
+
+    // If workbook lost state (common failure mode), prefer runtime non-empty values.
+    if (rt) {
+      if ((!Array.isArray(favorites) || favorites.length === 0) && Array.isArray(rt.favorites) && rt.favorites.length > 0) {
+        const idToName = new Map((wb.sheets || []).map(s => [s.id, s.name]));
+        favorites = rt.favorites.map(id => ({ id, name: idToName.get(id) || "" }));
+      }
+      if (isPlainObjectEmpty(settings) && rt.settings && typeof rt.settings === "object" && !isPlainObjectEmpty(rt.settings)) {
+        settings = rt.settings;
+      }
+    } else {
+      // Seed runtime safety net from workbook if there is meaningful data.
+      const favIds = (Array.isArray(favorites) ? favorites : []).map(f => f?.id).filter(Boolean);
+      if (favIds.length > 0 || (settings && typeof settings === "object" && !isPlainObjectEmpty(settings))) {
+        await rt10Write(workbookGuid, filenameFingerprint, favIds, settings);
+      }
+    }
+  }
+
+  return { ...wb, favorites, settings };
 }
+
 
 export async function toggleFavorite(sheetId) {
   const userKey = await getOrCreateUserKey();
@@ -437,28 +556,25 @@ export async function toggleFavorite(sheetId) {
 }
 
 
-export async function setFavorites(favoriteIds) {
+export async function setFavorites(favIds) {
   const userKey = await getOrCreateUserKey();
-  if (!userKey) return null;
+  if (!userKey) return;
 
-  const ids = Array.isArray(favoriteIds) ? favoriteIds.filter(Boolean).slice(0, MAX_FAVORITES) : [];
+  const nextFavs = Array.isArray(favIds) ? favIds.filter(Boolean) : [];
 
-  return Excel.run(async (context) => {
-    const sheet = await ensureSettingsSheet(context);
-    const { colLetter } = await getUserColumn(context, sheet, userKey);
-    const state = await readUserCells(context, sheet, colLetter);
-
-    // Reduce perceived lag: suppress UI work & calc for this sync (without changing global calc mode)
-    try {
-      context.workbook.application.suspendScreenUpdatingUntilNextSync();
-      context.workbook.application.suspendApiCalculationUntilNextSync();
-    } catch {
-      // ignore if host doesn't support
-    }
-
-    await writeUserCells(context, sheet, colLetter, { favorites: ids, recents: state.recents, settings: state.settings });
-    return ids;
+  const out = await Excel.run(async (context) => {
+    const settingsSheet = await ensureSettingsSheet(context);
+    const wbId = await ensureWorkbookIdentity(context, settingsSheet);
+    const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
+    const { recents, settings } = await readUserCells(context, settingsSheet, colLetter);
+    await writeUserCells(context, settingsSheet, colLetter, { favorites: nextFavs, recents, settings });
+    return { wbId, settings };
   });
+
+  const { workbookGuid, filenameFingerprint } = out?.wbId || {};
+  if (workbookGuid && filenameFingerprint) {
+    await rt10Write(workbookGuid, filenameFingerprint, nextFavs, out.settings || {});
+  }
 }
 
 export async function addFavorite(sheetId) {
@@ -505,16 +621,25 @@ export async function setUiSettings(settingsPatch) {
 
   const patch = (settingsPatch && typeof settingsPatch === "object") ? settingsPatch : {};
 
-  return Excel.run(async (context) => {
+  const out = await Excel.run(async (context) => {
     const settingsSheet = await ensureSettingsSheet(context);
+    const wbId = await ensureWorkbookIdentity(context, settingsSheet);
     const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
 
     const { favorites, recents, settings } = await readUserCells(context, settingsSheet, colLetter);
     const nextSettings = { ...(settings || {}), ...patch };
 
     await writeUserCells(context, settingsSheet, colLetter, { favorites, recents, settings: nextSettings });
+
+    return { wbId, favorites, nextSettings };
   });
+
+  const { workbookGuid, filenameFingerprint } = out?.wbId || {};
+  if (workbookGuid && filenameFingerprint) {
+    await rt10Write(workbookGuid, filenameFingerprint, out.favorites || [], out.nextSettings || {});
+  }
 }
+
 export async function recordActivation(sheetId) {
   const userKey = await getOrCreateUserKey();
   if (!userKey) return null;
