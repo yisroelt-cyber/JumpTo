@@ -140,11 +140,26 @@ function openJumpDialog(event) {
       };
 
       const flushStateQueue = async () => {
+        // Phase 4: fast-first render. If we have an in-memory cache, use it immediately.
+        // Otherwise, try a perf-cache-backed state (preferCache) before doing the full refresh.
         if (cachedState) {
           const state = await buildDialogState(cachedState);
           while (pendingStateRequests.length) {
             pendingStateRequests.pop();
             reply({ type: "stateData", state });
+          }
+        } else {
+          try {
+            cachedState = await getJumpToState({ preferCache: true });
+            if (cachedState) {
+              const state = await buildDialogState(cachedState);
+              while (pendingStateRequests.length) {
+                pendingStateRequests.pop();
+                reply({ type: "stateData", state });
+              }
+            }
+          } catch {
+            // ignore; fall through to full refresh
           }
         }
 

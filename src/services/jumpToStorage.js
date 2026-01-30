@@ -5,7 +5,7 @@ import { MAX_RECENTS } from "../shared/constants";
 const SETTINGS_SHEET_NAME = "_JumpToAddinSettings";
 const USERKEY_STORAGE_KEY = "JumpTo.UserKey";
 
-export const MAX_FAVORITES = 20;
+export const MAX_FAVORITES = 50;
 // Row indices (1-based)
 const ROW_USERKEY = 1;
 const ROW_FAVORITES = 2;
@@ -23,6 +23,14 @@ const RT10_INDEX_KEY = "JumpTo.RT10.Index";
 const RT10_ENTRY_PREFIX = "JumpTo.RT10.Entry.";
 const RT10_MAX = 10;
 
+// OfficeRuntime.storage — LRU-3 performance cache (Visible worksheets + Recents)
+// Cache-only: bounded, allowed to be stale, never authoritative.
+// Identity is keyed by (workbookGuid + filenameFingerprint), same as RT10.
+const RT3_INDEX_KEY = "JumpTo.RT3.Index";
+const RT3_ENTRY_PREFIX = "JumpTo.RT3.Entry.";
+const RT3_MAX = 3;
+
+
 function hashStringToBase36(s) {
   // Stable, fast, non-cryptographic hash (djb2) -> unsigned 32-bit -> base36
   let h = 5381;
@@ -38,6 +46,13 @@ function makeRt10EntryKey(workbookGuid, filenameFingerprint) {
   const g = String(workbookGuid || "").trim();
   const f = String(filenameFingerprint || "").trim();
   return `${RT10_ENTRY_PREFIX}${g}.${hashStringToBase36(f)}`;
+}
+
+
+function makeRt3EntryKey(workbookGuid, filenameFingerprint) {
+  const g = String(workbookGuid || "").trim();
+  const f = String(filenameFingerprint || "").trim();
+  return `${RT3_ENTRY_PREFIX}${g}.${hashStringToBase36(f)}`;
 }
 
 async function rt10GetIndex() {
@@ -76,6 +91,68 @@ async function rt10EvictOverflow() {
   for (const e of evict) {
     try { await OfficeRuntime.storage.removeItem(e.key); } catch {}
   }
+}
+
+
+async function rt3GetIndex() {
+  try {
+    const raw = await OfficeRuntime.storage.getItem(RT3_INDEX_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && Array.isArray(parsed.entries)) return parsed;
+  } catch {}
+  return { entries: [] };
+}
+
+async function rt3SetIndex(idx) {
+  try { await OfficeRuntime.storage.setItem(RT3_INDEX_KEY, JSON.stringify(idx)); } catch {}
+}
+
+async function rt3Touch(entryKey) {
+  const idx = await rt3GetIndex();
+  const now = Date.now();
+  const next = idx.entries.filter(e => e.key !== entryKey);
+  next.unshift({ key: entryKey, ts: now });
+  idx.entries = next;
+  await rt3SetIndex(idx);
+  await rt3EvictOverflow();
+}
+
+async function rt3EvictOverflow() {
+  const idx = await rt3GetIndex();
+  if (idx.entries.length <= RT3_MAX) return;
+  const keep = idx.entries.slice(0, RT3_MAX);
+  const evict = idx.entries.slice(RT3_MAX);
+  idx.entries = keep;
+  await rt3SetIndex(idx);
+  for (const e of evict) {
+    try { await OfficeRuntime.storage.removeItem(e.key); } catch {}
+  }
+}
+
+async function rt3Read(workbookGuid, filenameFingerprint) {
+  if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage?.getItem) return null;
+  const key = makeRt3EntryKey(workbookGuid, filenameFingerprint);
+  try {
+    const raw = await OfficeRuntime.storage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    await rt3Touch(key);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function rt3Write(workbookGuid, filenameFingerprint, payload) {
+  if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage?.setItem) return;
+  const key = makeRt3EntryKey(workbookGuid, filenameFingerprint);
+  try {
+    await OfficeRuntime.storage.setItem(key, JSON.stringify(payload || {}));
+  } catch {
+    // ignore
+  }
+  await rt3Touch(key);
 }
 
 async function rt10Read(workbookGuid, filenameFingerprint) {
@@ -551,13 +628,60 @@ async function incrementFrequency(context, sheet, userColLetter, sheetId) {
   return next;
 }
 
-export async function getJumpToState() {
+export async function getJumpToState(options = {}) {
+  const preferCache = !!options?.preferCache;
   const userKey = await getOrCreateUserKey();
   if (!userKey) {
     return { userKey: null, sheets: [], favorites: [], recents: [], settings: {}, global: {} };
   }
 
-  // Read workbook state first (includes ensuring workbook identity fields exist).
+  // Phase 4 (perf): If requested, try a fast path that avoids enumerating worksheets.
+  // We still read the per-user cells from the workbook (small), then use RT3 cache
+  // for the visible worksheet list + name mapping (allowed to be stale).
+  if (preferCache) {
+    const mini = await Excel.run(async (context) => {
+      const settingsSheet = await ensureSettingsSheet(context);
+      const wbId = await ensureWorkbookIdentity(context, settingsSheet);
+      const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
+      const { favorites, recents, settings, __meta } = await readUserCells(context, settingsSheet, colLetter);
+
+      return {
+        __wbId: wbId,
+        userKey,
+        favorites,
+        recents,
+        settings: (settings && typeof settings === "object") ? settings : {},
+        __meta,
+        global: { freqById: {} }
+      };
+    });
+
+    const { workbookGuid, filenameFingerprint } = mini?.__wbId || {};
+    if (workbookGuid && filenameFingerprint) {
+      const perf = await rt3Read(workbookGuid, filenameFingerprint);
+      if (perf && Array.isArray(perf.sheets)) {
+        const sheets = perf.sheets;
+        const idToName = new Map(sheets.map((s) => [s.id, s.name]));
+
+        const favIds = Array.isArray(mini.favorites) ? mini.favorites : [];
+        const recIds = Array.isArray(mini.recents) ? mini.recents : [];
+
+        return {
+          __wbId: mini.__wbId,
+          userKey: mini.userKey,
+          sheets,
+          favorites: favIds.map((id) => ({ id, name: idToName.get(id) || "" })),
+          recents: recIds.map((id) => ({ id, name: idToName.get(id) || "" })),
+          settings: mini.settings,
+          __meta: mini.__meta,
+          global: { freqById: (perf.freqById && typeof perf.freqById === "object") ? perf.freqById : {} }
+        };
+      }
+    }
+    // If no perf cache is available, fall through to full workbook-backed state.
+  }
+
+  // Full workbook state (authoritative for visible sheets and inventory sync).
   const wb = await Excel.run(async (context) => {
     const settingsSheet = await ensureSettingsSheet(context);
     const wbId = await ensureWorkbookIdentity(context, settingsSheet);
@@ -598,72 +722,94 @@ export async function getJumpToState() {
     };
   });
 
-  
-// Phase 3: reconcile workbook vs runtime (Favorites + Settings only) using dts rules, then self-heal in background.
-  const { workbookGuid, filenameFingerprint } = wb.__wbId || {};
-
-  // Workbook payload (ids + settings + dts)
-  const wbFavIds = (Array.isArray(wb.favorites) ? wb.favorites : []).map(f => f?.id).filter(Boolean);
-  const wbSettingsObj = (wb.settings && typeof wb.settings === "object" && !Array.isArray(wb.settings)) ? wb.settings : {};
-  const wbMeta = wb.__meta || {};
-  const wbPayload = {
-    valid: (wbMeta.favoritesValid !== false) && (wbMeta.settingsValid !== false),
-    dts: typeof wbMeta.dts === "number" ? wbMeta.dts : 0,
-    favorites: wbFavIds,
-    settings: wbSettingsObj
-  };
-
-  let rtPayload = { valid: false, dts: 0, favorites: [], settings: {} };
+  // Phase 3: reconcile workbook vs runtime (Favorites + Settings only) using dts rules, then self-heal in background.
+  const { workbookGuid, filenameFingerprint } = wb?.__wbId || {};
+  let final = wb;
 
   if (workbookGuid && filenameFingerprint) {
     const rt = await rt10Read(workbookGuid, filenameFingerprint);
-    if (isValidRuntimePayload(rt)) {
-      rtPayload = { valid: true, dts: rt.dts, favorites: rt.favorites, settings: rt.settings };
-    }
-  }
 
-  const choice = choosePayload(wbPayload, rtPayload);
-  const chosen = choice.payload;
+    const wbFavValid = !!wb?.__meta?.favoritesValid;
+    const wbSetValid = !!wb?.__meta?.settingsValid;
+    const wbDts = Number(wb?.__meta?.dts || 0);
 
-  // Build favorites objects for UI
-  const idToName = new Map((wb.sheets || []).map(s => [s.id, s.name]));
-  const chosenFavObjs = (Array.isArray(chosen.favorites) ? chosen.favorites : []).map(id => ({ id, name: idToName.get(id) || "" }));
-  const chosenSettings = (chosen.settings && typeof chosen.settings === "object" && !Array.isArray(chosen.settings)) ? chosen.settings : {};
+    const rtFavValid = !!rt?.__meta?.favoritesValid;
+    const rtSetValid = !!rt?.__meta?.settingsValid;
+    const rtDts = Number(rt?.__meta?.dts || 0);
 
-  // Background self-heal (best effort, non-blocking)
-  // - If runtime wins, write chosen back into workbook (with the same dts)
-  // - If workbook wins, write chosen into runtime (with the same dts)
-  if (workbookGuid && filenameFingerprint) {
-    if (choice.source === "runtime" && wbPayload.valid) {
-      const dts = chosen.dts;
-      const favIds = Array.isArray(chosen.favorites) ? chosen.favorites : [];
-      const setObj = chosenSettings;
+    const wbValid = wbFavValid && wbSetValid;
+    const rtValid = rtFavValid && rtSetValid;
 
-      // Write into workbook asynchronously so we don't add lag to startup.
+    const choose = (() => {
+      if (!wbValid && rtValid) return "rt";
+      if (wbValid && !rtValid) return "wb";
+      if (!wbValid && !rtValid) return "wb"; // both bad: prefer workbook to avoid silent surprises
+      // both valid:
+      if (Math.abs(rtDts - wbDts) <= 4000) return "wb";
+      if (rtDts > wbDts) return "rt";
+      return "wb";
+    })();
+
+    if (choose === "rt" && rt) {
+      // Apply runtime state to the returned object
+      const rtFavIds = Array.isArray(rt.favorites) ? rt.favorites : [];
+      const rtSet = (rt.settings && typeof rt.settings === "object") ? rt.settings : {};
+      const idToName = new Map((Array.isArray(wb?.sheets) ? wb.sheets : []).map((s) => [s.id, s.name]));
+      final = {
+        ...wb,
+        favorites: rtFavIds.map((id) => ({ id, name: idToName.get(id) || "" })),
+        settings: rtSet,
+        __meta: { ...(wb.__meta || {}), dts: rtDts, favoritesValid: true, settingsValid: true }
+      };
+
+      // Background self-heal: write runtime-chosen state back into workbook (best effort)
       setTimeout(() => {
         Excel.run(async (context) => {
-          const userKey = await getOrCreateUserKey();
-          if (!userKey) return;
           const settingsSheet = await ensureSettingsSheet(context);
-          await ensureWorkbookIdentity(context, settingsSheet);
           const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
           const current = await readUserCells(context, settingsSheet, colLetter);
           await writeUserCells(context, settingsSheet, colLetter, {
-            favorites: favIds,
+            favorites: rtFavIds,
             recents: current.recents,
-            settings: setObj,
-            dtsOverride: dts
+            settings: rtSet,
+            dtsOverride: rtDts
           });
         }).catch(() => {});
       }, 0);
-    } else if (choice.source === "workbook") {
-      // Seed/refresh runtime safety net from workbook, preserving dts.
-      Promise.resolve().then(() => rt10Write(workbookGuid, filenameFingerprint, wbPayload.favorites, wbPayload.settings, wbPayload.dts)).catch(() => {});
+    }
+
+    if (choose === "wb" && wbValid) {
+      // Background self-heal: write workbook-chosen state into runtime (best effort)
+      const wbFavIds = (Array.isArray(wb?.favorites) ? wb.favorites : []).map((f) => (typeof f === "string" ? f : f?.id)).filter(Boolean);
+      const wbSet = wb?.settings || {};
+      const dts = wbDts || Date.now();
+      setTimeout(() => {
+        rt10Write(workbookGuid, filenameFingerprint, {
+          __meta: { dts, favoritesValid: true, settingsValid: true },
+          favorites: wbFavIds,
+          settings: wbSet
+        }).catch(() => {});
+      }, 0);
     }
   }
 
-  return { ...wb, favorites: chosenFavObjs, settings: chosenSettings };
+  // Phase 4: write perf cache (RT3) for visible worksheets + recents (cache-only).
+  if (workbookGuid && filenameFingerprint) {
+    try {
+      const sheets = Array.isArray(final?.sheets) ? final.sheets : [];
+      const recIds = (Array.isArray(final?.recents) ? final.recents : []).map((r) => (typeof r === "string" ? r : r?.id)).filter(Boolean);
+      await rt3Write(workbookGuid, filenameFingerprint, {
+        dts: Date.now(),
+        sheets,
+        recents: recIds,
+        freqById: final?.global?.freqById || {}
+      });
+    } catch {
+      // ignore
+    }
+  }
 
+  return final;
 }
 
 
@@ -787,8 +933,9 @@ export async function recordActivation(sheetId) {
   const userKey = await getOrCreateUserKey();
   if (!userKey) return null;
 
-  return Excel.run(async (context) => {
+  const out = await Excel.run(async (context) => {
     const settingsSheet = await ensureSettingsSheet(context);
+    const wbId = await ensureWorkbookIdentity(context, settingsSheet);
     const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
 
     // Get current visible sheets (for reconciliation)
@@ -812,6 +959,25 @@ export async function recordActivation(sheetId) {
     await writeUserCells(context, settingsSheet, colLetter, { favorites: state.favorites, recents: rec, settings: state.settings });
     const nextFreq = await incrementFrequency(context, settingsSheet, colLetter, sheetId);
 
-    return { recents: rec, freq: nextFreq };
+    return { wbId, recents: rec, freq: nextFreq };
   });
+
+  // Phase 4: mirror recents into RT3 cache (best effort, cache-only).
+  const { workbookGuid, filenameFingerprint } = out?.wbId || {};
+  if (workbookGuid && filenameFingerprint) {
+    try {
+      const perf = await rt3Read(workbookGuid, filenameFingerprint) || {};
+      const next = {
+        ...perf,
+        dts: Date.now(),
+        recents: Array.isArray(out.recents) ? out.recents : perf.recents
+      };
+      await rt3Write(workbookGuid, filenameFingerprint, next);
+    } catch {
+      // ignore
+    }
+  }
+
+  return { recents: out?.recents, freq: out?.freq };
 }
+

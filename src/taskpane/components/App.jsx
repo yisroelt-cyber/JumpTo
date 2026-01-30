@@ -41,7 +41,7 @@ const USER_COL_START = 4; // column D = 4 (1-based)
 const USER_KEY_ROW = 1;
 const USER_BLOB_ROW = 2;
 
-const MAX_FAVORITES = 20;
+const MAX_FAVORITES = 50;
 
 // Inventory table starts at row 52 (1-based) => 51 (0-based)
 const INVENTORY_START_ROW0 = 51; // row 52
