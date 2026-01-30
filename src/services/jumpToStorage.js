@@ -103,16 +103,93 @@ function colIndexToLetter(idx1) {
 
 async function ensureSettingsSheet(context) {
   const ws = context.workbook.worksheets.getItemOrNullObject(SETTINGS_SHEET_NAME);
-  ws.load("name");
+  ws.load("name,visibility");
   await context.sync();
-  if (!ws.isNullObject) return ws;
+
+  if (!ws.isNullObject) {
+    // Enforce invariant: JumpTo settings sheet is always VeryHidden.
+    if (ws.visibility !== Excel.SheetVisibility.veryHidden) {
+      ws.visibility = Excel.SheetVisibility.veryHidden;
+      await context.sync();
+    }
+    return ws;
+  }
 
   const created = context.workbook.worksheets.add(SETTINGS_SHEET_NAME);
   created.visibility = Excel.SheetVisibility.veryHidden;
-  // Make sure it stays veryHidden even if user toggles sheet visibility UI
   created.load("name");
   await context.sync();
   return created;
+}
+
+// --- Workbook identity (Phase 1 groundwork) ---
+// Workbook GUID is stored inside the VeryHidden JumpTo settings sheet.
+// Filename fingerprint is stored as the formula =CELL("filename") in the same sheet.
+//
+// Storage location (reserved):
+//   A1: label "JT_GUID"        B1: GUID value
+//   A2: label "JT_FILENAME"    B2: formula =CELL("filename") (value read as fingerprint)
+const WB_ID_RANGE_ADDRESS = "A1:B2";
+const WB_GUID_LABEL = "JT_GUID";
+const WB_FILENAME_LABEL = "JT_FILENAME";
+
+function isValidGuid(s) {
+  return typeof s === "string" && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(s.trim());
+}
+
+async function ensureWorkbookIdentity(context, settingsSheet) {
+  const range = settingsSheet.getRange(WB_ID_RANGE_ADDRESS);
+  range.load("values,formulas");
+  await context.sync();
+
+  const values = range.values || [["", ""], ["", ""]];
+  const a1 = (values[0]?.[0] || "").toString();
+  const b1 = (values[0]?.[1] || "").toString();
+  const a2 = (values[1]?.[0] || "").toString();
+  const b2 = (values[1]?.[1] || "").toString();
+
+  let guid = b1 && isValidGuid(b1) ? b1.trim() : null;
+
+  // Ensure labels exist (best-effort, harmless if already present)
+  if (a1 !== WB_GUID_LABEL) range.getCell(0, 0).values = [[WB_GUID_LABEL]];
+  if (a2 !== WB_FILENAME_LABEL) range.getCell(1, 0).values = [[WB_FILENAME_LABEL]];
+
+  // Ensure GUID exists
+  if (!guid) {
+    guid = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : (
+      // Fallback UUID v4 generator (no dependencies)
+      "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0;
+        const v = c === "x" ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      })
+    );
+    range.getCell(0, 1).values = [[guid]];
+  }
+
+  // Ensure filename fingerprint formula exists
+  // Note: value may be blank if workbook isn't saved yet; that is acceptable for our safety-net design.
+  const cellB2 = range.getCell(1, 1);
+  const existingFormula = (range.formulas?.[1]?.[1] || "").toString();
+  if (!existingFormula || existingFormula.toUpperCase() !== '=CELL("FILENAME")') {
+    cellB2.formulas = [[`=CELL("filename")`]];
+  }
+
+  await context.sync();
+
+  // Read the computed fingerprint value
+  cellB2.load("values");
+  await context.sync();
+  const filenameFingerprint = (cellB2.values?.[0]?.[0] || "").toString();
+
+  return { workbookGuid: guid, filenameFingerprint };
+}
+
+export async function getWorkbookIdentity() {
+  return Excel.run(async (context) => {
+    const settingsSheet = await ensureSettingsSheet(context);
+    return ensureWorkbookIdentity(context, settingsSheet);
+  });
 }
 
 async function getUserColumn(context, settingsSheet, userKey) {
