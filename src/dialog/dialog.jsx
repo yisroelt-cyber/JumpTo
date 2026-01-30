@@ -124,8 +124,10 @@ function DialogApp() {
   const searchInputRef = useRef(null);
   const listRowRefs = useRef([]);
   const focusTimersRef = useRef([]);
-  const parentReadyRef = useRef(false);
+    const parentReadyRef = useRef(false);
   const uiSettingsReadyRef = useRef(false);
+  const uiSettingsDirtyRef = useRef(false);
+  const uiSettingsDirtyDesiredRef = useRef(null);
   const globalOptionsDirtyRef = useRef(false);
   const globalOptionsDirtyDesiredRef = useRef(null);
   useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
@@ -350,8 +352,26 @@ function DialogApp() {
             try {
               const ui = state.settings || {};              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 50;
               const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
-              setUiFavPercentManual(Math.min(80, Math.max(20, Math.round(favPct))));
-              setUiRecentsDisplayCount(Math.min(MAX_RECENTS, Math.max(1, Math.round(recCnt))));
+              const incomingFav = Math.min(80, Math.max(20, Math.round(favPct)));
+              const incomingCnt = Math.min(MAX_RECENTS, Math.max(1, Math.round(recCnt)));
+              if (uiSettingsDirtyRef.current) {
+                const desired = uiSettingsDirtyDesiredRef.current;
+                if (
+                  desired &&
+                  Math.min(80, Math.max(20, Math.round(desired.favPercentManual))) === incomingFav &&
+                  Math.min(MAX_RECENTS, Math.max(1, Math.round(desired.recentsDisplayCount))) === incomingCnt
+                ) {
+                  uiSettingsDirtyRef.current = false;
+                  uiSettingsDirtyDesiredRef.current = null;
+                  setUiFavPercentManual(incomingFav);
+                  setUiRecentsDisplayCount(incomingCnt);
+                } else {
+                  // Ignore stale incoming UI settings while dirty.
+                }
+              } else {
+                setUiFavPercentManual(incomingFav);
+                setUiRecentsDisplayCount(incomingCnt);
+              }
             } catch (e) {
               // ignore
             }
@@ -1441,7 +1461,13 @@ return (
                 value={100 - favPercentEffective}
                 onChange={(e) => {
                   const v = Math.min(80, Math.max(20, Number(e.target.value) || 20));
-                  setUiFavPercentManual(100 - v);
+                  const nextFav = Math.min(80, Math.max(20, Math.round(100 - v)));
+                  uiSettingsDirtyRef.current = true;
+                  uiSettingsDirtyDesiredRef.current = {
+                    favPercentManual: nextFav,
+                    recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+                  };
+                  setUiFavPercentManual(nextFav);
                 }}
                 style={{ flex: "1 1 auto" }}
               />
@@ -1462,7 +1488,15 @@ return (
                     type="radio"
                     name="rowHeightPreset_final"
                     checked={activePresetName === name}
-                    onChange={() => setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: name }))}
+                    onChange={() => {
+                      const nextPreset = String(name);
+                      globalOptionsDirtyRef.current = true;
+                      globalOptionsDirtyDesiredRef.current = {
+                        oneDigitActivationEnabled: !!globalOptions?.oneDigitActivationEnabled,
+                        rowHeightPreset: nextPreset,
+                      };
+                      setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: nextPreset }));
+                    }}
                   />
                   {name}
                 </label>
@@ -1509,7 +1543,13 @@ return (
                 value={uiRecentsDisplayCount}
                 onChange={(e) => {
                   const v = Math.min(MAX_RECENTS, Math.max(1, Number(e.target.value) || 1));
-                  setUiRecentsDisplayCount(v);
+                  const nextCnt = Math.min(MAX_RECENTS, Math.max(1, Math.round(v)));
+                  uiSettingsDirtyRef.current = true;
+                  uiSettingsDirtyDesiredRef.current = {
+                    favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+                    recentsDisplayCount: nextCnt,
+                  };
+                  setUiRecentsDisplayCount(nextCnt);
                 }}
                 style={{ width: 64, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
               />
