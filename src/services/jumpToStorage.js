@@ -96,13 +96,13 @@ async function rt10Read(workbookGuid, filenameFingerprint) {
   }
 }
 
-async function rt10Write(workbookGuid, filenameFingerprint, favorites, settings) {
+async function rt10Write(workbookGuid, filenameFingerprint, favorites, settings, dtsOverride) {
   if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage?.setItem) return;
   const key = makeRt10EntryKey(workbookGuid, filenameFingerprint);
   const payload = {
     workbookGuid,
     filenameFingerprint,
-    dts: Date.now(),
+    dts: (typeof dtsOverride === "number" ? dtsOverride : Date.now()),
     favorites: Array.isArray(favorites) ? favorites : [],
     settings: (settings && typeof settings === "object") ? settings : {}
   };
@@ -130,6 +130,75 @@ function safeJsonStringify(obj) {
   } catch {
     return "[]";
   }
+}
+
+
+function parseFavoritesCell(raw) {
+  // Accept either legacy array format: ["sheetId", ...]
+  // or wrapped format: { dts: <ms>, favorites: ["sheetId", ...] }
+  try {
+    if (typeof raw !== "string") raw = String(raw ?? "");
+    const s = raw.trim();
+    if (!s) return { favorites: [], dts: 0, valid: true };
+    const v = JSON.parse(s);
+    if (Array.isArray(v)) return { favorites: v.filter(Boolean), dts: 0, valid: true };
+    if (v && typeof v === "object" && Array.isArray(v.favorites)) {
+      const dts = (typeof v.dts === "number" && isFinite(v.dts)) ? v.dts : 0;
+      return { favorites: v.favorites.filter(Boolean), dts, valid: true };
+    }
+    return { favorites: [], dts: 0, valid: false };
+  } catch {
+    return { favorites: [], dts: 0, valid: false };
+  }
+}
+
+function parseSettingsCell(raw) {
+  // Accept either legacy object format: { ...settings }
+  // or wrapped format: { dts: <ms>, settings: { ... } }
+  try {
+    if (typeof raw !== "string") raw = String(raw ?? "");
+    const s = raw.trim();
+    if (!s) return { settings: {}, dts: 0, valid: true };
+    const v = JSON.parse(s);
+    if (v && typeof v === "object" && !Array.isArray(v) && v.settings && typeof v.settings === "object" && !Array.isArray(v.settings)) {
+      const dts = (typeof v.dts === "number" && isFinite(v.dts)) ? v.dts : 0;
+      return { settings: v.settings, dts, valid: true };
+    }
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      // legacy settings object
+      return { settings: v, dts: 0, valid: true };
+    }
+    return { settings: {}, dts: 0, valid: false };
+  } catch {
+    return { settings: {}, dts: 0, valid: false };
+  }
+}
+
+function isValidRuntimePayload(rt) {
+  if (!rt || typeof rt !== "object") return false;
+  if (typeof rt.dts !== "number" || !isFinite(rt.dts)) return false;
+  if (!Array.isArray(rt.favorites)) return false;
+  if (!rt.settings || typeof rt.settings !== "object" || Array.isArray(rt.settings)) return false;
+  return true;
+}
+
+function choosePayload(wbPayload, rtPayload) {
+  // Implements LPD rule:
+  // - If one invalid, take the other
+  // - If both valid, latest dts wins
+  // - If tie or within 4 seconds, prefer workbook
+  const wbValid = !!wbPayload?.valid;
+  const rtValid = !!rtPayload?.valid;
+
+  if (!wbValid && rtValid) return { source: "runtime", payload: rtPayload };
+  if (wbValid && !rtValid) return { source: "workbook", payload: wbPayload };
+  if (!wbValid && !rtValid) return { source: "workbook", payload: wbPayload };
+
+  const wbDts = typeof wbPayload.dts === "number" ? wbPayload.dts : 0;
+  const rtDts = typeof rtPayload.dts === "number" ? rtPayload.dts : 0;
+  const diff = Math.abs(wbDts - rtDts);
+  if (diff <= 4000) return { source: "workbook", payload: wbPayload };
+  return (rtDts > wbDts) ? { source: "runtime", payload: rtPayload } : { source: "workbook", payload: wbPayload };
 }
 
 function isPlainObjectEmpty(o) {
@@ -327,6 +396,7 @@ async function getUserColumn(context, settingsSheet, userKey) {
   return { colIdx1, colLetter };
 }
 
+
 async function readUserCells(context, sheet, colLetter) {
   const favCell = sheet.getRange(`${colLetter}${ROW_FAVORITES}`);
   const recCell = sheet.getRange(`${colLetter}${ROW_RECENTS}`);
@@ -336,20 +406,45 @@ async function readUserCells(context, sheet, colLetter) {
   setCell.load("values");
   await context.sync();
 
-  const favorites = safeJsonParse(favCell.values?.[0]?.[0], []);
-  const recents = safeJsonParse(recCell.values?.[0]?.[0], []);
-  const settings = safeJsonParse(setCell.values?.[0]?.[0], {});
+  const favRaw = favCell.values?.[0]?.[0];
+  const recRaw = recCell.values?.[0]?.[0];
+  const setRaw = setCell.values?.[0]?.[0];
 
-  return { favorites, recents, settings };
+  const favParsed = parseFavoritesCell(favRaw);
+  const setParsed = parseSettingsCell(setRaw);
+  const recents = safeJsonParse(recRaw, []);
+
+  // We treat Favorites + Settings as a single logical payload for reconciliation.
+  // Use max dts to be robust if they ever diverge.
+  const dts = Math.max(Number(favParsed.dts || 0), Number(setParsed.dts || 0));
+
+  return {
+    favorites: favParsed.favorites,
+    recents,
+    settings: setParsed.settings,
+    __meta: {
+      favoritesValid: favParsed.valid,
+      settingsValid: setParsed.valid,
+      dts
+    }
+  };
 }
 
-async function writeUserCells(context, sheet, colLetter, { favorites, recents, settings }) {
+
+
+async function writeUserCells(context, sheet, colLetter, { favorites, recents, settings, dtsOverride }) {
   const favCell = sheet.getRange(`${colLetter}${ROW_FAVORITES}`);
   const recCell = sheet.getRange(`${colLetter}${ROW_RECENTS}`);
   const setCell = sheet.getRange(`${colLetter}${ROW_SETTINGS}`);
-  favCell.values = [[safeJsonStringify(favorites || [])]];
-  recCell.values = [[safeJsonStringify(recents || [])]];
-  setCell.values = [[safeJsonStringify(settings || {})]];
+
+  const dts = (typeof dtsOverride === "number" && isFinite(dtsOverride)) ? dtsOverride : Date.now();
+
+  const favPayload = { dts, favorites: Array.isArray(favorites) ? favorites : [] };
+  const setPayload = { dts, settings: (settings && typeof settings === "object" && !Array.isArray(settings)) ? settings : {} };
+
+  favCell.values = [[safeJsonStringify(favPayload)]];
+  recCell.values = [[safeJsonStringify(Array.isArray(recents) ? recents : [])]];
+  setCell.values = [[safeJsonStringify(setPayload)]];
   await context.sync();
 }
 
@@ -477,7 +572,7 @@ export async function getJumpToState() {
 
     // Reconcile inventory and read per-user blobs
     await syncInventoryWithVisibleSheets(context, settingsSheet, colLetter, visibleSheets);
-    const { favorites, recents, settings } = await readUserCells(context, settingsSheet, colLetter);
+    const { favorites, recents, settings, __meta } = await readUserCells(context, settingsSheet, colLetter);
 
     // Build enriched favorites/recents objects with names
     const idToName = new Map(visibleSheets.map(s => [s.id, s.name]));
@@ -498,37 +593,77 @@ export async function getJumpToState() {
       favorites: favObjs,
       recents: recObjs,
       settings: (settings && typeof settings === "object") ? settings : {},
+      __meta,
       global: { freqById }
     };
   });
 
-  // Phase 2: runtime safety net (Favorites + Settings only) gated by (GUID + filename fingerprint).
+  
+// Phase 3: reconcile workbook vs runtime (Favorites + Settings only) using dts rules, then self-heal in background.
   const { workbookGuid, filenameFingerprint } = wb.__wbId || {};
-  let favorites = wb.favorites;
-  let settings = wb.settings;
+
+  // Workbook payload (ids + settings + dts)
+  const wbFavIds = (Array.isArray(wb.favorites) ? wb.favorites : []).map(f => f?.id).filter(Boolean);
+  const wbSettingsObj = (wb.settings && typeof wb.settings === "object" && !Array.isArray(wb.settings)) ? wb.settings : {};
+  const wbMeta = wb.__meta || {};
+  const wbPayload = {
+    valid: (wbMeta.favoritesValid !== false) && (wbMeta.settingsValid !== false),
+    dts: typeof wbMeta.dts === "number" ? wbMeta.dts : 0,
+    favorites: wbFavIds,
+    settings: wbSettingsObj
+  };
+
+  let rtPayload = { valid: false, dts: 0, favorites: [], settings: {} };
 
   if (workbookGuid && filenameFingerprint) {
     const rt = await rt10Read(workbookGuid, filenameFingerprint);
-
-    // If workbook lost state (common failure mode), prefer runtime non-empty values.
-    if (rt) {
-      if ((!Array.isArray(favorites) || favorites.length === 0) && Array.isArray(rt.favorites) && rt.favorites.length > 0) {
-        const idToName = new Map((wb.sheets || []).map(s => [s.id, s.name]));
-        favorites = rt.favorites.map(id => ({ id, name: idToName.get(id) || "" }));
-      }
-      if (isPlainObjectEmpty(settings) && rt.settings && typeof rt.settings === "object" && !isPlainObjectEmpty(rt.settings)) {
-        settings = rt.settings;
-      }
-    } else {
-      // Seed runtime safety net from workbook if there is meaningful data.
-      const favIds = (Array.isArray(favorites) ? favorites : []).map(f => f?.id).filter(Boolean);
-      if (favIds.length > 0 || (settings && typeof settings === "object" && !isPlainObjectEmpty(settings))) {
-        await rt10Write(workbookGuid, filenameFingerprint, favIds, settings);
-      }
+    if (isValidRuntimePayload(rt)) {
+      rtPayload = { valid: true, dts: rt.dts, favorites: rt.favorites, settings: rt.settings };
     }
   }
 
-  return { ...wb, favorites, settings };
+  const choice = choosePayload(wbPayload, rtPayload);
+  const chosen = choice.payload;
+
+  // Build favorites objects for UI
+  const idToName = new Map((wb.sheets || []).map(s => [s.id, s.name]));
+  const chosenFavObjs = (Array.isArray(chosen.favorites) ? chosen.favorites : []).map(id => ({ id, name: idToName.get(id) || "" }));
+  const chosenSettings = (chosen.settings && typeof chosen.settings === "object" && !Array.isArray(chosen.settings)) ? chosen.settings : {};
+
+  // Background self-heal (best effort, non-blocking)
+  // - If runtime wins, write chosen back into workbook (with the same dts)
+  // - If workbook wins, write chosen into runtime (with the same dts)
+  if (workbookGuid && filenameFingerprint) {
+    if (choice.source === "runtime" && wbPayload.valid) {
+      const dts = chosen.dts;
+      const favIds = Array.isArray(chosen.favorites) ? chosen.favorites : [];
+      const setObj = chosenSettings;
+
+      // Write into workbook asynchronously so we don't add lag to startup.
+      setTimeout(() => {
+        Excel.run(async (context) => {
+          const userKey = await getOrCreateUserKey();
+          if (!userKey) return;
+          const settingsSheet = await ensureSettingsSheet(context);
+          await ensureWorkbookIdentity(context, settingsSheet);
+          const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
+          const current = await readUserCells(context, settingsSheet, colLetter);
+          await writeUserCells(context, settingsSheet, colLetter, {
+            favorites: favIds,
+            recents: current.recents,
+            settings: setObj,
+            dtsOverride: dts
+          });
+        }).catch(() => {});
+      }, 0);
+    } else if (choice.source === "workbook") {
+      // Seed/refresh runtime safety net from workbook, preserving dts.
+      Promise.resolve().then(() => rt10Write(workbookGuid, filenameFingerprint, wbPayload.favorites, wbPayload.settings, wbPayload.dts)).catch(() => {});
+    }
+  }
+
+  return { ...wb, favorites: chosenFavObjs, settings: chosenSettings };
+
 }
 
 
@@ -538,6 +673,7 @@ export async function toggleFavorite(sheetId) {
 
   return Excel.run(async (context) => {
     const sheet = await ensureSettingsSheet(context);
+    const wbId = await ensureWorkbookIdentity(context, sheet);
     const { colLetter } = await getUserColumn(context, sheet, userKey);
     const state = await readUserCells(context, sheet, colLetter);
     const favs = Array.isArray(state.favorites) ? [...state.favorites] : [];
@@ -550,7 +686,15 @@ export async function toggleFavorite(sheetId) {
       if (favs.length > MAX_FAVORITES) favs.length = MAX_FAVORITES;
     }
 
-    await writeUserCells(context, sheet, colLetter, { favorites: favs, recents: state.recents, settings: state.settings });
+    const dts = Date.now();
+    await writeUserCells(context, sheet, colLetter, { favorites: favs, recents: state.recents, settings: state.settings, dtsOverride: dts });
+
+    // Mirror into runtime safety net (best effort)
+    const { workbookGuid, filenameFingerprint } = wbId || {};
+    if (workbookGuid && filenameFingerprint) {
+      await rt10Write(workbookGuid, filenameFingerprint, favs, state.settings || {}, dts);
+    }
+
     return favs;
   });
 }
@@ -561,19 +705,20 @@ export async function setFavorites(favIds) {
   if (!userKey) return;
 
   const nextFavs = Array.isArray(favIds) ? favIds.filter(Boolean) : [];
+  const dts = Date.now();
 
   const out = await Excel.run(async (context) => {
     const settingsSheet = await ensureSettingsSheet(context);
     const wbId = await ensureWorkbookIdentity(context, settingsSheet);
     const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
     const { recents, settings } = await readUserCells(context, settingsSheet, colLetter);
-    await writeUserCells(context, settingsSheet, colLetter, { favorites: nextFavs, recents, settings });
+    await writeUserCells(context, settingsSheet, colLetter, { favorites: nextFavs, recents, settings, dtsOverride: dts });
     return { wbId, settings };
   });
 
   const { workbookGuid, filenameFingerprint } = out?.wbId || {};
   if (workbookGuid && filenameFingerprint) {
-    await rt10Write(workbookGuid, filenameFingerprint, nextFavs, out.settings || {});
+    await rt10Write(workbookGuid, filenameFingerprint, nextFavs, out.settings || {}, dts);
   }
 }
 
@@ -615,28 +760,26 @@ export async function moveFavorite(sheetId, direction) {
 
 
 
-export async function setUiSettings(settingsPatch) {
+export async function setUiSettings(nextSettings) {
   const userKey = await getOrCreateUserKey();
   if (!userKey) return;
 
-  const patch = (settingsPatch && typeof settingsPatch === "object") ? settingsPatch : {};
+  const normalized = (nextSettings && typeof nextSettings === "object" && !Array.isArray(nextSettings)) ? nextSettings : {};
+  const dts = Date.now();
 
   const out = await Excel.run(async (context) => {
     const settingsSheet = await ensureSettingsSheet(context);
     const wbId = await ensureWorkbookIdentity(context, settingsSheet);
     const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
-
-    const { favorites, recents, settings } = await readUserCells(context, settingsSheet, colLetter);
-    const nextSettings = { ...(settings || {}), ...patch };
-
-    await writeUserCells(context, settingsSheet, colLetter, { favorites, recents, settings: nextSettings });
-
-    return { wbId, favorites, nextSettings };
+    const { favorites, recents } = await readUserCells(context, settingsSheet, colLetter);
+    await writeUserCells(context, settingsSheet, colLetter, { favorites, recents, settings: normalized, dtsOverride: dts });
+    return { wbId, favorites };
   });
 
   const { workbookGuid, filenameFingerprint } = out?.wbId || {};
   if (workbookGuid && filenameFingerprint) {
-    await rt10Write(workbookGuid, filenameFingerprint, out.favorites || [], out.nextSettings || {});
+    const favIds = Array.isArray(out.favorites) ? out.favorites.filter(Boolean) : [];
+    await rt10Write(workbookGuid, filenameFingerprint, favIds, normalized, dts);
   }
 }
 
