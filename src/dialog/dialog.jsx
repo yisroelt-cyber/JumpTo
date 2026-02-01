@@ -336,8 +336,8 @@ function DialogApp() {
                 if (
                   desired &&
                   !!incoming.oneDigitActivationEnabled === !!desired.oneDigitActivationEnabled &&
-                  String(incoming.rowHeightPreset || \"Standard\") === String(desired.rowHeightPreset || \"Standard\") &&
-                  String(incoming.baselineOrder || \"workbook\") === String(desired.baselineOrder || \"workbook\") &&
+                  String(incoming.rowHeightPreset || "Standard") === String(desired.rowHeightPreset || "Standard") &&
+                  String(incoming.baselineOrder || "workbook") === String(desired.baselineOrder || "workbook") &&
                   !!incoming.frequentOnTop === !!desired.frequentOnTop
                 ) {
                   // Parent has caught up; accept incoming and clear dirty.
