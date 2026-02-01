@@ -96,6 +96,8 @@ function DialogApp() {
   // UI layout settings (Navigation + Favorites tab right column)
   const [uiFavPercentManual, setUiFavPercentManual] = useState(50); // 20..80 (Favorites share when space is limited)
   const [uiRecentsDisplayCount, setUiRecentsDisplayCount] = useState(10); // 1..MAX_RECENTS
+  const [uiMainColumnWidth, setUiMainColumnWidth] = useState(260); // px, shared across Nav+Fav columns
+  const [uiSettingsMinWidth, setUiSettingsMinWidth] = useState(360); // px, Settings tab content min-width
   const uiSettingsPersistTimerRef = useRef(null);
 
   // Global options persistence (debounced): rowHeightPreset.
@@ -358,10 +360,15 @@ function DialogApp() {
             // UI settings (persisted per-user)
             if (hydratePrefs) {
             try {
-              const ui = state.settings || {};              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 50;
+              const ui = state.settings || {};
+              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 50;
               const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
+              const mainColW = Number.isFinite(Number(ui.mainColumnWidth)) ? Number(ui.mainColumnWidth) : 260;
+              const settingsMinW = Number.isFinite(Number(ui.settingsMinWidth)) ? Number(ui.settingsMinWidth) : 360;
               const incomingFav = Math.min(80, Math.max(20, Math.round(favPct)));
               const incomingCnt = Math.min(MAX_RECENTS, Math.max(1, Math.round(recCnt)));
+              const incomingMainW = Math.min(420, Math.max(180, Math.round(mainColW)));
+              const incomingSettingsMinW = Math.min(520, Math.max(240, Math.round(settingsMinW)));
 
 const incomingBaseOrder = (ui.baselineOrder === "alpha" ? "alpha" : "workbook");
 const incomingFrequentOnTop = !!ui.frequentOnTop;
@@ -371,12 +378,16 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
                 if (
                   desired &&
                   Math.min(80, Math.max(20, Math.round(desired.favPercentManual))) === incomingFav &&
-                  Math.min(MAX_RECENTS, Math.max(1, Math.round(desired.recentsDisplayCount))) === incomingCnt
+                  Math.min(MAX_RECENTS, Math.max(1, Math.round(desired.recentsDisplayCount))) === incomingCnt &&
+                  Math.min(420, Math.max(180, Math.round(desired.mainColumnWidth))) === incomingMainW &&
+                  Math.min(520, Math.max(240, Math.round(desired.settingsMinWidth))) === incomingSettingsMinW
                 ) {
                   uiSettingsDirtyRef.current = false;
                   uiSettingsDirtyDesiredRef.current = null;
                   setUiFavPercentManual(incomingFav);
                   setUiRecentsDisplayCount(incomingCnt);
+                  setUiMainColumnWidth(incomingMainW);
+                  setUiSettingsMinWidth(incomingSettingsMinW);
                 setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
                 } else {
                   // Ignore stale incoming UI settings while dirty.
@@ -384,6 +395,8 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
               } else {
                 setUiFavPercentManual(incomingFav);
                 setUiRecentsDisplayCount(incomingCnt);
+                setUiMainColumnWidth(incomingMainW);
+                setUiSettingsMinWidth(incomingSettingsMinW);
               }
             } catch (e) {
               // ignore
@@ -703,6 +716,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
         sendSetUiSettingsToParent({
           favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
           recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+          mainColumnWidth: Math.min(420, Math.max(180, Math.round(uiMainColumnWidth))),
+          settingsMinWidth: Math.min(520, Math.max(240, Math.round(uiSettingsMinWidth))),
           baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
           frequentOnTop: !!(globalOptions?.frequentOnTop),
         });
@@ -722,6 +737,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       sendSetUiSettingsToParent({
         favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
         recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+          mainColumnWidth: Math.min(420, Math.max(180, Math.round(uiMainColumnWidth))),
+          settingsMinWidth: Math.min(520, Math.max(240, Math.round(uiSettingsMinWidth))),
         baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
         frequentOnTop: !!(globalOptions?.frequentOnTop),
       });
@@ -813,7 +830,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     if (!parentReadyRef.current) return;
     schedulePersistUiSettings("ui-change");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uiFavPercentManual, uiRecentsDisplayCount, globalOptions?.baselineOrder, globalOptions?.frequentOnTop]);
+  }, [uiFavPercentManual, uiRecentsDisplayCount, uiMainColumnWidth, uiSettingsMinWidth, globalOptions?.baselineOrder, globalOptions?.frequentOnTop]);
 
   // Persist global options when they change (debounced).
   useEffect(() => {
@@ -826,7 +843,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   useEffect(() => {
     window.flushPersistUiSettingsNow = flushPersistUiSettingsNow;
     return () => { try { delete window.flushPersistUiSettingsNow; } catch {} };
-  }, [uiFavPercentManual, uiRecentsDisplayCount, globalOptions?.baselineOrder, globalOptions?.frequentOnTop]);
+  }, [uiFavPercentManual, uiRecentsDisplayCount, uiMainColumnWidth, uiSettingsMinWidth, globalOptions?.baselineOrder, globalOptions?.frequentOnTop]);
 
   useEffect(() => {
     window.flushPersistGlobalOptionsNow = flushPersistGlobalOptionsNow;
@@ -923,6 +940,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     const uiSettings = {
       favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
       recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+          mainColumnWidth: Math.min(420, Math.max(180, Math.round(uiMainColumnWidth))),
+          settingsMinWidth: Math.min(520, Math.max(240, Math.round(uiSettingsMinWidth))),
       baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
       frequentOnTop: !!(globalOptions?.frequentOnTop),
     };
@@ -1049,9 +1068,9 @@ return (
 
       {activeTab === "Navigation" && (
         <>
-          <div style={{ display: "flex", gap: 16, height: panelHeight, overflow: "hidden" }}>
+          <div style={{ display: "flex", gap: 16, height: panelHeight, overflowY: "hidden", overflowX: "auto" }}>
             {/* Left: Search + All results */}
-            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div style={{ flex: "1 1 0", minWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
                 <input
                   autoFocus
@@ -1202,7 +1221,7 @@ return (
             </div>
 
             {/* Right: Favorites + Recents */}
-            <div style={{ flex: "0 0 45%", minWidth: 220, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ flex: "1 1 0", minWidth: uiMainColumnWidth, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
@@ -1300,9 +1319,9 @@ return (
 
       {activeTab === "Favorites" && (
         <>
-          <div style={{ display: "flex", gap: 16, height: panelHeight, overflow: "hidden" }}>
+          <div style={{ display: "flex", gap: 16, height: panelHeight, overflowY: "hidden", overflowX: "auto" }}>
             {/* Left: Search + Available (non-favorites) */}
-            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div style={{ flex: "1 1 0", minWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
                 <input
                   autoFocus
@@ -1413,7 +1432,7 @@ return (
             </div>
 
             {/* Right: Favorites (top) + Controls (bottom, replaces Recents section) */}
-            <div style={{ flex: "0 0 45%", minWidth: 220, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div style={{ flex: "1 1 0", minWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               {/* Favorites list */}
               <div style={{ marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
@@ -1508,7 +1527,8 @@ return (
       )}
 
       {activeTab === "Settings" && (
-        <div style={{ height: panelHeight, overflowY: "auto", overflowX: "hidden", paddingRight: 4 }}>
+        <div style={{ height: panelHeight, overflowY: "auto", overflowX: "auto", paddingRight: 4 }}>
+          <div style={{ minWidth: uiSettingsMinWidth }}>
           <div style={{ fontSize: 13, fontWeight: 800, margin: "2px 0 10px", opacity: 0.9 }}>Appearance</div>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
@@ -1530,6 +1550,8 @@ return (
                   uiSettingsDirtyDesiredRef.current = {
                     favPercentManual: nextFav,
                     recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+          mainColumnWidth: Math.min(420, Math.max(180, Math.round(uiMainColumnWidth))),
+          settingsMinWidth: Math.min(520, Math.max(240, Math.round(uiSettingsMinWidth))),
                   };
                   setUiFavPercentManual(nextFav);
                 }}
@@ -1586,6 +1608,8 @@ return (
                   uiSettingsDirtyDesiredRef.current = {
                     favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
                     recentsDisplayCount: nextCnt,
+                    mainColumnWidth: Math.min(420, Math.max(180, Math.round(uiMainColumnWidth))),
+                    settingsMinWidth: Math.min(520, Math.max(240, Math.round(uiSettingsMinWidth))),
                   };
                   setUiRecentsDisplayCount(nextCnt);
                 }}
@@ -1593,7 +1617,67 @@ return (
               />
               <span>items</span>
             </div>
-          </div><div style={{ fontSize: 13, fontWeight: 800, margin: "12px 0 10px", opacity: 0.9 }}>Behavior</div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Layout (Lab)</div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, opacity: 0.9 }}>
+              <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <span>Nav + Favorites column width (px)</span>
+                <input
+                  type="number"
+                  min={180}
+                  max={420}
+                  step={10}
+                  value={uiMainColumnWidth}
+                  onChange={(e) => {
+                    const v = Math.min(420, Math.max(180, Number(e.target.value) || 180));
+                    const nextW = Math.min(420, Math.max(180, Math.round(v)));
+                    uiSettingsDirtyRef.current = true;
+                    uiSettingsDirtyDesiredRef.current = {
+                      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+                      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+                      mainColumnWidth: nextW,
+                      settingsMinWidth: Math.min(520, Math.max(240, Math.round(uiSettingsMinWidth))),
+                    };
+                    setUiMainColumnWidth(nextW);
+                  }}
+                  style={{ width: 84, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
+                />
+              </label>
+
+              <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <span>Settings minimum width (px)</span>
+                <input
+                  type="number"
+                  min={240}
+                  max={520}
+                  step={10}
+                  value={uiSettingsMinWidth}
+                  onChange={(e) => {
+                    const v = Math.min(520, Math.max(240, Number(e.target.value) || 240));
+                    const nextW = Math.min(520, Math.max(240, Math.round(v)));
+                    uiSettingsDirtyRef.current = true;
+                    uiSettingsDirtyDesiredRef.current = {
+                      favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+                      recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+                      mainColumnWidth: Math.min(420, Math.max(180, Math.round(uiMainColumnWidth))),
+                      settingsMinWidth: nextW,
+                    };
+                    setUiSettingsMinWidth(nextW);
+                  }}
+                  style={{ width: 84, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
+                />
+              </label>
+
+              <div style={{ fontSize: 11, opacity: 0.75 }}>
+                Tip: Narrow the dialog to force horizontal scrolling and find the smallest comfortable values.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 13, fontWeight: 800, margin: "12px 0 10px", opacity: 0.9 }}>Behavior</div>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>List ordering</div>
 
@@ -1673,6 +1757,7 @@ return (
           </div>
 
           
+          </div>
         </div>
       )}
 
