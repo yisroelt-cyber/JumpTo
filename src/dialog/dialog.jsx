@@ -721,7 +721,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
           favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
           recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
           baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
-          frequentOnTop: !!globalOptions?.frequentOnTop,
+          frequentOnTop: !!(globalOptions?.frequentOnTop),
         });
       } catch {
         // ignore
@@ -735,14 +735,11 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       uiSettingsPersistTimerRef.current = null;
     }
     try {
-      
-          baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
-          frequentOnTop: !!globalOptions?.frequentOnTop,
-sendSetUiSettingsToParent({
+        sendSetUiSettingsToParent({
           favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
           recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
           baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
-          frequentOnTop: !!globalOptions?.frequentOnTop,
+          frequentOnTop: !!(globalOptions?.frequentOnTop),
         });
     } catch {
       // ignore
