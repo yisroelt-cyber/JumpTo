@@ -762,6 +762,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
           Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
           Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!globalOptions?.oneDigitActivationEnabled }));
+          Office.context.ui.messageParent(JSON.stringify({ type: "setUiSettings", settings: { baselineOrder: String(globalOptions?.baselineOrder || "workbook"), frequentOnTop: !!globalOptions?.frequentOnTop } }));
+
 
         }
 
@@ -952,6 +954,9 @@ const onToggleFavorite = (sheetId) => {
 
 const onCancel = () => {
   try {
+    try { flushPersistUiSettingsNow("cancel"); } catch {}
+    try { flushPersistGlobalOptionsNow("cancel"); } catch {}
+
     const snapshot = buildPersistSnapshot();
     Office.context.ui.messageParent(JSON.stringify({ type: "cancel", snapshot }));
   } catch {
