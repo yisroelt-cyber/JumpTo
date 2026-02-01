@@ -336,7 +336,9 @@ function DialogApp() {
                 if (
                   desired &&
                   !!incoming.oneDigitActivationEnabled === !!desired.oneDigitActivationEnabled &&
-                  String(incoming.rowHeightPreset || "Standard") === String(desired.rowHeightPreset || "Standard")
+                  String(incoming.rowHeightPreset || \"Standard\") === String(desired.rowHeightPreset || \"Standard\") &&
+                  String(incoming.baselineOrder || \"workbook\") === String(desired.baselineOrder || \"workbook\") &&
+                  !!incoming.frequentOnTop === !!desired.frequentOnTop
                 ) {
                   // Parent has caught up; accept incoming and clear dirty.
                   globalOptionsDirtyRef.current = false;
@@ -442,39 +444,85 @@ function DialogApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-    const computeTier = (freq) => {
-    const f = Number(freq || 0);
-    if (f < 10) return 0;
-    return 1 + Math.floor(Math.log(f / 10) / Math.log(1.35));
+  const median = (nums) => {
+    const arr = (Array.isArray(nums) ? nums : []).map((x) => Number(x) || 0).sort((a, b) => a - b);
+    const n = arr.length;
+    if (!n) return 0;
+    const mid = Math.floor(n / 2);
+    if (n % 2 === 1) return arr[mid];
+    return (arr[mid - 1] + arr[mid]) / 2;
   };
 
+  // Dynamic-ish ratio: requires a bigger separation when the result set is tiny, and relaxes as N grows.
+  const ratioForN = (n) => {
+    const N = Math.max(0, Number(n) || 0);
+    if (N <= 3) return 2.5;
+    if (N <= 6) return 2.2;
+    if (N <= 10) return 2.0;
+    return 1.75;
+  };
+
+  const applyFrequencyBump = (items, fullCount, queryText, isEnabled) => {
+    const q = String(queryText || "").trim();
+    if (!isEnabled) return items;
+    if (!q) return items;
+    if (!Array.isArray(items) || !items.length) return items;
+    // Only apply when the search has narrowed the list (subset of the full list).
+    if (Number(items.length) >= Number(fullCount || 0)) return items;
+
+    const N = items.length;
+    const k = Math.min(5, Math.max(1, Math.ceil(0.1 * N))); // examine only the top decile (capped), but never force a bump.
+    const freqVal = (s) => Number(s?.freq || 0);
+
+    const byFreqDesc = [...items].sort((a, b) => freqVal(b) - freqVal(a));
+    const candidates = byFreqDesc.slice(0, k);
+    const candidateIds = new Set(candidates.map((s) => s?.id));
+
+    const others = items.filter((s) => !candidateIds.has(s?.id));
+    const baseline = median((others.length ? others : items).map((s) => freqVal(s)));
+
+    const floorMin = 5;
+    const ratio = ratioForN(N);
+    const threshold = Math.max(floorMin, baseline * ratio);
+
+    // Preserve baseline order index for tie-breakers.
+    const baseIndex = new Map(items.map((s, idx) => [s?.id, idx]));
+
+    let bumped = candidates.filter((s) => freqVal(s) >= threshold);
+    if (!bumped.length) return items;
+
+    // Cap total bump to 5 and sort bumped by frequency desc, then baseline order.
+    bumped.sort((a, b) => {
+      const d = freqVal(b) - freqVal(a);
+      if (d !== 0) return d;
+      return (baseIndex.get(a?.id) ?? 0) - (baseIndex.get(b?.id) ?? 0);
+    });
+    bumped = bumped.slice(0, 5);
+
+    const bumpedIds = new Set(bumped.map((s) => s?.id));
+    const rest = items.filter((s) => !bumpedIds.has(s?.id));
+    return [...bumped, ...rest];
+  };
+
+
   const filtered = useMemo(() => {
-    const q = (query || "").toLowerCase();
+    const qRaw = String(query || "");
+    const q = qRaw.toLowerCase();
+    const fullCount = Array.isArray(allSheets) ? allSheets.length : 0;
+
     let items = Array.isArray(allSheets) ? [...allSheets] : [];
     if (q) items = items.filter((s) => (s?.name || "").toLowerCase().includes(q));
 
     // Baseline order
-    const baseline = (globalOptions?.baselineOrder || "workbook");
+    const baseline = String(globalOptions?.baselineOrder || "workbook");
     if (baseline === "alpha") {
       items.sort((a, b) => (a?.name || "").localeCompare(b?.name || ""));
     } else {
       items.sort((a, b) => Number(a?.orderIndex || 0) - Number(b?.orderIndex || 0));
     }
 
-    // Frequent-on-top: move only highest tier present to the top
-    if (globalOptions?.frequentOnTop) {
-      const tiers = items.map((s) => computeTier(s?.freq || 0));
-      const maxTier = tiers.length ? Math.max(...tiers) : 0;
-      if (maxTier > 0) {
-        const high = [];
-        const rest = [];
-        for (let i = 0; i < items.length; i++) {
-          if (tiers[i] === maxTier) high.push(items[i]);
-          else rest.push(items[i]);
-        }
-        items = [...high, ...rest];
-      }
-    }
+    // Frequent-on-top: only when the search has narrowed the list (subset).
+    items = applyFrequencyBump(items, fullCount, qRaw, !!globalOptions?.frequentOnTop);
 
     return items;
   }, [allSheets, query, globalOptions]);
@@ -1494,6 +1542,8 @@ return (
                       globalOptionsDirtyDesiredRef.current = {
                         oneDigitActivationEnabled: !!globalOptions?.oneDigitActivationEnabled,
                         rowHeightPreset: nextPreset,
+                        baselineOrder: String(globalOptions?.baselineOrder || "workbook"),
+                        frequentOnTop: !!globalOptions?.frequentOnTop,
                       };
                       setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: nextPreset }));
                     }}
@@ -1504,7 +1554,55 @@ return (
             </div>
           </div>
 
+          
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>List ordering</div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, opacity: 0.95, marginBottom: 10 }}>
+              <div style={{ width: 120, opacity: 0.9 }}>Base order</div>
+              <select
+                value={String(globalOptions?.baselineOrder || "workbook")}
+                onChange={(e) => {
+                  const nextBaseline = String(e.target.value || "workbook");
+                  globalOptionsDirtyRef.current = true;
+                  globalOptionsDirtyDesiredRef.current = {
+                    oneDigitActivationEnabled: !!globalOptions?.oneDigitActivationEnabled,
+                    rowHeightPreset: String(globalOptions?.rowHeightPreset || "Standard"),
+                    baselineOrder: nextBaseline,
+                    frequentOnTop: !!globalOptions?.frequentOnTop,
+                  };
+                  setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: nextBaseline }));
+                }}
+                style={{ flex: "0 0 220px", padding: "4px 6px", borderRadius: 6, border: "1px solid rgba(0,0,0,0.2)", background: "white" }}
+              >
+                <option value="workbook">Workbook order</option>
+                <option value="alpha">Alphabetical</option>
+              </select>
+            </div>
+
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: 0.95, userSelect: "none" }}>
+              <input
+                type="checkbox"
+                checked={!!globalOptions?.frequentOnTop}
+                onChange={(e) => {
+                  const nextOn = !!e.target.checked;
+                  globalOptionsDirtyRef.current = true;
+                  globalOptionsDirtyDesiredRef.current = {
+                    oneDigitActivationEnabled: !!globalOptions?.oneDigitActivationEnabled,
+                    rowHeightPreset: String(globalOptions?.rowHeightPreset || "Standard"),
+                    baselineOrder: String(globalOptions?.baselineOrder || "workbook"),
+                    frequentOnTop: nextOn,
+                  };
+                  setGlobalOptions((prev) => ({ ...(prev || {}), frequentOnTop: nextOn }));
+                }}
+              />
+              <div>
+                When searching, show most frequently used matches first
+              </div>
+            </label>
+          </div>
+
+<div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Keyboard</div>
 
             <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: 0.95, userSelect: "none" }}>
@@ -1518,6 +1616,8 @@ return (
                   globalOptionsDirtyDesiredRef.current = {
                     oneDigitActivationEnabled: nextEnabled,
                     rowHeightPreset: String(globalOptions?.rowHeightPreset || "Standard"),
+                    baselineOrder: String(globalOptions?.baselineOrder || "workbook"),
+                    frequentOnTop: !!globalOptions?.frequentOnTop,
                   };
                   setGlobalOptions((prev) => ({ ...(prev || {}), oneDigitActivationEnabled: nextEnabled }));
                 }}
