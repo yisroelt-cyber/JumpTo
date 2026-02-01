@@ -101,10 +101,28 @@ async function buildDialogState(baseState) {
     if (filtered.length >= n) break;
   }
 
-  return {
-    ...baseState,
-    recents: filtered.map((id) => ({ id, name: idToName.get(id) || "" })),
-  };
+
+// Global UI options (persisted in OfficeRuntime.storage) + list-ordering prefs (stored in settings blob).
+let rowHeightPreset = "Standard";
+let oneDigitActivationEnabled = true;
+try {
+  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
+    const v = await OfficeRuntime.storage.getItem("JumpTo.Option.RowHeightPreset");
+    if (v) rowHeightPreset = String(v);
+    const od = await OfficeRuntime.storage.getItem("JumpTo.Option.OneDigitActivation");
+    if (od === "false") oneDigitActivationEnabled = false;
+    else if (od === "true") oneDigitActivationEnabled = true;
+  }
+} catch {
+  // ignore
+}
+const baselineOrder = String(baseState.settings?.baselineOrder || "workbook");
+const frequentOnTop = baseState.settings?.frequentOnTop === undefined ? true : !!baseState.settings?.frequentOnTop;
+return {
+  ...baseState,
+  global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop },
+  recents: filtered.map((id) => ({ id, name: idToName.get(id) || "" })),
+};
 }
 
 async function activateSheetById(sheetId) {

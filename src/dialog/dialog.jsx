@@ -733,6 +733,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
             Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
             Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!globalOptions?.oneDigitActivationEnabled }));
+            Office.context.ui.messageParent(JSON.stringify({ type: "setUiSettings", settings: { baselineOrder: String(globalOptions?.baselineOrder || "workbook"), frequentOnTop: !!globalOptions?.frequentOnTop } }));
 
           }
 
@@ -807,7 +808,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     if (!parentReadyRef.current) return;
     schedulePersistGlobalOptions("global-change");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled]);
+  }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled, globalOptions?.baselineOrder, globalOptions?.frequentOnTop]);
 
   // Expose flush for Save & Close
   useEffect(() => {
@@ -818,7 +819,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   useEffect(() => {
     window.flushPersistGlobalOptionsNow = flushPersistGlobalOptionsNow;
     return () => { try { delete window.flushPersistGlobalOptionsNow; } catch {} };
-  }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled]);
+  }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled, globalOptions?.baselineOrder, globalOptions?.frequentOnTop]);
 
   // Favorites tab: when a new favorite is added, keep it selected and scroll it into view.
   useEffect(() => {
@@ -1493,7 +1494,7 @@ return (
       )}
 
       {activeTab === "Settings" && (
-        <div style={{ height: panelHeight, overflow: "hidden", paddingRight: 4 }}>
+        <div style={{ height: panelHeight, overflowY: "auto", overflowX: "hidden", paddingRight: 4 }}>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
               When space is limited, give more room to:
