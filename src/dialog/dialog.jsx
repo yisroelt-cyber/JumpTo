@@ -923,6 +923,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     const uiSettings = {
       favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
       recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+      baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
+      frequentOnTop: !!(globalOptions?.frequentOnTop),
     };
 
     const favoritesIds = (Array.isArray(favoritesRef.current) ? favoritesRef.current : [])
