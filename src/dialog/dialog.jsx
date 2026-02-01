@@ -1509,6 +1509,7 @@ return (
 
       {activeTab === "Settings" && (
         <div style={{ height: panelHeight, overflowY: "auto", overflowX: "hidden", paddingRight: 4 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, margin: "2px 0 10px", opacity: 0.9 }}>Appearance</div>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
               When space is limited, give more room to:
@@ -1542,6 +1543,57 @@ return (
           </div>
           
           
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Row height</div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", fontSize: 12, opacity: 0.95 }}>
+              {["Compact", "Standard", "Comfortable", "Expanded"].map((name) => (
+                <label key={name} style={{ display: "flex", alignItems: "center", gap: 6, userSelect: "none" }}>
+                  <input
+                    type="radio"
+                    name="rowHeightPreset_final"
+                    checked={activePresetName === name}
+                    onChange={() => {
+                      const nextPreset = String(name);
+                      globalOptionsDirtyRef.current = true;
+                      globalOptionsDirtyDesiredRef.current = {
+                        oneDigitActivationEnabled: !!(globalOptions?.oneDigitActivationEnabled),
+                        rowHeightPreset: nextPreset,
+                      };
+                      setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: nextPreset }));
+                    }}
+                  />
+                  {name}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Recents</div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.9 }}>
+              <span>Show</span>
+              <input
+                type="number"
+                min={1}
+                max={MAX_RECENTS}
+                value={uiRecentsDisplayCount}
+                onChange={(e) => {
+                  const v = Math.min(MAX_RECENTS, Math.max(1, Number(e.target.value) || 1));
+                  const nextCnt = Math.min(MAX_RECENTS, Math.max(1, Math.round(v)));
+                  uiSettingsDirtyRef.current = true;
+                  uiSettingsDirtyDesiredRef.current = {
+                    favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+                    recentsDisplayCount: nextCnt,
+                  };
+                  setUiRecentsDisplayCount(nextCnt);
+                }}
+                style={{ width: 64, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
+              />
+              <span>items</span>
+            </div>
+          </div><div style={{ fontSize: 13, fontWeight: 800, margin: "12px 0 10px", opacity: 0.9 }}>Behavior</div>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>List ordering</div>
 
@@ -1594,32 +1646,6 @@ return (
           </div>
 
 <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Row height</div>
-
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", fontSize: 12, opacity: 0.95 }}>
-              {["Compact", "Standard", "Comfortable", "Expanded"].map((name) => (
-                <label key={name} style={{ display: "flex", alignItems: "center", gap: 6, userSelect: "none" }}>
-                  <input
-                    type="radio"
-                    name="rowHeightPreset_final"
-                    checked={activePresetName === name}
-                    onChange={() => {
-                      const nextPreset = String(name);
-                      globalOptionsDirtyRef.current = true;
-                      globalOptionsDirtyDesiredRef.current = {
-                        oneDigitActivationEnabled: !!(globalOptions?.oneDigitActivationEnabled),
-                        rowHeightPreset: nextPreset,
-                      };
-                      setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: nextPreset }));
-                    }}
-                  />
-                  {name}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Keyboard</div>
 
             <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: 0.95, userSelect: "none" }}>
@@ -1646,31 +1672,7 @@ return (
             </label>
           </div>
 
-          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Recents</div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.9 }}>
-              <span>Show</span>
-              <input
-                type="number"
-                min={1}
-                max={MAX_RECENTS}
-                value={uiRecentsDisplayCount}
-                onChange={(e) => {
-                  const v = Math.min(MAX_RECENTS, Math.max(1, Number(e.target.value) || 1));
-                  const nextCnt = Math.min(MAX_RECENTS, Math.max(1, Math.round(v)));
-                  uiSettingsDirtyRef.current = true;
-                  uiSettingsDirtyDesiredRef.current = {
-                    favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-                    recentsDisplayCount: nextCnt,
-                  };
-                  setUiRecentsDisplayCount(nextCnt);
-                }}
-                style={{ width: 64, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
-              />
-              <span>items</span>
-            </div>
-          </div>
+          
         </div>
       )}
 
