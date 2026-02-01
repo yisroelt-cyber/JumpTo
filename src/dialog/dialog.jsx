@@ -482,109 +482,70 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
   const filtered = useMemo(() => {
     const q = (query || "").toLowerCase();
     let items = Array.isArray(allSheets) ? [...allSheets] : [];
-    if (q) items = items.filter((s) => (s?.name || "").toLowerCase().includes(q));
 
-    // Baseline order
-    const baseline = (globalOptions?.baselineOrder || "workbook");
-    if (baseline === "alpha") {
+    if (q) {
+      items = items.filter((s) => (s?.name || "").toLowerCase().includes(q));
+    }
+
+    // Base order: workbook order (default) or alphabetical
+    const baselineOrder = String(globalOptions?.baselineOrder || "workbook");
+    if (baselineOrder === "alpha") {
       items.sort((a, b) => (a?.name || "").localeCompare(b?.name || ""));
     } else {
       items.sort((a, b) => Number(a?.orderIndex || 0) - Number(b?.orderIndex || 0));
     }
 
-    
-    // Frequent-on-top (search-only): bump a small set of clearly-frequent matches to the top.
-    // Applies only when (a) query is non-empty and (b) search narrows the list to a strict subset.
-    if (globalOptions?.frequentOnTop) {
-      const isSearch = !!q;
-      const isNarrowed = isSearch && Array.isArray(allSheets) && items.length < allSheets.length;
-      if (isNarrowed && items.length > 0) {
-        const N = items.length;
-        const k = Math.min(5, Math.max(1, Math.ceil(0.1 * N)));
+    // Apply "frequent bump" ONLY when search is active AND the list is narrowed.
+    const allCount = Array.isArray(allSheets) ? allSheets.length : 0;
+    if (q && items.length < allCount && !!globalOptions?.frequentOnTop) {
+      const N = items.length;
+      const k = Math.min(Math.max(Math.ceil(0.1 * N), 1), 5); // candidates considered; does not force a bump
 
-        // Baseline order index for stable tie-breaks
-        const idxById = new Map(items.map((s, i) => [s?.id, i]));
+      // Base order index for stable tie-breaks
+      const idxById = new Map(items.map((s, i) => [s?.id, i]));
 
-        // Top-k candidates by frequency
-        const byFreq = items.slice().sort((a, b) => Number(b?.freq || 0) - Number(a?.freq || 0));
-        const candidates = byFreq.slice(0, k);
-        const others = byFreq.slice(k);
+      // Top-k candidates by frequency
+      const byFreq = items.slice().sort((a, b) => Number(b?.freq || 0) - Number(a?.freq || 0));
+      const candidates = byFreq.slice(0, k);
+      const others = byFreq.slice(k);
 
-        const medianOf = (arr) => {
-          const nums = arr.map((s) => Number(s?.freq || 0)).filter((n) => Number.isFinite(n));
-          if (!nums.length) return 0;
-          nums.sort((a, b) => a - b);
-          const mid = Math.floor(nums.length / 2);
-          return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
-        };
+      const medianOf = (arr) => {
+        const nums = arr
+          .map((s) => Number(s?.freq || 0))
+          .filter((n) => Number.isFinite(n))
+          .sort((a, b) => a - b);
+        if (!nums.length) return 0;
+        const mid = Math.floor(nums.length / 2);
+        return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+      };
 
-        const baseline = others.length ? medianOf(others) : medianOf(byFreq);
+      const baselineMed = others.length ? medianOf(others) : medianOf(byFreq);
 
-        // Dynamic-ish ratio: stricter for tiny N, relaxes toward ~1.75 for larger lists.
-        const t = Math.max(0, Math.min(1, (N - 2) / 18));
-        const ratio = 2.5 - 0.75 * t;
+      // Dynamic-ish ratio: stricter for tiny N, relaxes toward ~1.75 for larger lists.
+      const t = Math.max(0, Math.min(1, (N - 2) / 18));
+      const ratio = 2.5 - 0.75 * t;
 
-        const threshold = Math.max(5, baseline * ratio);
+      const threshold = Math.max(5, baselineMed * ratio);
 
-        let bumped = candidates.filter((s) => Number(s?.freq || 0) >= threshold);
+      let bumped = candidates.filter((s) => Number(s?.freq || 0) >= threshold);
 
-        // Cap bumped count to 5 (and sort by frequency desc, then base order)
-        bumped.sort((a, b) => {
-          const df = Number(b?.freq || 0) - Number(a?.freq || 0);
-          if (df !== 0) return df;
-          return (idxById.get(a?.id) ?? 0) - (idxById.get(b?.id) ?? 0);
-        });
-        if (bumped.length > 5) bumped = bumped.slice(0, 5);
+      // Sort bumped by frequency desc, then base order; cap to 5.
+      bumped.sort((a, b) => {
+        const df = Number(b?.freq || 0) - Number(a?.freq || 0);
+        if (df !== 0) return df;
+        return (idxById.get(a?.id) ?? 0) - (idxById.get(b?.id) ?? 0);
+      });
+      if (bumped.length > 5) bumped = bumped.slice(0, 5);
 
-        if (bumped.length) {
-          const bumpedIds = new Set(bumped.map((s) => s?.id));
-          const rest = items.filter((s) => !bumpedIds.has(s?.id));
-          items = [...bumped, ...rest];
-        }
+      if (bumped.length) {
+        const bumpedIds = new Set(bumped.map((s) => s?.id));
+        const rest = items.filter((s) => !bumpedIds.has(s?.id));
+        items = [...bumped, ...rest];
       }
-    }tie-breaks
-    const idxById = new Map(items.map((s, i) => [s?.id, i]));
-
-    // Top-k candidates by frequency
-    const byFreq = items.slice().sort((a, b) => Number(b?.freq || 0) - Number(a?.freq || 0));
-    const candidates = byFreq.slice(0, k);
-    const others = byFreq.slice(k);
-
-    const medianOf = (arr) => {
-      const nums = arr.map((s) => Number(s?.freq || 0)).filter((n) => Number.isFinite(n));
-      if (!nums.length) return 0;
-      nums.sort((a, b) => a - b);
-      const mid = Math.floor(nums.length / 2);
-      return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
-    };
-
-    const baseline = others.length ? medianOf(others) : medianOf(byFreq);
-
-    // Dynamic-ish ratio: stricter for tiny N, relaxes toward ~1.75 for larger lists.
-    const t = Math.max(0, Math.min(1, (N - 2) / 18));
-    const ratio = 2.5 - 0.75 * t;
-
-    const threshold = Math.max(5, baseline * ratio);
-
-    let bumped = candidates.filter((s) => Number(s?.freq || 0) >= threshold);
-
-    // Cap bumped count to 5 (and sort by frequency desc, then base order)
-    bumped.sort((a, b) => {
-      const df = Number(b?.freq || 0) - Number(a?.freq || 0);
-      if (df !== 0) return df;
-      return (idxById.get(a?.id) ?? 0) - (idxById.get(b?.id) ?? 0);
-    });
-    if (bumped.length > 5) bumped = bumped.slice(0, 5);
-
-    if (bumped.length) {
-      const bumpedIds = new Set(bumped.map((s) => s?.id));
-      const rest = items.filter((s) => !bumpedIds.has(s?.id));
-      items = [...bumped, ...rest];
     }
-  }
-}
-return items;
-  }, [allSheets, query, globalOptions]);
+
+    return items;
+  }, [allSheets, query, globalOptions?.baselineOrder, globalOptions?.frequentOnTop]);
 
   const favoriteIds = useMemo(() => new Set((favorites || []).map((f) => f?.id).filter(Boolean)), [favorites]);
 
