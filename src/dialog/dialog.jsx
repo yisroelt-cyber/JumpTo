@@ -378,23 +378,6 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
                   setUiFavPercentManual(incomingFav);
                   setUiRecentsDisplayCount(incomingCnt);
                 setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                  setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                  setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                  setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                  setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                  setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                  setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                  setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                  setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
-                  setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
                 } else {
                   // Ignore stale incoming UI settings while dirty.
                 }
@@ -497,7 +480,7 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
 
     // Apply "frequent bump" ONLY when search is active AND the list is narrowed.
     const allCount = Array.isArray(allSheets) ? allSheets.length : 0;
-    if (q && items.length < allCount && !!globalOptions?.frequentOnTop) {
+    if (q && items.length < allCount && !!(globalOptions?.frequentOnTop)) {
       const N = items.length;
       const k = Math.min(Math.max(Math.ceil(0.1 * N), 1), 5); // candidates considered; does not force a bump
 
@@ -734,17 +717,19 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       clearTimeout(uiSettingsPersistTimerRef.current);
       uiSettingsPersistTimerRef.current = null;
     }
+
     try {
-        sendSetUiSettingsToParent({
-          favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-          recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
-          baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
-          frequentOnTop: !!(globalOptions?.frequentOnTop),
-        });
+      sendSetUiSettingsToParent({
+        favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+        recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
+        baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
+        frequentOnTop: !!(globalOptions?.frequentOnTop),
+      });
     } catch {
       // ignore
     }
   };
+
 
   const schedulePersistGlobalOptions = (reason) => {
     if (globalOptionsPersistTimerRef.current) {
@@ -760,7 +745,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
           if (Office?.context?.ui?.messageParent) {
 
             Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
-            Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!globalOptions?.oneDigitActivationEnabled }));
+            Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!(globalOptions?.oneDigitActivationEnabled) }));
 
           }
 
@@ -788,7 +773,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
         if (Office?.context?.ui?.messageParent) {
 
           Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
-          Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!globalOptions?.oneDigitActivationEnabled }));
+          Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!(globalOptions?.oneDigitActivationEnabled) }));
 
         }
 
@@ -945,7 +930,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       .filter(Boolean);
 
     const rowHeightPreset = String(globalOptions?.rowHeightPreset || "Standard");
-    const oneDigitActivationEnabled = !!globalOptions?.oneDigitActivationEnabled;
+    const oneDigitActivationEnabled = !!(globalOptions?.oneDigitActivationEnabled);
 
     return { uiSettings, favorites: favoritesIds, rowHeightPreset, oneDigitActivationEnabled };
   };
@@ -1521,7 +1506,7 @@ return (
       )}
 
       {activeTab === "Settings" && (
-        <div style={{ height: panelHeight, overflow: "hidden", paddingRight: 4 }}>
+        <div style={{ height: panelHeight, overflowY: "auto", overflowX: "hidden", paddingRight: 4 }}>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
               When space is limited, give more room to:
@@ -1554,7 +1539,61 @@ return (
             </div>
           </div>
           
+          
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>List ordering</div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, opacity: 0.95 }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Base order</div>
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                  <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="baselineOrder"
+                      checked={String(globalOptions?.baselineOrder || "workbook") !== "alpha"}
+                      onChange={() => {
+                        setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: "workbook" }));
+                        schedulePersistUiSettings("baselineOrder");
+                      }}
+                    />
+                    Workbook order
+                  </label>
+
+                  <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+                    <input
+                      type="radio"
+                      name="baselineOrder"
+                      checked={String(globalOptions?.baselineOrder || "workbook") === "alpha"}
+                      onChange={() => {
+                        setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: "alpha" }));
+                        schedulePersistUiSettings("baselineOrder");
+                      }}
+                    />
+                    Alphabetical
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>When searching</div>
+                <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={!!(globalOptions?.frequentOnTop)}
+                    onChange={(e) => {
+                      const next = !!e.target.checked;
+                      setGlobalOptions((prev) => ({ ...(prev || {}), frequentOnTop: next }));
+                      schedulePersistUiSettings("frequentOnTop");
+                    }}
+                  />
+                  Show most frequently used matches first
+                </label>
+              </div>
+            </div>
+          </div>
+
+<div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Row height</div>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", fontSize: 12, opacity: 0.95 }}>
@@ -1568,7 +1607,7 @@ return (
                       const nextPreset = String(name);
                       globalOptionsDirtyRef.current = true;
                       globalOptionsDirtyDesiredRef.current = {
-                        oneDigitActivationEnabled: !!globalOptions?.oneDigitActivationEnabled,
+                        oneDigitActivationEnabled: !!(globalOptions?.oneDigitActivationEnabled),
                         rowHeightPreset: nextPreset,
                       };
                       setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: nextPreset }));
@@ -1586,7 +1625,7 @@ return (
             <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: 0.95, userSelect: "none" }}>
               <input
                 type="checkbox"
-                checked={!!globalOptions?.oneDigitActivationEnabled}
+                checked={!!(globalOptions?.oneDigitActivationEnabled)}
                 onChange={(e) => {
                   const nextEnabled = !!e.target.checked;
                   globalOptionsDirtyRef.current = true;
