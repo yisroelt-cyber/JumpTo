@@ -1577,7 +1577,6 @@ return (
               </div>
 
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>When searching</div>
                 <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
                   <input
                     type="checkbox"
@@ -1588,7 +1587,7 @@ return (
                       schedulePersistUiSettings("frequentOnTop");
                     }}
                   />
-                  Show most frequently used matches first
+                  Show highly used sheets at the top of search results
                 </label>
               </div>
             </div>
