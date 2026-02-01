@@ -1070,7 +1070,7 @@ return (
         <>
           <div style={{ display: "flex", gap: 16, height: panelHeight, overflowY: "hidden", overflowX: "auto" }}>
             {/* Left: Search + All results */}
-            <div style={{ flex: "1 1 0", minWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div style={{ flex: "0 0 auto", width: uiMainColumnWidth, minWidth: uiMainColumnWidth, maxWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
                 <input
                   autoFocus
@@ -1221,7 +1221,7 @@ return (
             </div>
 
             {/* Right: Favorites + Recents */}
-            <div style={{ flex: "1 1 0", minWidth: uiMainColumnWidth, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ flex: "0 0 auto", width: uiMainColumnWidth, minWidth: uiMainColumnWidth, maxWidth: uiMainColumnWidth, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
@@ -1321,7 +1321,7 @@ return (
         <>
           <div style={{ display: "flex", gap: 16, height: panelHeight, overflowY: "hidden", overflowX: "auto" }}>
             {/* Left: Search + Available (non-favorites) */}
-            <div style={{ flex: "1 1 0", minWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div style={{ flex: "0 0 auto", width: uiMainColumnWidth, minWidth: uiMainColumnWidth, maxWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
                 <input
                   autoFocus
@@ -1432,7 +1432,7 @@ return (
             </div>
 
             {/* Right: Favorites (top) + Controls (bottom, replaces Recents section) */}
-            <div style={{ flex: "1 1 0", minWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div style={{ flex: "0 0 auto", width: uiMainColumnWidth, minWidth: uiMainColumnWidth, maxWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               {/* Favorites list */}
               <div style={{ marginBottom: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
