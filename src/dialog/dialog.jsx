@@ -1069,8 +1069,8 @@ return (
 
       {activeTab === "Navigation" && (
         <>
-          <div style={ height: panelHeight, overflowY: "hidden", overflowX: "auto" }>
-            <div style={ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto" }>
+          <div style={{ height: panelHeight, overflowY: "hidden", overflowX: "auto" }}>
+            <div style={{ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto" }}>
             {/* Left: Search + All results */}
             <div style={{ flex: "0 0 auto", width: uiMainColumnWidth, minWidth: uiMainColumnWidth, maxWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
@@ -1322,8 +1322,8 @@ return (
 
       {activeTab === "Favorites" && (
         <>
-          <div style={ height: panelHeight, overflowY: "hidden", overflowX: "auto" }>
-            <div style={ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto" }>
+          <div style={{ height: panelHeight, overflowY: "hidden", overflowX: "auto" }}>
+            <div style={{ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto" }}>
             {/* Left: Search + Available (non-favorites) */}
             <div style={{ flex: "0 0 auto", width: uiMainColumnWidth, minWidth: uiMainColumnWidth, maxWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
