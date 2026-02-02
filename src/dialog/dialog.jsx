@@ -1069,8 +1069,8 @@ return (
 
       {activeTab === "Navigation" && (
         <>
-          <div style={ height: panelHeight, overflowY: "hidden", overflowX: "auto" }>
-            <div style={ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto" }>
+          <div style={{ height: panelHeight, overflowY: "hidden", overflowX: "auto"  }}>
+            <div style={{ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto"  }}>
             {/* Left: Search + All results */}
             <div style={{ flex: "0 0 auto", width: uiMainColumnWidth, minWidth: uiMainColumnWidth, maxWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
@@ -1322,8 +1322,8 @@ return (
 
       {activeTab === "Favorites" && (
         <>
-          <div style={ height: panelHeight, overflowY: "hidden", overflowX: "auto" }>
-            <div style={ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto" }>
+          <div style={{ height: panelHeight, overflowY: "hidden", overflowX: "auto"  }}>
+            <div style={{ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto"  }}>
             {/* Left: Search + Available (non-favorites) */}
             <div style={{ flex: "0 0 auto", width: uiMainColumnWidth, minWidth: uiMainColumnWidth, maxWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
@@ -1555,15 +1555,9 @@ return (
                   const nextW = Math.min(420, Math.max(200, Math.round(v)));
                   uiSettingsDirtyRef.current = true;
                   uiSettingsDirtyDesiredRef.current = {
-                    favPercentManual: uiFavPercentManual,
-                    recentsDisplayCount: uiRecentsDisplayCount,
-                    rowHeightPreset: uiRowHeightPreset,
-                    baselineOrder: uiBaselineOrder,
-                    frequentOnTop: uiFrequentOnTop,
-                    oneDigitActivationEnabled: uiOneDigitActivationEnabled,
-                    mainColumnWidth: nextW,
-                    settingsMinWidth: uiSettingsMinWidth,
-                  };
+                      ...buildPersistSnapshot().uiSettings,
+                      mainColumnWidth: nextW,
+                    };
                   setUiMainColumnWidth(nextW);
                 }}
                 style={{ width: 84, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
@@ -1594,15 +1588,9 @@ return (
                   const nextW = Math.min(520, Math.max(240, Math.round(v)));
                   uiSettingsDirtyRef.current = true;
                   uiSettingsDirtyDesiredRef.current = {
-                    favPercentManual: uiFavPercentManual,
-                    recentsDisplayCount: uiRecentsDisplayCount,
-                    rowHeightPreset: uiRowHeightPreset,
-                    baselineOrder: uiBaselineOrder,
-                    frequentOnTop: uiFrequentOnTop,
-                    oneDigitActivationEnabled: uiOneDigitActivationEnabled,
-                    mainColumnWidth: uiMainColumnWidth,
-                    settingsMinWidth: nextW,
-                  };
+                      ...buildPersistSnapshot().uiSettings,
+                      settingsMinWidth: nextW,
+                    };
                   setUiSettingsMinWidth(nextW);
                 }}
                 style={{ width: 84, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
@@ -1615,7 +1603,7 @@ return (
       {activeTab === "Settings" && (
         <div style={{ height: panelHeight, overflowY: "auto", overflowX: "auto", paddingRight: 4 }}>
           <div style={{ width: uiSettingsMinWidth, minWidth: uiSettingsMinWidth, maxWidth: uiSettingsMinWidth }}>
-          <div style={{ fontSize: 13, fontWeight: 800, margin: "2px 0 10px", opacity: 0.9 }}>Appearance</div>
+            <div style={{ fontSize: 13, fontWeight: 800, margin: "2px 0 10px", opacity: 0.9 }}>Appearance</div>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
               When space is limited, give more room to:
@@ -1634,10 +1622,8 @@ return (
                   const nextFav = Math.min(80, Math.max(20, Math.round(100 - v)));
                   uiSettingsDirtyRef.current = true;
                   uiSettingsDirtyDesiredRef.current = {
+                    ...buildPersistSnapshot().uiSettings,
                     favPercentManual: nextFav,
-                    recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
-          mainColumnWidth: Math.min(420, Math.max(200, Math.round(uiMainColumnWidth))),
-          settingsMinWidth: Math.min(520, Math.max(240, Math.round(uiSettingsMinWidth))),
                   };
                   setUiFavPercentManual(nextFav);
                 }}
@@ -1692,18 +1678,14 @@ return (
                   const nextCnt = Math.min(MAX_RECENTS, Math.max(1, Math.round(v)));
                   uiSettingsDirtyRef.current = true;
                   uiSettingsDirtyDesiredRef.current = {
-                    favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+                    ...buildPersistSnapshot().uiSettings,
                     recentsDisplayCount: nextCnt,
-                    mainColumnWidth: Math.min(420, Math.max(200, Math.round(uiMainColumnWidth))),
-                    settingsMinWidth: Math.min(520, Math.max(240, Math.round(uiSettingsMinWidth))),
                   };
                   setUiRecentsDisplayCount(nextCnt);
                 }}
                 style={{ width: 64, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
               />
               <span>items</span>
-            </div>
-          </div>
             </div>
           </div>
 
@@ -1759,7 +1741,7 @@ return (
             </div>
           </div>
 
-<div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Keyboard</div>
 
             <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: 0.95, userSelect: "none" }}>
