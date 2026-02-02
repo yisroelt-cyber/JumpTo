@@ -1555,14 +1555,8 @@ return (
                   const nextW = Math.min(420, Math.max(200, Math.round(v)));
                   uiSettingsDirtyRef.current = true;
                   uiSettingsDirtyDesiredRef.current = {
-                    favPercentManual: uiFavPercentManual,
-                    recentsDisplayCount: uiRecentsDisplayCount,
-	                  rowHeightPreset: String(globalOptions?.rowHeightPreset || "Standard"),
-	                  baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
-                    frequentOnTop: uiFrequentOnTop,
-                    oneDigitActivationEnabled: uiOneDigitActivationEnabled,
+                    ...(uiSettings || {}),
                     mainColumnWidth: nextW,
-                    settingsMinWidth: uiSettingsMinWidth,
                   };
                   setUiMainColumnWidth(nextW);
                 }}
@@ -1594,13 +1588,7 @@ return (
                   const nextW = Math.min(520, Math.max(240, Math.round(v)));
                   uiSettingsDirtyRef.current = true;
                   uiSettingsDirtyDesiredRef.current = {
-                    favPercentManual: uiFavPercentManual,
-                    recentsDisplayCount: uiRecentsDisplayCount,
-	                  rowHeightPreset: String(globalOptions?.rowHeightPreset || "Standard"),
-	                  baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
-                    frequentOnTop: uiFrequentOnTop,
-                    oneDigitActivationEnabled: uiOneDigitActivationEnabled,
-                    mainColumnWidth: uiMainColumnWidth,
+                    ...(uiSettings || {}),
                     settingsMinWidth: nextW,
                   };
                   setUiSettingsMinWidth(nextW);
@@ -1634,10 +1622,11 @@ return (
                   const nextFav = Math.min(80, Math.max(20, Math.round(100 - v)));
                   uiSettingsDirtyRef.current = true;
                   uiSettingsDirtyDesiredRef.current = {
+                    ...(uiSettings || {}),
                     favPercentManual: nextFav,
                     recentsDisplayCount: Math.min(MAX_RECENTS, Math.max(1, Math.round(uiRecentsDisplayCount))),
-          mainColumnWidth: Math.min(420, Math.max(200, Math.round(uiMainColumnWidth))),
-          settingsMinWidth: Math.min(520, Math.max(240, Math.round(uiSettingsMinWidth))),
+                    mainColumnWidth: Math.min(420, Math.max(200, Math.round(uiMainColumnWidth))),
+                    settingsMinWidth: Math.min(520, Math.max(240, Math.round(uiSettingsMinWidth))),
                   };
                   setUiFavPercentManual(nextFav);
                 }}
@@ -1692,6 +1681,7 @@ return (
                   const nextCnt = Math.min(MAX_RECENTS, Math.max(1, Math.round(v)));
                   uiSettingsDirtyRef.current = true;
                   uiSettingsDirtyDesiredRef.current = {
+                    ...(uiSettings || {}),
                     favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
                     recentsDisplayCount: nextCnt,
                     mainColumnWidth: Math.min(420, Math.max(200, Math.round(uiMainColumnWidth))),
