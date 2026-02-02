@@ -1557,7 +1557,6 @@ return (
                   uiSettingsDirtyDesiredRef.current = {
                     favPercentManual: uiFavPercentManual,
                     recentsDisplayCount: uiRecentsDisplayCount,
-                    rowHeightPreset: uiRowHeightPreset,
                     baselineOrder: uiBaselineOrder,
                     frequentOnTop: uiFrequentOnTop,
                     oneDigitActivationEnabled: uiOneDigitActivationEnabled,
@@ -1596,7 +1595,6 @@ return (
                   uiSettingsDirtyDesiredRef.current = {
                     favPercentManual: uiFavPercentManual,
                     recentsDisplayCount: uiRecentsDisplayCount,
-                    rowHeightPreset: uiRowHeightPreset,
                     baselineOrder: uiBaselineOrder,
                     frequentOnTop: uiFrequentOnTop,
                     oneDigitActivationEnabled: uiOneDigitActivationEnabled,
