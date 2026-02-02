@@ -1069,8 +1069,8 @@ return (
 
       {activeTab === "Navigation" && (
         <>
-          <div style={{ height: panelHeight, overflowY: "hidden", overflowX: "auto" }}>
-            <div style={{ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto" }}>
+          <div style={{ height: panelHeight, overflowY: "hidden", overflowX: "auto"  }}>
+            <div style={{ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto"  }}>
             {/* Left: Search + All results */}
             <div style={{ flex: "0 0 auto", width: uiMainColumnWidth, minWidth: uiMainColumnWidth, maxWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
@@ -1322,8 +1322,8 @@ return (
 
       {activeTab === "Favorites" && (
         <>
-          <div style={{ height: panelHeight, overflowY: "hidden", overflowX: "auto" }}>
-            <div style={{ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto" }}>
+          <div style={{ height: panelHeight, overflowY: "hidden", overflowX: "auto"  }}>
+            <div style={{ display: "flex", gap: 16, height: "100%", width: "max-content", margin: "0 auto"  }}>
             {/* Left: Search + Available (non-favorites) */}
             <div style={{ flex: "0 0 auto", width: uiMainColumnWidth, minWidth: uiMainColumnWidth, maxWidth: uiMainColumnWidth, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div style={{ marginBottom: 10 }}>
@@ -1615,7 +1615,7 @@ return (
       {activeTab === "Settings" && (
         <div style={{ height: panelHeight, overflowY: "auto", overflowX: "auto", paddingRight: 4 }}>
           <div style={{ minWidth: uiSettingsMinWidth }}>
-          <div style={{ fontSize: 13, fontWeight: 800, margin: "2px 0 10px", opacity: 0.9 }}>Appearance</div>
+            <div style={{ fontSize: 13, fontWeight: 800, margin: "2px 0 10px", opacity: 0.9 }}>Appearance</div>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
               When space is limited, give more room to:
@@ -1704,8 +1704,6 @@ return (
               <span>items</span>
             </div>
           </div>
-            </div>
-          </div>
 
           <div style={{ fontSize: 13, fontWeight: 800, margin: "12px 0 10px", opacity: 0.9 }}>Behavior</div>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
@@ -1759,7 +1757,7 @@ return (
             </div>
           </div>
 
-<div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Keyboard</div>
 
             <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: 0.95, userSelect: "none" }}>
