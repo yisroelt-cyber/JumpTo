@@ -1557,7 +1557,8 @@ return (
                   uiSettingsDirtyDesiredRef.current = {
                     favPercentManual: uiFavPercentManual,
                     recentsDisplayCount: uiRecentsDisplayCount,
-                    baselineOrder: uiBaselineOrder,
+	                  rowHeightPreset: String(globalOptions?.rowHeightPreset || "Standard"),
+	                  baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
                     frequentOnTop: uiFrequentOnTop,
                     oneDigitActivationEnabled: uiOneDigitActivationEnabled,
                     mainColumnWidth: nextW,
@@ -1595,7 +1596,8 @@ return (
                   uiSettingsDirtyDesiredRef.current = {
                     favPercentManual: uiFavPercentManual,
                     recentsDisplayCount: uiRecentsDisplayCount,
-                    baselineOrder: uiBaselineOrder,
+	                  rowHeightPreset: String(globalOptions?.rowHeightPreset || "Standard"),
+	                  baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
                     frequentOnTop: uiFrequentOnTop,
                     oneDigitActivationEnabled: uiOneDigitActivationEnabled,
                     mainColumnWidth: uiMainColumnWidth,
