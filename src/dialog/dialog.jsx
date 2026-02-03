@@ -109,7 +109,6 @@ function DialogApp() {
   const favTabFavListRef = useRef(null);
   const favTabPendingScrollIdRef = useRef(null);
   const [panelHeight, setPanelHeight] = useState(320); // computed at runtime
-  const [bodyWidth, setBodyWidth] = useState(0); // measured width of the tab body
 
 
   // Favorites persistence (Favorites tab): debounce writes to minimize sheet churn
@@ -240,43 +239,6 @@ function DialogApp() {
       } catch {}
     };
   }, []);
-
-
-// Measure the body width to apply the LPD "two layout regimes" rules (non-scroll vs scroll).
-useEffect(() => {
-  const el = bodyRef.current;
-  if (!el || typeof window === "undefined") return;
-
-  const measure = () => {
-    try {
-      const rect = el.getBoundingClientRect();
-      const w = Math.max(0, Math.floor(rect.width));
-      setBodyWidth(w);
-    } catch {
-      // ignore
-    }
-  };
-
-  measure();
-
-  let ro = null;
-  if (typeof window.ResizeObserver === "function") {
-    try {
-      ro = new window.ResizeObserver(() => measure());
-      ro.observe(el);
-    } catch {
-      ro = null;
-    }
-  }
-
-  const onResize = () => measure();
-  window.addEventListener("resize", onResize);
-
-  return () => {
-    try { window.removeEventListener("resize", onResize); } catch {}
-    try { if (ro) ro.disconnect(); } catch {}
-  };
-}, []);
 
 
   // Office dialog webviews sometimes ignore the HTML autoFocus attribute.
@@ -582,23 +544,98 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
   const rowPadY = activeRowPreset.paddingY;
   const rowEstHeightPx = activeRowPreset.estRowHeight;
 
+  // Layout constants (px) – tuned for Office dialog webviews
+  const LABEL_ROW_H = 18;
+  const GAP_H = 6;
+  const NAV_MID_GAP_H = 10; // extra breathing room between Favorites list and Recents label (Nav tab right column)
 
-// Layout regime constants (LPD: Dialog Layout and Sizing Rules)
-const NAVFAV_COL_MIN_W = 200;
-const NAVFAV_COL_OPT_W = 280;
-const NAVFAV_COL_COUNT = 4;
-const NAVFAV_GAP_W = 14;
+  const ROW_EST_H = rowEstHeightPx; // estimated row height for a single list item (padding + lineHeight + border)
 
-const SETTINGS_MIN_W = 390;
-const SETTINGS_OPT_W = 520;
+  // Favorites tab right column height budget.
+// We split the right column into 70% favorites list + 30% controls.
+// Important: the "Favorites" label + margins consume extra vertical space,
+// so subtract a small overhead from the panelHeight to avoid clipping.
+const favTabRightOverhead = (LABEL_ROW_H * 1) + (GAP_H * 2);
+const favTabListsTotal = Math.max(140, Math.floor(panelHeight - favTabRightOverhead));
 
-const navFavMinTotalW = (NAVFAV_COL_MIN_W * NAVFAV_COL_COUNT) + (NAVFAV_GAP_W * (NAVFAV_COL_COUNT - 1));
-const navFavOptTotalW = (NAVFAV_COL_OPT_W * NAVFAV_COL_COUNT) + (NAVFAV_GAP_W * (NAVFAV_COL_COUNT - 1));
+// Favorites tab right column:
+// - Top: Favorites list (scrolls internally)
+// - Bottom: Controls block (Up/Down + transfer guidance)
+//
+// Layout rule (current): fixed 70/30 split.
+// Rationale: give the Favorites listbox most of the real estate; keep controls anchored low.
+const favTabFavListHeight = Math.max(80, Math.floor(favTabListsTotal * 0.70));
+const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHeight);
 
-const navFavScrollRegime = bodyWidth > 0 && bodyWidth < navFavMinTotalW;
-const settingsScrollRegime = bodyWidth > 0 && bodyWidth < SETTINGS_MIN_W;
+  // Navigation tab right column: two scenarios
+  //  1) No-conflict: show all (subject to minimum shares), ignore ratio/settings; put any extra space in the middle.
+  //  2) Conflict: apply user-selected policy (fixed ratio with surplus-donation, or prioritize Favorites up to 80%).
+  const navRightOverhead = (LABEL_ROW_H * 2) + (GAP_H * 3);
+  const navRightH = Math.max(140, Math.floor(panelHeight - navRightOverhead));
 
-const isFavorite = (sheetId) => favoriteIds.has(sheetId);
+  const navFavMin = Math.max(60, Math.floor(navRightH * 0.20));
+  const navRecMin = Math.max(60, Math.floor(navRightH * 0.20));
+
+  const navFavRowsNeed = Math.max(1, (Array.isArray(favorites) ? favorites : []).length);
+  const navRecRowsNeed = Math.max(
+    1,
+    Math.min((Array.isArray(recents) ? recents : []).length, uiRecentsDisplayCount)
+  );
+
+  const navFavNeed = Math.max(navFavMin, (navFavRowsNeed * ROW_EST_H) + 8);
+  const navRecNeed = Math.max(navRecMin, (navRecRowsNeed * ROW_EST_H) + 8);
+
+  let navTabHasExtraSpace = false;
+  let navTabFavListHeight = navFavMin;
+  let navTabRecListHeight = navRecMin;
+
+  if (navFavNeed + navRecNeed <= navRightH) {
+    // No conflict – show all and push the extra into the middle spacer.
+    navTabHasExtraSpace = true;
+    navTabFavListHeight = navFavNeed;
+    navTabRecListHeight = navRecNeed;
+  } else {
+    // Conflict – apply fixed ratio (20..80 ↔ 80..20), with "surplus donation" (do not waste rows on the side that does not need them).
+    navTabHasExtraSpace = false;
+
+      // Fixed ratio (20..80 ↔ 80..20), with "surplus donation" (do not waste rows on the side that doesn't need them).
+      let favH = Math.floor((navRightH * favPercentEffective) / 100);
+      let recH = navRightH - favH;
+
+      // Enforce minimums.
+      if (favH < navFavMin) { favH = navFavMin; recH = navRightH - favH; }
+      if (recH < navRecMin) { recH = navRecMin; favH = navRightH - recH; }
+
+      // Donate surplus only (never take below what the other side needs).
+      if (navRecNeed < recH) {
+        const surplus = recH - navRecNeed;
+        // Give surplus to Favorites, but only if Favorites needs it.
+        if (navFavNeed > favH) {
+          const give = Math.min(surplus, navFavNeed - favH);
+          favH += give;
+          recH = navRightH - favH;
+        }
+      } else if (navFavNeed < favH) {
+        const surplus = favH - navFavNeed;
+        if (navRecNeed > recH) {
+          const give = Math.min(surplus, navRecNeed - recH);
+          recH += give;
+          favH = navRightH - recH;
+        }
+      }
+
+      // Final safety clamps.
+      if (favH < navFavMin) { favH = navFavMin; recH = navRightH - favH; }
+      if (recH < navRecMin) { recH = navRecMin; favH = navRightH - recH; }
+
+      navTabFavListHeight = favH;
+      navTabRecListHeight = recH;
+  }
+
+
+
+
+  const isFavorite = (sheetId) => favoriteIds.has(sheetId);
 
   
   const addFavoriteLocal = (sheetId) => {
@@ -1010,565 +1047,469 @@ return (
 
       <div ref={bodyRef} style={{ flex: "1 1 auto", overflow: "hidden" }}>
 
-      
-{activeTab === "Navigation" && (
-  <div style={{ height: panelHeight, overflow: "hidden" }}>
-    <div style={{ height: "100%", overflowY: "hidden", overflowX: navFavScrollRegime ? "auto" : "hidden" }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: navFavScrollRegime
-            ? `repeat(${NAVFAV_COL_COUNT}, ${NAVFAV_COL_OPT_W}px)`
-            : `repeat(${NAVFAV_COL_COUNT}, minmax(${NAVFAV_COL_MIN_W}px, 1fr))`,
-          gap: NAVFAV_GAP_W,
-          height: "100%",
-          width: navFavScrollRegime ? navFavOptTotalW : "100%",
-          boxSizing: "border-box",
-          margin: "0 auto",
-          overflow: "hidden",
-        }}
-      >
-        {/* Col 1: Search + All results */}
-        <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", minHeight: 0 }}>
-          <div style={{ marginBottom: 10 }}>
-            <input
-              autoFocus
-              ref={searchInputRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onBlur={() => requestSearchFocus("nav-search-blur")}
-              onKeyDown={(e) => {
-                try {
-                  const key = e.key;
-                  // Keep focus in search box; allow navigation + activation like a VBA listbox.
-                  if (key === "Tab") {
-                    e.preventDefault();
-                    requestSearchFocus("tab");
-                    return;
-                  }
-                  if (key === "ArrowDown") {
-                    e.preventDefault();
-                    setHighlightIndex((prev) => {
-                      const max = Math.max(0, (filtered?.length || 0) - 1);
-                      return Math.min(max, prev + 1);
-                    });
-                    return;
-                  }
-                  if (key === "ArrowUp") {
-                    e.preventDefault();
-                    setHighlightIndex((prev) => Math.max(0, prev - 1));
-                    return;
-                  }
-                  if (key === "Enter") {
-                    e.preventDefault();
-                    const idx = Math.max(0, Math.min((filtered?.length || 1) - 1, highlightIndex));
-                    const s = filtered?.[idx];
-                    if (s) onSelect(s);
-                    return;
-                  }
-                  const mods = e.altKey || e.ctrlKey || e.metaKey;
-                  const oneDigit = globalOptions?.oneDigitActivationEnabled;
-                  const q = query || "";
-                  const leadingSpace = q.startsWith(" ");
-
-                  // One-digit activation: only when search box is empty, no modifiers, and no leading space.
-                  if (oneDigit && !mods && !leadingSpace && q === "" && key >= "0" && key <= "9") {
-                    const idx = key === "0" ? 9 : (Number(key) - 1);
-                    const fav = favorites?.[idx];
-                    if (fav?.id) {
-                      e.preventDefault();
-                      onSelect(fav);
-                      return;
-                    }
-                  }
-
-                  if (key === "Escape") {
-                    e.preventDefault();
-                    if ((query || "") !== "") {
-                      setQuery("");
-                    } else {
-                      onCancel();
-                    }
-                  }
-                } catch {
-                  // ignore
-                }
-              }}
-              placeholder="Search sheets…"
-              disabled={!!status && status !== "" && allSheets.length === 0}
-              style={{
-                width: "100%",
-                padding: "6px 8px",
-                fontSize: 12,
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          {!!status && status !== "" ? (
-            <div
-              style={{
-                padding: "10px 12px",
-                border: "1px solid rgba(0,0,0,0.1)",
-                borderRadius: 6,
-                fontSize: 13,
-                opacity: 0.9,
-              }}
-            >
-              {status}
-            </div>
-          ) : (
-            <div
-              style={{
-                flex: "1 1 auto",
-                minHeight: 0,
-                overflowY: "auto",
-                overflowX: "hidden",
-                overscrollBehavior: "contain",
-                border: "1px solid rgba(0,0,0,0.1)",
-                borderRadius: 6,
-              }}
-            >
-              {filtered.map((s, i) => (
-                <div
-                  key={s.id || s.name}
-                  ref={(el) => {
-                    listRowRefs.current[i] = el;
-                  }}
-                  onMouseEnter={() => {
-                    try {
-                      setHighlightIndex(i);
-                    } catch {}
-                  }}
-                  onClick={() => {
-                    if (!isActivating) {
-                      try {
-                        setHighlightIndex(i);
-                      } catch {}
-                      onSelect(s);
-                    }
-                  }}
-                  style={{
-                    ...rowStyle,
-                    background: i === highlightIndex ? "rgba(0,120,212,0.12)" : "transparent",
-                  }}
-                  role="button"
-                  tabIndex={0}
+      {activeTab === "Navigation" && (
+        <>
+          <div style={{ display: "flex", gap: 16, height: panelHeight, overflowX: "auto", overflowY: "hidden" }}>
+            {/* Left: Search + All results */}
+            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+              <div style={{ marginBottom: 10 }}>
+                <input
+                  autoFocus
+                  ref={searchInputRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onBlur={() => requestSearchFocus("fav-search-blur")}
                   onKeyDown={(e) => {
-                    if (isActivating) return;
-                    if (e.key === "Enter" || e.key === " ") onSelect(s);
+                    try {
+                      const key = e.key;
+                      // Keep focus in search box; allow navigation + activation like a VBA listbox.
+                      if (key === "Tab") {
+                        e.preventDefault();
+                        requestSearchFocus("tab");
+                        return;
+                      }
+                      if (key === "ArrowDown") {
+                        e.preventDefault();
+                        setHighlightIndex((prev) => {
+                          const max = Math.max(0, (filtered?.length || 0) - 1);
+                          return Math.min(max, prev + 1);
+                        });
+                        return;
+                      }
+                      if (key === "ArrowUp") {
+                        e.preventDefault();
+                        setHighlightIndex((prev) => Math.max(0, prev - 1));
+                        return;
+                      }
+                      if (key === "Enter") {
+                        e.preventDefault();
+                        const idx = Math.max(0, Math.min((filtered?.length || 1) - 1, highlightIndex));
+                        const s = filtered?.[idx];
+                        if (s) onSelect(s);
+                        return;
+                      }
+                      const mods = e.altKey || e.ctrlKey || e.metaKey;
+                      const oneDigit = globalOptions?.oneDigitActivationEnabled;
+                      const q = query || "";
+                      const leadingSpace = q.startsWith(" ");
+
+                      // One-digit activation: only when search box is empty, no modifiers, and no leading space.
+                      if (oneDigit && !mods && !leadingSpace && q === "" && key >= "0" && key <= "9") {
+                        const idx = key === "0" ? 9 : (Number(key) - 1);
+                        const fav = favorites?.[idx];
+                        if (fav?.id) {
+                          e.preventDefault();
+                          onSelect(fav);
+                          return;
+                        }
+                      }
+
+                      if (key === "Escape") {
+                        e.preventDefault();
+                        if ((query || "") !== "") {
+                          setQuery("");
+                        } else {
+                          onCancel();
+                        }
+                      }
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                  placeholder="Search sheets…"
+                  disabled={!!status && status !== "" && allSheets.length === 0}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: 12,
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              {!!initError && (
+                <div
+                  style={{
+                    marginBottom: 10,
+                    padding: "8px 10px",
+                    background: "rgba(232, 17, 35, 0.08)",
+                    border: "1px solid rgba(232, 17, 35, 0.25)",
+                    borderRadius: 6,
+                    color: "#a80000",
+                    fontSize: 12,
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div
-                      title={s?.name || ""}
-                      style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                    >
-                      {s.name}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {filtered.length === 0 && (
-                <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.8 }}>
-                  No matches.
+                  {initError}
                 </div>
               )}
-            </div>
-          )}
-        </div>
 
-        {/* Col 2: Favorites */}
-        <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", minHeight: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>Favorites</div>
-          </div>
-          <div
-            style={{
-              flex: "1 1 auto",
-              minHeight: 0,
-              overscrollBehavior: "contain",
-              overflowY: "auto",
-              overflowX: "hidden",
-              boxSizing: "border-box",
-              border: "1px solid rgba(0,0,0,0.1)",
-              borderRadius: 6,
-            }}
-          >
-            {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
-              const slot = i < 9 ? String(i + 1) : i === 9 ? "0" : "-";
-              const name = f?.name || "";
-              const id = f?.id;
-              return (
+              {!!status && status !== "" ? (
                 <div
-                  key={id || `${name}_${i}`}
-                  onClick={() => !isActivating && id && onSelect({ id })}
-                  onMouseEnter={() => setHoverNavFavoriteId(id)}
-                  onMouseLeave={() => setHoverNavFavoriteId(null)}
                   style={{
-                    ...rowStyle,
-                    background: hoverNavFavoriteId === id ? "rgba(0,120,212,0.10)" : "transparent",
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (isActivating) return;
-                    if (e.key === "Enter" || e.key === " ") id && onSelect({ id });
+                    padding: "10px 12px",
+                    border: "1px solid rgba(0,0,0,0.1)",
+                    borderRadius: 6,
+                    fontSize: 13,
+                    opacity: 0.9,
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{slot}</div>
-                    <div
-                      title={name}
-                      style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                    >
-                      {name}
-                    </div>
-                  </div>
+                  {status}
                 </div>
-              );
-            })}
-            {(Array.isArray(favorites) ? favorites : []).length === 0 && (
-              <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No favorites yet.</div>
-            )}
-          </div>
-        </div>
-
-        {/* Col 3: Recents */}
-        <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", minHeight: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>Recents</div>
-          </div>
-          <div
-            style={{
-              flex: "1 1 auto",
-              minHeight: 0,
-              overscrollBehavior: "contain",
-              overflowY: "auto",
-              overflowX: "hidden",
-              boxSizing: "border-box",
-              border: "1px solid rgba(0,0,0,0.1)",
-              borderRadius: 6,
-            }}
-          >
-            {(Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount).map((r, i) => {
-              const name = r?.name || "";
-              const id = r?.id;
-              return (
+              ) : (
                 <div
-                  key={id || `${name}_${i}`}
-                  onClick={() => !isActivating && id && onSelect({ id })}
-                  onMouseEnter={() => setHoverNavRecentId(id)}
-                  onMouseLeave={() => setHoverNavRecentId(null)}
                   style={{
-                    ...rowStyle,
-                    background: hoverNavRecentId === id ? "rgba(0,120,212,0.10)" : "transparent",
+
+                    flex: "1 1 auto",
+                    minHeight: 0,
+                    overflowY: "auto",
+                    overflowX: "hidden",
+                    overscrollBehavior: "contain",
+                    border: "1px solid rgba(0,0,0,0.1)",
+                    borderRadius: 6,
                   }}
-                  role="button"
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {filtered.map((s, i) => (
                     <div
-                      title={name}
-                      style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                    >
-                      {name}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            {(Array.isArray(recents) ? recents : []).length === 0 && (
-              <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No recents yet.</div>
-            )}
-          </div>
-        </div>
-
-        {/* Col 4: Reserved (keeps Nav/Fav geometry identical) */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            height: "100%",
-            overflow: "hidden",
-            minHeight: 0,
-            justifyContent: "center",
-            alignItems: "center",
-            opacity: 0.65,
-            fontSize: 12,
-            userSelect: "none",
-          }}
-        >
-          {/* Intentionally blank */}
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-
-
-{activeTab === "Favorites" && (
-  <div style={{ height: panelHeight, overflow: "hidden" }}>
-    <div style={{ height: "100%", overflowY: "hidden", overflowX: navFavScrollRegime ? "auto" : "hidden" }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: navFavScrollRegime
-            ? `repeat(${NAVFAV_COL_COUNT}, ${NAVFAV_COL_OPT_W}px)`
-            : `repeat(${NAVFAV_COL_COUNT}, minmax(${NAVFAV_COL_MIN_W}px, 1fr))`,
-          gap: NAVFAV_GAP_W,
-          height: "100%",
-          width: navFavScrollRegime ? navFavOptTotalW : "100%",
-          boxSizing: "border-box",
-          margin: "0 auto",
-          overflow: "hidden",
-        }}
-      >
-        {/* Col 1: Search + Available (non-favorites) */}
-        <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", minHeight: 0 }}>
-          <div style={{ marginBottom: 10 }}>
-            <input
-              autoFocus
-              ref={searchInputRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onBlur={() => requestSearchFocus("fav-search-blur")}
-              onKeyDown={(e) => {
-                try {
-                  const key = e.key;
-                  if (key === "Tab") {
-                    e.preventDefault();
-                    requestSearchFocus("tab");
-                    return;
-                  }
-                  if (key === "ArrowDown") {
-                    e.preventDefault();
-                    const available = (Array.isArray(filtered) ? filtered : []).filter((x) => x && !isFavorite(x.id));
-                    setHighlightIndex((prev) => Math.min((prev ?? -1) + 1, Math.max(available.length - 1, 0)));
-                    return;
-                  }
-                  if (key === "ArrowUp") {
-                    e.preventDefault();
-                    setHighlightIndex((prev) => Math.max((prev ?? 0) - 1, 0));
-                    return;
-                  }
-                  if (key === "Enter") {
-                    e.preventDefault();
-                    const available = (Array.isArray(filtered) ? filtered : []).filter((x) => x && !isFavorite(x.id));
-                    const s = available[highlightIndex];
-                    if (s?.id) addFavoriteLocal(s.id);
-                    return;
-                  }
-                } catch {
-                  // ignore
-                }
-              }}
-              placeholder="Search sheets…"
-              disabled={!!status && status !== "" && allSheets.length === 0}
-              style={{
-                width: "100%",
-                padding: "6px 8px",
-                fontSize: 12,
-                boxSizing: "border-box",
-                border: "1px solid rgba(0,0,0,0.2)",
-                borderRadius: 6,
-              }}
-            />
-          </div>
-
-          <div
-            style={{
-              border: "1px solid rgba(0,0,0,0.15)",
-              borderRadius: 6,
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: "column",
-              flex: "1 1 auto",
-              minHeight: 0,
-            }}
-          >
-            <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}>
-              {(Array.isArray(filtered) ? filtered : [])
-                .filter((s) => s && !isFavorite(s.id))
-                .map((s) => {
-                  const isHovered = hoverFavTabAvailableId === s.id;
-                  const isSel = favTabSelectedAvailableId === s.id;
-                  const bg = (isSel || isHovered) ? "rgba(0,120,212,0.12)" : "transparent";
-                  const boxShadow = isSel ? "inset 0 0 0 1px rgba(0,120,212,0.95)" : "none";
-                  return (
-                    <div
-                      key={s.id}
-                      onClick={() => {
-                        if (isActivating) return;
-                        setFavTabSelectedAvailableId(s.id);
-                        setFavTabSelectedFavoriteId(null);
-                        requestSearchFocus("fav-available-click");
-                      }}
-                      onDoubleClick={() => {
-                        if (isActivating) return;
-                        addFavoriteLocal(s.id);
-                        requestSearchFocus("fav-available-dblclick");
-                      }}
-                      onMouseEnter={() => setHoverFavTabAvailableId(s.id)}
-                      onMouseLeave={() => setHoverFavTabAvailableId(null)}
+                      key={s.id || s.name}
+                      ref={(el) => { listRowRefs.current[i] = el; }}
+                      onMouseEnter={() => { try { setHighlightIndex(i); } catch {} }}
+                      onClick={() => { if (!isActivating) { try { setHighlightIndex(i); } catch {} onSelect(s); } }}
                       style={{
                         ...rowStyle,
-                        background: bg,
-                        boxShadow,
+                        background: i === highlightIndex ? "rgba(0,120,212,0.12)" : "transparent",
                       }}
+
                       role="button"
                       tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (isActivating) return;
+                        if (e.key === "Enter" || e.key === " ") onSelect(s);
+                      }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div
-                          title={s?.name || ""}
-                          style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        >
-                          {s.name}
-                        </div>
+                        <div title={s.name} style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {filtered.length === 0 && (
+                    <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.8 }}>
+                      No matches.
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+
+            {/* Right: Favorites + Recents */}
+            <div style={{ flex: "0 0 45%", minWidth: 220, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
+              <div
+                style={{
+                  flex: "0 1 auto",
+                  height: navTabFavListHeight,
+                  maxHeight: navTabFavListHeight,
+                  minHeight: 0,
+                  overscrollBehavior: "contain",
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  boxSizing: "border-box",
+                  border: "1px solid rgba(0,0,0,0.1)",
+                  borderRadius: 6,
+                  marginBottom: 6,
+                }}>
+                {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
+                  const slot = i < 9 ? String(i + 1) : i === 9 ? "0" : "-";
+                  const name = f?.name || "";
+                  const id = f?.id;
+                  return (
+                    <div
+                      key={id || `${name}_${i}`}
+                      onClick={() => !isActivating && id && onSelect({ id })}
+                      onMouseEnter={() => setHoverNavFavoriteId(id)}
+                      onMouseLeave={() => setHoverNavFavoriteId(null)}
+                      style={{ ...rowStyle, background: (hoverNavFavoriteId === id ? "rgba(0,120,212,0.10)" : "transparent") }}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (isActivating) return;
+                        if (e.key === "Enter" || e.key === " ") id && onSelect({ id });
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{slot}</div>
+                        <div title={name} style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
                       </div>
                     </div>
                   );
                 })}
-              {(Array.isArray(filtered) ? filtered : []).filter((s) => s && !isFavorite(s.id)).length === 0 && (
-                <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.8 }}>No matches.</div>
-              )}
+                {(Array.isArray(favorites) ? favorites : []).length === 0 && (
+                  <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No favorites yet.</div>
+                )}
+              </div>
+
+              <div style={{ flex: navTabHasExtraSpace ? "1 1 auto" : `0 0 ${NAV_MID_GAP_H}px`, minHeight: NAV_MID_GAP_H }} />
+
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>Recents</div>
+              </div>
+              <div
+                style={{
+                  flex: "0 1 auto",
+                  height: navTabRecListHeight,
+                  maxHeight: navTabRecListHeight,
+                  minHeight: 0,
+                  overscrollBehavior: "contain",
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  boxSizing: "border-box",
+                  border: "1px solid rgba(0,0,0,0.1)",
+                  borderRadius: 6,
+                }}
+              >
+                {(Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount).map((r, i) => {
+                  const name = r?.name || "";
+                  const id = r?.id;
+                  const fav = isFavorite(id);
+                  return (
+                    <div
+                      key={id || `${name}_${i}`}
+                      onClick={() => !isActivating && id && onSelect({ id })}
+                      onMouseEnter={() => setHoverNavRecentId(id)}
+                      onMouseLeave={() => setHoverNavRecentId(null)}
+                      style={{ ...rowStyle, background: (hoverNavRecentId === id ? "rgba(0,120,212,0.10)" : "transparent") }}
+                      role="button"
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div title={name} style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {(Array.isArray(recents) ? recents : []).length === 0 && (
+                  <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No recents yet.</div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </>
+      )}
 
-        {/* Col 2: Favorites list */}
-        <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", minHeight: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
-          <div
-            ref={favTabFavListRef}
-            style={{
-              flex: "1 1 auto",
-              minHeight: 0,
-              overflowY: "auto",
-              overscrollBehavior: "contain",
-              border: "1px solid rgba(0,0,0,0.1)",
-              borderRadius: 6,
-            }}
-          >
-            {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
-              const name = f?.name || "";
-              const id = f?.id;
-              const isHovered = hoverFavTabFavoriteId === id;
-              const isSelected = favTabSelectedFavoriteId === id;
-              const bg = (isSelected || isHovered) ? "rgba(0,120,212,0.12)" : "transparent";
-              const boxShadow = isSelected ? "inset 0 0 0 1px rgba(0,120,212,0.95)" : "none";
-              return (
-                <div
-                  key={id || `${name}_${i}`}
-                  data-sheetid={id || ""}
-                  onClick={() => {
-                    if (isActivating) return;
-                    if (id) setFavTabSelectedFavoriteId(id);
-                    setFavTabSelectedAvailableId(null);
-                    requestSearchFocus("fav-favorite-click");
+
+
+      {activeTab === "Favorites" && (
+        <>
+          <div style={{ display: "flex", gap: 16, height: panelHeight, overflowX: "auto", overflowY: "hidden" }}>
+            {/* Left: Search + Available (non-favorites) */}
+            <div style={{ flex: "1 1 44%", minWidth: 240, paddingRight: 16, borderRight: "1px solid #d0d0d0", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+              <div style={{ marginBottom: 10 }}>
+                <input
+                  autoFocus
+                  ref={searchInputRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onBlur={() => requestSearchFocus("fav-search-blur")}
+                  onKeyDown={(e) => {
+                    try {
+                      const key = e.key;
+                      if (key === "Tab") {
+                        e.preventDefault();
+                        requestSearchFocus("tab");
+                        return;
+                      }
+                      if (key === "ArrowDown") {
+                        e.preventDefault();
+                        // Mirror Navigation: move highlight through the available list (non-favorites)
+                        const available = (Array.isArray(filtered) ? filtered : []).filter((x) => x && !isFavorite(x.id));
+                        setHighlightIndex((prev) => Math.min((prev ?? -1) + 1, Math.max(available.length - 1, 0)));
+                        return;
+                      }
+                      if (key === "ArrowUp") {
+                        e.preventDefault();
+                        setHighlightIndex((prev) => Math.max((prev ?? 0) - 1, 0));
+                        return;
+                      }
+                      if (key === "Enter") {
+                        e.preventDefault();
+                        const available = (Array.isArray(filtered) ? filtered : []).filter((x) => x && !isFavorite(x.id));
+                        const s = available[highlightIndex];
+                        if (s?.id) addFavoriteLocal(s.id);
+                        return;
+                      }
+                    } catch {
+                      // ignore
+                    }
                   }}
-                  onDoubleClick={() => {
-                    if (isActivating) return;
-                    if (id) removeFavoriteLocal(id);
-                    requestSearchFocus("fav-favorite-dblclick");
+                  placeholder="Search sheets…"
+                  disabled={!!status && status !== "" && allSheets.length === 0}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    fontSize: 12,
+                    boxSizing: "border-box",
+                    border: "1px solid rgba(0,0,0,0.2)",
+                    borderRadius: 6,
                   }}
-                  onMouseEnter={() => id && setHoverFavTabFavoriteId(id)}
-                  onMouseLeave={() => setHoverFavTabFavoriteId(null)}
-                  style={{ ...rowStyle, background: bg, boxShadow }}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{i < 9 ? String(i + 1) : ""}</div>
-                    <div
-                      title={name}
-                      style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                    >
-                      {name}
+                />
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid rgba(0,0,0,0.15)",
+                  borderRadius: 6,
+                  overflow: "hidden",
+                  display: "flex",
+                  flexDirection: "column",
+                  flex: "1 1 auto",
+                  minHeight: 0,
+                  }}><div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}>
+                  {(Array.isArray(filtered) ? filtered : [])
+                    .filter((s) => s && !isFavorite(s.id))
+                    .map((s, i) => {
+                      const isHovered = hoverFavTabAvailableId === s.id;
+                      const isSel = favTabSelectedAvailableId === s.id;
+                      const bg = (isSel || isHovered) ? "rgba(0,120,212,0.12)" : "transparent";
+                      const boxShadow = isSel ? "inset 0 0 0 1px rgba(0,120,212,0.95)" : "none";
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={() => {
+                            if (isActivating) return;
+                            setFavTabSelectedAvailableId(s.id);
+                            setFavTabSelectedFavoriteId(null);
+                            requestSearchFocus("fav-available-click");
+                          }}
+                          onDoubleClick={() => {
+                            if (isActivating) return;
+                            addFavoriteLocal(s.id);
+                            requestSearchFocus("fav-available-dblclick");
+                          }}
+                          onMouseEnter={() => setHoverFavTabAvailableId(s.id)}
+                          onMouseLeave={() => setHoverFavTabAvailableId(null)}
+                          style={{
+                            ...rowStyle,
+                            background: bg,
+                            boxShadow,
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div title={s.name} style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {s.name}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {(Array.isArray(filtered) ? filtered : []).filter((s) => s && !isFavorite(s.id)).length === 0 && (
+                    <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.8 }}>
+                      No matches.
                     </div>
-                  </div>
+                  )}
                 </div>
-              );
-            })}
-            {(Array.isArray(favorites) ? favorites : []).length === 0 && (
-              <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No favorites yet.</div>
-            )}
+              </div>
+            </div>
+
+            {/* Right: Favorites (top) + Controls (bottom, replaces Recents section) */}
+            <div style={{ flex: "0 0 45%", minWidth: 220, display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+              {/* Favorites list */}
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
+                <div
+                  ref={favTabFavListRef}
+                  style={{
+                    height: favTabFavListHeight,
+                    maxHeight: favTabFavListHeight,
+                    minHeight: favTabFavListHeight,
+                    overflowY: "auto",
+                    overscrollBehavior: "contain",
+                    border: "1px solid rgba(0,0,0,0.1)",
+                    borderRadius: 6,
+                  }}
+                >
+                  {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
+                    const name = f?.name || "";
+                    const id = f?.id;
+                    const isHovered = hoverFavTabFavoriteId === id;
+                    const isSelected = favTabSelectedFavoriteId === id;
+                    // Favorites tab favorites list: show a single highlight.
+                    // - If a row is selected (clicked), highlight the selected row (needed for Up/Down).
+                    // - If no selection, highlight follows mouse hover.
+                    const bg = (isSelected || isHovered) ? "rgba(0,120,212,0.12)" : "transparent";
+                    const boxShadow = isSelected ? "inset 0 0 0 1px rgba(0,120,212,0.95)" : "none";
+                    return (
+                      <div
+                        key={id || `${name}_${i}`}
+                        data-sheetid={id || ""}
+                        onClick={() => {
+                          if (isActivating) return;
+                          if (id) setFavTabSelectedFavoriteId(id);
+                          setFavTabSelectedAvailableId(null);
+                          requestSearchFocus("fav-favorite-click");
+}}
+                        onDoubleClick={() => {
+                          if (isActivating) return;
+                          if (id) removeFavoriteLocal(id);
+                          requestSearchFocus("fav-favorite-dblclick");
+                        }}
+                        onMouseEnter={() => id && setHoverFavTabFavoriteId(id)}
+                        onMouseLeave={() => setHoverFavTabFavoriteId(null)}
+                        style={{ ...rowStyle, background: bg, boxShadow }}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{i < 9 ? String(i + 1) : ""}</div>
+                          <div title={name} style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {(Array.isArray(favorites) ? favorites : []).length === 0 && (
+                    <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No favorites yet.</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Controls block (mirrors where Recents was, but without Recents title) */}
+              <div style={{ height: favTabBottomBlockHeight, maxHeight: favTabBottomBlockHeight, minHeight: favTabBottomBlockHeight, overflow: "visible", display: "flex", flexDirection: "column", justifyContent: "flex-end", paddingBottom: 8 }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                  <button
+                    type="button"
+                    disabled={!favTabSelectedFavoriteId || (Array.isArray(favorites) ? favorites : []).findIndex((x) => x?.id === favTabSelectedFavoriteId) <= 0}
+                    onClick={() => moveFavoriteLocal(favTabSelectedFavoriteId, "up")}
+                    style={{ flex: 1, padding: "6px 8px", fontSize: 12, borderRadius: 6, border: "1px solid rgba(0,0,0,0.2)", background: "white" }}
+                  >
+                    Up
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      !favTabSelectedFavoriteId ||
+                      (Array.isArray(favorites) ? favorites : []).findIndex((x) => x?.id === favTabSelectedFavoriteId) < 0 ||
+                      (Array.isArray(favorites) ? favorites : []).findIndex((x) => x?.id === favTabSelectedFavoriteId) >= (Array.isArray(favorites) ? favorites : []).length - 1
+                    }
+                    onClick={() => moveFavoriteLocal(favTabSelectedFavoriteId, "down")}
+                    style={{ flex: 1, padding: "6px 8px", fontSize: 12, borderRadius: 6, border: "1px solid rgba(0,0,0,0.2)", background: "white" }}
+                  >
+                    Down
+                  </button>
+                </div>
+
+                <div style={{ textAlign: "center", fontSize: 14, fontWeight: 600, marginTop: 6, opacity: 0.85, userSelect: "none" }}>
+                  ⇄&nbsp;&nbsp;&nbsp;Double-click to transfer&nbsp;&nbsp;&nbsp;⇄
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        </>
+      )}
 
-        {/* Col 3: Controls */}
-        <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", minHeight: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Controls</div>
-
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <button
-              type="button"
-              disabled={!favTabSelectedFavoriteId || (Array.isArray(favorites) ? favorites : []).findIndex((x) => x?.id === favTabSelectedFavoriteId) <= 0}
-              onClick={() => moveFavoriteLocal(favTabSelectedFavoriteId, "up")}
-              style={{ flex: 1, padding: "6px 8px", fontSize: 12, borderRadius: 6, border: "1px solid rgba(0,0,0,0.2)", background: "white" }}
-            >
-              Up
-            </button>
-            <button
-              type="button"
-              disabled={
-                !favTabSelectedFavoriteId ||
-                (Array.isArray(favorites) ? favorites : []).findIndex((x) => x?.id === favTabSelectedFavoriteId) < 0 ||
-                (Array.isArray(favorites) ? favorites : []).findIndex((x) => x?.id === favTabSelectedFavoriteId) >= (Array.isArray(favorites) ? favorites : []).length - 1
-              }
-              onClick={() => moveFavoriteLocal(favTabSelectedFavoriteId, "down")}
-              style={{ flex: 1, padding: "6px 8px", fontSize: 12, borderRadius: 6, border: "1px solid rgba(0,0,0,0.2)", background: "white" }}
-            >
-              Down
-            </button>
-          </div>
-
-          <div
-            style={{
-              flex: "1 1 auto",
-              minHeight: 0,
-              border: "1px solid rgba(0,0,0,0.12)",
-              borderRadius: 10,
-              padding: "10px 12px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              textAlign: "center",
-              fontSize: 13,
-              fontWeight: 600,
-              opacity: 0.85,
-              userSelect: "none",
-            }}
-          >
-            ⇄&nbsp;&nbsp;&nbsp;Double-click to transfer&nbsp;&nbsp;&nbsp;⇄
-          </div>
-        </div>
-
-        {/* Col 4: Reserved */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            height: "100%",
-            overflow: "hidden",
-            minHeight: 0,
-            justifyContent: "center",
-            alignItems: "center",
-            opacity: 0.65,
-            fontSize: 12,
-            userSelect: "none",
-          }}
-        >
-          {/* Intentionally blank */}
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-
-{activeTab === "Settings" && (
-        <div style={{ height: panelHeight, overflowY: "auto", overflowX: settingsScrollRegime ? "auto" : "hidden" }}>
-          <div style={{ minWidth: SETTINGS_MIN_W, width: settingsScrollRegime ? SETTINGS_OPT_W : "100%", boxSizing: "border-box", margin: "0 auto", paddingRight: 4 }}>
+      {activeTab === "Settings" && (
+        <div style={{ height: panelHeight, overflowY: "auto", overflowX: "auto", paddingRight: 4, minWidth: 390 }}>
+          <div style={{ minWidth: 520 }}>
           <div style={{ fontSize: 13, fontWeight: 800, margin: "2px 0 10px", opacity: 0.9 }}>Appearance</div>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
