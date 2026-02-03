@@ -215,7 +215,7 @@ function parseFavoritesCell(raw) {
   try {
     if (typeof raw !== "string") raw = String(raw ?? "");
     const s = raw.trim();
-    if (!s) return { favorites: [], dts: 0, valid: true };
+    if (!s) return { favorites: [], dts: 0, valid: false };
     const v = JSON.parse(s);
     if (Array.isArray(v)) return { favorites: v.filter(Boolean), dts: 0, valid: true };
     if (v && typeof v === "object" && Array.isArray(v.favorites)) {
@@ -234,7 +234,7 @@ function parseSettingsCell(raw) {
   try {
     if (typeof raw !== "string") raw = String(raw ?? "");
     const s = raw.trim();
-    if (!s) return { settings: {}, dts: 0, valid: true };
+    if (!s) return { settings: {}, dts: 0, valid: false };
     const v = JSON.parse(s);
     if (v && typeof v === "object" && !Array.isArray(v) && v.settings && typeof v.settings === "object" && !Array.isArray(v.settings)) {
       const dts = (typeof v.dts === "number" && isFinite(v.dts)) ? v.dts : 0;
@@ -488,7 +488,9 @@ async function readUserCells(context, sheet, colLetter) {
 
   const favParsed = parseFavoritesCell(favRaw);
   const setParsed = parseSettingsCell(setRaw);
-  const recents = safeJsonParse(recRaw, []);
+  const recParsed = safeJsonParse(recRaw, null);
+  const recents = Array.isArray(recParsed) ? recParsed : [];
+  const recentsValid = Array.isArray(recParsed);
 
   // We treat Favorites + Settings as a single logical payload for reconciliation.
   // Use max dts to be robust if they ever diverge.
@@ -501,6 +503,7 @@ async function readUserCells(context, sheet, colLetter) {
     __meta: {
       favoritesValid: favParsed.valid,
       settingsValid: setParsed.valid,
+      recentsValid,
       dts
     }
   };
@@ -518,9 +521,15 @@ async function writeUserCells(context, sheet, colLetter, { favorites, recents, s
   const favPayload = { dts, favorites: Array.isArray(favorites) ? favorites : [] };
   const setPayload = { dts, settings: (settings && typeof settings === "object" && !Array.isArray(settings)) ? settings : {} };
 
-  favCell.values = [[safeJsonStringify(favPayload)]];
-  recCell.values = [[safeJsonStringify(Array.isArray(recents) ? recents : [])]];
-  setCell.values = [[safeJsonStringify(setPayload)]];
+  if (favorites !== undefined) {
+    favCell.values = [[safeJsonStringify(favPayload)]];
+  }
+  if (recents !== undefined) {
+    recCell.values = [[safeJsonStringify(Array.isArray(recents) ? recents : [])]];
+  }
+  if (settings !== undefined) {
+    setCell.values = [[safeJsonStringify(setPayload)]];
+  }
   await context.sync();
 }
 
@@ -732,12 +741,12 @@ export async function getJumpToState(options = {}) {
     const wbSetValid = !!wb?.__meta?.settingsValid;
     const wbDts = Number(wb?.__meta?.dts || 0);
 
-    const rtFavValid = !!rt?.__meta?.favoritesValid;
-    const rtSetValid = !!rt?.__meta?.settingsValid;
-    const rtDts = Number(rt?.__meta?.dts || 0);
+    // Runtime payload is the safety-net for Favorites + Settings.
+    // Validate using the actual runtime schema (it does not carry workbook-style __meta flags).
+    const rtValid = isValidRuntimePayload(rt);
+    const rtDts = Number(rt?.dts || 0);
 
     const wbValid = wbFavValid && wbSetValid;
-    const rtValid = rtFavValid && rtSetValid;
 
     const choose = (() => {
       if (!wbValid && rtValid) return "rt";
@@ -783,11 +792,7 @@ export async function getJumpToState(options = {}) {
       const wbSet = wb?.settings || {};
       const dts = wbDts || Date.now();
       setTimeout(() => {
-        rt10Write(workbookGuid, filenameFingerprint, {
-          __meta: { dts, favoritesValid: true, settingsValid: true },
-          favorites: wbFavIds,
-          settings: wbSet
-        }).catch(() => {});
+        rt10Write(workbookGuid, filenameFingerprint, wbFavIds, wbSet, dts).catch(() => {});
       }, 0);
     }
   }
@@ -856,14 +861,23 @@ export async function setFavorites(favIds) {
     const settingsSheet = await ensureSettingsSheet(context);
     const wbId = await ensureWorkbookIdentity(context, settingsSheet);
     const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
-    const { recents, settings } = await readUserCells(context, settingsSheet, colLetter);
-    await writeUserCells(context, settingsSheet, colLetter, { favorites: nextFavs, recents, settings, dtsOverride: dts });
-    return { wbId, settings };
+    const { recents, settings, __meta } = await readUserCells(context, settingsSheet, colLetter);
+    const setValid = !!__meta?.settingsValid;
+    await writeUserCells(context, settingsSheet, colLetter, { favorites: nextFavs, recents, settings: setValid ? settings : undefined, dtsOverride: dts });
+    return { wbId, settings, __meta };
   });
 
   const { workbookGuid, filenameFingerprint } = out?.wbId || {};
   if (workbookGuid && filenameFingerprint) {
-    await rt10Write(workbookGuid, filenameFingerprint, nextFavs, out.settings || {}, dts);
+    const wbSetValid = !!out?.__meta?.settingsValid;
+    let nextSettings = (out?.settings && typeof out.settings === "object") ? out.settings : {};
+    if (!wbSetValid) {
+      const rt = await rt10Read(workbookGuid, filenameFingerprint);
+      if (isValidRuntimePayload(rt)) {
+        nextSettings = (rt.settings && typeof rt.settings === "object") ? rt.settings : {};
+      }
+    }
+    await rt10Write(workbookGuid, filenameFingerprint, nextFavs, nextSettings, dts);
   }
 }
 
@@ -916,14 +930,25 @@ export async function setUiSettings(nextSettings) {
     const settingsSheet = await ensureSettingsSheet(context);
     const wbId = await ensureWorkbookIdentity(context, settingsSheet);
     const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
-    const { favorites, recents } = await readUserCells(context, settingsSheet, colLetter);
-    await writeUserCells(context, settingsSheet, colLetter, { favorites, recents, settings: normalized, dtsOverride: dts });
-    return { wbId, favorites };
+    const { favorites, recents, __meta } = await readUserCells(context, settingsSheet, colLetter);
+    const favValid = !!__meta?.favoritesValid;
+    await writeUserCells(context, settingsSheet, colLetter, { favorites: favValid ? favorites : undefined, recents, settings: normalized, dtsOverride: dts });
+    return { wbId, favorites, __meta };
   });
 
   const { workbookGuid, filenameFingerprint } = out?.wbId || {};
   if (workbookGuid && filenameFingerprint) {
-    const favIds = Array.isArray(out.favorites) ? out.favorites.filter(Boolean) : [];
+    const wbFavValid = !!out?.__meta?.favoritesValid;
+    let favIds = Array.isArray(out?.favorites) ? out.favorites.filter(Boolean) : [];
+
+    // If workbook favorites were missing/invalid, preserve runtime favorites instead of wiping.
+    if (!wbFavValid) {
+      const rt = await rt10Read(workbookGuid, filenameFingerprint);
+      if (isValidRuntimePayload(rt)) {
+        favIds = Array.isArray(rt.favorites) ? rt.favorites.filter(Boolean) : [];
+      }
+    }
+
     await rt10Write(workbookGuid, filenameFingerprint, favIds, normalized, dts);
   }
 }
@@ -955,7 +980,13 @@ export async function recordActivation(sheetId) {
     rec.unshift(sheetId);
     if (rec.length > MAX_RECENTS) rec.length = MAX_RECENTS;
 
-    await writeUserCells(context, settingsSheet, colLetter, { favorites: state.favorites, recents: rec, settings: state.settings });
+    const favValid = !!state?.__meta?.favoritesValid;
+    const setValid = !!state?.__meta?.settingsValid;
+    await writeUserCells(context, settingsSheet, colLetter, {
+      favorites: favValid ? state.favorites : undefined,
+      settings: setValid ? state.settings : undefined,
+      recents: rec
+    });
     const nextFreq = await incrementFrequency(context, settingsSheet, colLetter, sheetId);
 
     return { wbId, recents: rec, freq: nextFreq };
