@@ -131,6 +131,7 @@ function DialogApp() {
   const globalOptionsDirtyRef = useRef(false);
   const globalOptionsDirtyDesiredRef = useRef(null);
   const prefsHydratedRef = useRef(false);
+  const prefsHydratedFromValidRef = useRef(false);
   useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
@@ -328,9 +329,18 @@ function DialogApp() {
             setAllSheets(sheets);
             setFavorites(Array.isArray(state.favorites) ? state.favorites : []);
             setRecents(Array.isArray(state.recents) ? state.recents : []);
-            const hydratePrefs = !prefsHydratedRef.current;
-            if (hydratePrefs) prefsHydratedRef.current = true;
+            const incomingMeta = state && typeof state === "object" ? state.__meta : null;
+            const incomingSettingsValid = !!incomingMeta?.settingsValid;
+            const incomingFavoritesValid = !!incomingMeta?.favoritesValid;
 
+            const hydratePrefs =
+              (!prefsHydratedRef.current && (incomingSettingsValid || incomingFavoritesValid)) ||
+              (!prefsHydratedFromValidRef.current && incomingSettingsValid && !uiSettingsDirtyRef.current);
+
+            if (hydratePrefs) {
+              prefsHydratedRef.current = true;
+              if (incomingSettingsValid) prefsHydratedFromValidRef.current = true;
+            }
                         if (hydratePrefs) {
             setGlobalOptions((prev) => {
               const incoming = state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard" };
@@ -389,7 +399,7 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
               // ignore
             }
             }
-            uiSettingsReadyRef.current = true;
+            uiSettingsReadyRef.current = prefsHydratedFromValidRef.current || uiSettingsDirtyRef.current;
             setStatus(sheets.length ? "" : "No visible worksheets found.");
 
             // Re-assert focus after data arrives (this is the moment users start typing).
@@ -693,7 +703,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   };
 
   const schedulePersistUiSettings = (reason) => {
-    if (!uiSettingsReadyRef.current) return;
+    if (!uiSettingsReadyRef.current && !uiSettingsDirtyRef.current) return;
     if (uiSettingsPersistTimerRef.current) {
       clearTimeout(uiSettingsPersistTimerRef.current);
     }
