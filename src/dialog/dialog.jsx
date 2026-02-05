@@ -106,9 +106,27 @@ function favDbgLog(source, prev, next) {
 }
 
 
+
+function sameFavoriteIds(a, b) {
+  if (a === b) return true;
+  const aa = Array.isArray(a) ? a : [];
+  const bb = Array.isArray(b) ? b : [];
+  if (aa.length !== bb.length) return false;
+  for (let i = 0; i < aa.length; i++) {
+    const ida = aa[i]?.id;
+    const idb = bb[i]?.id;
+    if (ida !== idb) return false;
+  }
+  return true;
+}
+
 function DialogApp() {
   const [allSheets, setAllSheets] = useState([]);
   const [favorites, setFavorites] = useState([]);
+  // Favorites bounce fix: prevent stale parent-state hydration from overwriting recent UI edits.
+  const favoritesDirtyRef = useRef(false);
+  const lastUiFavMutationAtRef = useRef(0);
+
   const [recents, setRecents] = useState([]);
   const [globalOptions, setGlobalOptions] = useState({ oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true });
   const [query, setQuery] = useState("");
@@ -363,6 +381,20 @@ function DialogApp() {
             setAllSheets(sheets);
             setFavorites((prev) => {
             const next = Array.isArray(state.favorites) ? state.favorites : [];
+            if (favoritesDirtyRef.current && !sameFavoriteIds(prev, next)) {
+              const ageMs = Date.now() - (lastUiFavMutationAtRef.current || 0);
+              if (ageMs < 2000) {
+                // We very recently changed favorites locally; ignore stale parent hydration that would "bounce" the UI.
+                favDbgLog("hydrate:parentState:skippedDirty", prev, next);
+                return prev;
+              }
+              // If we're still dirty after a while, accept parent as authoritative to avoid getting "stuck" forever.
+              favoritesDirtyRef.current = false;
+            }
+            // If parent has caught up to our local favorites, clear dirty.
+            if (favoritesDirtyRef.current && sameFavoriteIds(prev, next)) {
+              favoritesDirtyRef.current = false;
+            }
             favDbgLog("hydrate:parentState", prev, next);
             return next;
           });
@@ -686,8 +718,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   const isFavorite = (sheetId) => favoriteIds.has(sheetId);
 
   
-  const addFavoriteLocal = (sheetId) => {
-    if (!sheetId) return;
+  \1    favoritesDirtyRef.current = true;
+    lastUiFavMutationAtRef.current = Date.now();
     setFavorites((prev) => {
       const arr = Array.isArray(prev) ? prev : [];
       let next = arr;
@@ -709,8 +741,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     schedulePersistFavorites("add");
   };
 
-  const removeFavoriteLocal = (sheetId) => {
-    if (!sheetId) return;
+  \1    favoritesDirtyRef.current = true;
+    lastUiFavMutationAtRef.current = Date.now();
     setFavorites((prev) => {
       const next = (Array.isArray(prev) ? prev : []).filter((x) => x?.id !== sheetId);
       favDbgLog("ui:removeFavorite", prev, next);
@@ -720,8 +752,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     schedulePersistFavorites("remove");
   };
 
-  const moveFavoriteLocal = (sheetId, direction) => {
-    if (!sheetId) return;
+  \1    favoritesDirtyRef.current = true;
+    lastUiFavMutationAtRef.current = Date.now();
     if (direction !== "up" && direction !== "down") return;
     setFavorites((prev) => {
       const arr = Array.isArray(prev) ? prev.slice() : [];
