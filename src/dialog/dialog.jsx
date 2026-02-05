@@ -717,8 +717,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
   const isFavorite = (sheetId) => favoriteIds.has(sheetId);
 
-  
-  \1    favoritesDirtyRef.current = true;
+  const addFavorite = (sheetId) => {
+    favoritesDirtyRef.current = true;
     lastUiFavMutationAtRef.current = Date.now();
     setFavorites((prev) => {
       const arr = Array.isArray(prev) ? prev : [];
@@ -741,7 +741,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     schedulePersistFavorites("add");
   };
 
-  \1    favoritesDirtyRef.current = true;
+  const removeFavorite = (sheetId) => {
+    favoritesDirtyRef.current = true;
     lastUiFavMutationAtRef.current = Date.now();
     setFavorites((prev) => {
       const next = (Array.isArray(prev) ? prev : []).filter((x) => x?.id !== sheetId);
@@ -752,7 +753,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     schedulePersistFavorites("remove");
   };
 
-  \1    favoritesDirtyRef.current = true;
+  const moveFavorite = (sheetId, direction) => {
+    favoritesDirtyRef.current = true;
     lastUiFavMutationAtRef.current = Date.now();
     if (direction !== "up" && direction !== "down") return;
     setFavorites((prev) => {
