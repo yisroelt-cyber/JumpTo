@@ -71,6 +71,40 @@ function clampNumber(n, min, max) {
   return Math.min(max, Math.max(min, v));
 }
 
+// =====================
+// Favorites bounce diagnostics (logging-only)
+// =====================
+// IMPORTANT: keep this behavior-neutral:
+// - no new hooks
+// - no new async/hydration paths
+// Toggle off when done.
+const DEBUG_FAV_BOUNCE = true;
+let __favDbgLast = null;
+
+function favDbgLog(source, prev, next) {
+  if (!DEBUG_FAV_BOUNCE) return;
+  try {
+    const before = Array.isArray(prev) ? prev.map((x) => x?.id).filter(Boolean) : [];
+    const after = Array.isArray(next) ? next.map((x) => x?.id).filter(Boolean) : [];
+    const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    const dt = __favDbgLast ? Math.round(now - __favDbgLast.ts) : null;
+
+    console.log("[FavDbg]", {
+      source,
+      beforeCount: before.length,
+      afterCount: after.length,
+      delta: after.length - before.length,
+      dtMs: dt,
+      beforeIds: before.slice(0, 25),
+      afterIds: after.slice(0, 25),
+    });
+
+    __favDbgLast = { source, ts: now };
+  } catch (e) {
+    console.log("[FavDbg] log failed:", e);
+  }
+}
+
 
 function DialogApp() {
   const [allSheets, setAllSheets] = useState([]);
@@ -327,7 +361,11 @@ function DialogApp() {
             const state = msg.state || {};
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             setAllSheets(sheets);
-            setFavorites(Array.isArray(state.favorites) ? state.favorites : []);
+            setFavorites((prev) => {
+            const next = Array.isArray(state.favorites) ? state.favorites : [];
+            favDbgLog("hydrate:parentState", prev, next);
+            return next;
+          });
             setRecents(Array.isArray(state.recents) ? state.recents : []);
             const incomingMeta = state && typeof state === "object" ? state.__meta : null;
             const incomingSettingsValid = !!incomingMeta?.settingsValid;
@@ -652,10 +690,18 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     if (!sheetId) return;
     setFavorites((prev) => {
       const arr = Array.isArray(prev) ? prev : [];
-      if (arr.some((x) => x?.id === sheetId)) return arr;
-      const s = (Array.isArray(allSheets) ? allSheets : []).find((x) => x?.id === sheetId);
-      const name = s?.name || "";
-      return [...arr, { id: sheetId, name }];
+      let next = arr;
+
+      if (arr.some((x) => x?.id === sheetId)) {
+        next = arr;
+      } else {
+        const s = (Array.isArray(allSheets) ? allSheets : []).find((x) => x?.id === sheetId);
+        const name = s?.name || "";
+        next = [...arr, { id: sheetId, name }];
+      }
+
+      favDbgLog("ui:addFavorite", prev, next);
+      return next;
     });
     setFavTabSelectedFavoriteId(sheetId);
     setFavTabSelectedAvailableId(null);
@@ -665,7 +711,11 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
   const removeFavoriteLocal = (sheetId) => {
     if (!sheetId) return;
-    setFavorites((prev) => (Array.isArray(prev) ? prev : []).filter((x) => x?.id !== sheetId));
+    setFavorites((prev) => {
+      const next = (Array.isArray(prev) ? prev : []).filter((x) => x?.id !== sheetId);
+      favDbgLog("ui:removeFavorite", prev, next);
+      return next;
+    });
     if (favTabSelectedFavoriteId === sheetId) setFavTabSelectedFavoriteId(null);
     schedulePersistFavorites("remove");
   };
@@ -675,13 +725,24 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     if (direction !== "up" && direction !== "down") return;
     setFavorites((prev) => {
       const arr = Array.isArray(prev) ? prev.slice() : [];
+      let next = arr;
+
       const idx = arr.findIndex((x) => x?.id === sheetId);
-      if (idx < 0) return arr;
-      const to = direction === "up" ? idx - 1 : idx + 1;
-      if (to < 0 || to >= arr.length) return arr;
-      const [item] = arr.splice(idx, 1);
-      arr.splice(to, 0, item);
-      return arr;
+      if (idx < 0) {
+        next = arr;
+      } else {
+        const to = direction === "up" ? idx - 1 : idx + 1;
+        if (to < 0 || to >= arr.length) {
+          next = arr;
+        } else {
+          const [item] = arr.splice(idx, 1);
+          arr.splice(to, 0, item);
+          next = arr;
+        }
+      }
+
+      favDbgLog(`ui:moveFavorite:${direction}`, prev, next);
+      return next;
     });
     schedulePersistFavorites("move");
   };
