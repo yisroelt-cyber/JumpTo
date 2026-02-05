@@ -717,9 +717,10 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
   const isFavorite = (sheetId) => favoriteIds.has(sheetId);
 
-  const addFavorite = (sheetId) => {
+  const addFavoriteLocal = (sheetId) => {
     favoritesDirtyRef.current = true;
     lastUiFavMutationAtRef.current = Date.now();
+
     setFavorites((prev) => {
       const arr = Array.isArray(prev) ? prev : [];
       let next = arr;
@@ -735,28 +736,32 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       favDbgLog("ui:addFavorite", prev, next);
       return next;
     });
+
     setFavTabSelectedFavoriteId(sheetId);
     setFavTabSelectedAvailableId(null);
     favTabPendingScrollIdRef.current = sheetId;
     schedulePersistFavorites("add");
   };
 
-  const removeFavorite = (sheetId) => {
+  const removeFavoriteLocal = (sheetId) => {
     favoritesDirtyRef.current = true;
     lastUiFavMutationAtRef.current = Date.now();
+
     setFavorites((prev) => {
       const next = (Array.isArray(prev) ? prev : []).filter((x) => x?.id !== sheetId);
       favDbgLog("ui:removeFavorite", prev, next);
       return next;
     });
+
     if (favTabSelectedFavoriteId === sheetId) setFavTabSelectedFavoriteId(null);
     schedulePersistFavorites("remove");
   };
 
-  const moveFavorite = (sheetId, direction) => {
+  const moveFavoriteLocal = (sheetId, direction) => {
     favoritesDirtyRef.current = true;
     lastUiFavMutationAtRef.current = Date.now();
     if (direction !== "up" && direction !== "down") return;
+
     setFavorites((prev) => {
       const arr = Array.isArray(prev) ? prev.slice() : [];
       let next = arr;
@@ -778,6 +783,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       favDbgLog(`ui:moveFavorite:${direction}`, prev, next);
       return next;
     });
+
     schedulePersistFavorites("move");
   };
 
