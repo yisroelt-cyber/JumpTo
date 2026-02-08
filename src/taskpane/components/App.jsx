@@ -289,6 +289,55 @@ async function officeReady() {
   await new Promise((resolve) => Office.onReady(() => resolve()));
 }
 
+
+/* =========================
+   User identity (debuggable)
+========================= */
+
+const IDENTITY_LOG_PREFIX = "[JumpTo][Identity]";
+
+function identityLog(message, data) {
+  try {
+    if (data !== undefined) console.log(`${IDENTITY_LOG_PREFIX} ${message}`, data);
+    else console.log(`${IDENTITY_LOG_PREFIX} ${message}`);
+  } catch {}
+}
+
+function newUuid() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  const s4 = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).slice(1);
+  return `${s4()}${s4()}-${s4()}-${s4()}-${s4()}-${s4()}${s4()}${s4()}`;
+}
+
+async function getOrCreateUserKey() {
+  const storage = globalThis.OfficeRuntime?.storage;
+  if (!storage?.getItem || !storage?.setItem) {
+    const key = `session-${newUuid()}`;
+    identityLog("NO OfficeRuntime.storage; using session key", key);
+    return key;
+  }
+
+  try {
+    let key = await storage.getItem(USER_KEY_STORAGE_KEY);
+    if (key) {
+      identityLog("loaded from OfficeRuntime.storage", key);
+      return key;
+    }
+
+    key = newUuid();
+    await storage.setItem(USER_KEY_STORAGE_KEY, key);
+    identityLog("CREATED NEW userKey and stored in OfficeRuntime.storage", key);
+    return key;
+  } catch (err) {
+    const key = `session-${newUuid()}`;
+    identityLog("ERROR accessing OfficeRuntime.storage; using session key", {
+      error: String(err),
+      key,
+    });
+    return key;
+  }
+}
+
 /* =========================
    Blob helpers (favorites/recents/options)
 ========================= */

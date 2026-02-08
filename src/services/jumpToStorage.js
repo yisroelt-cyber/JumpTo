@@ -11,6 +11,16 @@ const ROW_FAVORITES = 2;
 const ROW_RECENTS = 3;
 const ROW_SETTINGS = 4;
 
+const IDENTITY_LOG_PREFIX = "[JumpTo][Identity]";
+
+function identityLog(message, data) {
+  try {
+    if (data !== undefined) console.log(`${IDENTITY_LOG_PREFIX} ${message}`, data);
+    else console.log(`${IDENTITY_LOG_PREFIX} ${message}`);
+  } catch {}
+}
+
+
 // Inventory table start (1-based)
 const INV_START_ROW = 52;
 
@@ -292,7 +302,10 @@ async function getOrCreateUserKey() {
   try {
     if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
       existing = await OfficeRuntime.storage.getItem(USERKEY_STORAGE_KEY);
-      if (existing) return existing;
+      if (existing) {
+      identityLog("loaded from OfficeRuntime.storage", existing);
+      return existing;
+    }
     }
   } catch {}
 
@@ -301,14 +314,20 @@ async function getOrCreateUserKey() {
     const rs = Office?.context?.roamingSettings;
     if (rs?.get) {
       existing = rs.get(USERKEY_STORAGE_KEY);
-      if (existing) return existing;
+      if (existing) {
+      identityLog("loaded from roamingSettings", existing);
+      return existing;
+    }
     }
   } catch {}
 
   // 3) localStorage (last resort; persists per-browser)
   try {
     existing = globalThis?.localStorage?.getItem?.(USERKEY_STORAGE_KEY);
-    if (existing) return existing;
+    if (existing) {
+    identityLog("loaded from localStorage", existing);
+    return existing;
+  }
   } catch {}
 
   // Create new key
@@ -316,7 +335,10 @@ async function getOrCreateUserKey() {
     (globalThis.crypto?.randomUUID?.() ||
       `u_${Date.now()}_${Math.random().toString(16).slice(2)}`);
 
-  // Persist to all backends that are available.
+  
+
+  identityLog("CREATED NEW userKey", key);
+// Persist to all backends that are available.
   try {
     if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
       await OfficeRuntime.storage.setItem(USERKEY_STORAGE_KEY, key);
