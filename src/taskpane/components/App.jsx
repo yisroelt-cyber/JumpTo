@@ -36,10 +36,12 @@ import { MAX_RECENTS } from "../../shared/constants";
 console.log("### JUMPTO APP VERSION: 2026-01-08 A ###");
 
 const SETTINGS_SHEET_NAME = "_JumpToAddinSettings";
-const USER_KEY_STORAGE_KEY = "JumpToAddin.UserKey";
+const USER_KEY_STORAGE_KEY = "JumpTo.UserKey";
 const USER_COL_START = 4; // column D = 4 (1-based)
 const USER_KEY_ROW = 1;
-const USER_BLOB_ROW = 2;
+const USER_FAVORITES_ROW = 2;
+const USER_RECENTS_ROW = 3;
+const USER_SETTINGS_ROW = 4;
 
 const MAX_FAVORITES = 50;
 
@@ -291,115 +293,129 @@ async function officeReady() {
    Blob helpers (favorites/recents/options)
 ========================= */
 
-async function readUserBlobAtAddress(blobAddress) {
-  if (!globalThis.Excel) throw new Error("Excel.js not available. Are you running inside Excel?");
-  await officeReady();
-
-  return Excel.run(async (context) => {
-    const ws = context.workbook.worksheets.getItem(SETTINGS_SHEET_NAME);
-    const cell = ws.getRange(blobAddress);
-    cell.load("values");
-    await context.sync();
-
-    const raw = cell.values?.[0]?.[0];
-    const text = typeof raw === "string" ? raw.trim() : "";
-
-    if (!text) return normalizeBlob(null);
-
-    try {
-      return normalizeBlob(JSON.parse(text));
-    } catch {
-      return normalizeBlob(null);
-    }
-  });
-}
-
-async function updateUserBlobAtAddress(blobAddress, updater) {
-  if (!blobAddress) throw new Error("Blob address not initialized yet.");
-  if (!globalThis.Excel) throw new Error("Excel.js not available. Are you running inside Excel?");
-  await officeReady();
-
-  return Excel.run(async (context) => {
-    const ws = context.workbook.worksheets.getItem(SETTINGS_SHEET_NAME);
-    const cell = ws.getRange(blobAddress);
-
-    cell.load("values");
-    await context.sync();
-
-    const raw = cell.values?.[0]?.[0];
-    const text = typeof raw === "string" ? raw.trim() : "";
-
-    let current = normalizeBlob(null);
-    if (text) {
-      try {
-        current = normalizeBlob(JSON.parse(text));
-      } catch {
-        current = normalizeBlob(null);
-      }
-    }
-
-    const updated = normalizeBlob(updater(current));
-    cell.values = [[JSON.stringify(updated)]];
-    cell.numberFormat = [["@"]];
-
-    await context.sync();
-    return updated;
-  });
-}
-
-/* =========================
-   Sheets
-========================= */
-
-async function getVisibleWorksheetNames() {
-  if (!globalThis.Excel) throw new Error("Excel.js not available. Are you running inside Excel?");
-  await officeReady();
-
-  return Excel.run(async (context) => {
-    const sheets = context.workbook.worksheets;
-    sheets.load("items/name,items/visibility");
-    await context.sync();
-
-    const visible = sheets.items
-      .filter((ws) => ws.visibility === Excel.SheetVisibility.visible)
-      .map((ws) => ws.name);
-
-    visible.sort((a, b) => a.localeCompare(b));
-    return visible;
-  });
-}
-
-async function activateWorksheetByName(sheetName) {
-  if (!globalThis.Excel) throw new Error("Excel.js not available. Are you running inside Excel?");
-  await officeReady();
-
-  return Excel.run(async (context) => {
-    const ws = context.workbook.worksheets.getItem(sheetName);
-    ws.activate();
-    await context.sync();
-  });
-}
-
-/* =========================
-   User identity
-========================= */
-
-function newUuid() {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  const s4 = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).slice(1);
-  return `${s4()}${s4()}-${s4()}-${s4()}-${s4()}-${s4()}${s4()}${s4()}`;
-}
-
-async function getOrCreateUserKey() {
-  if (!globalThis.OfficeRuntime?.storage) return `session-${newUuid()}`;
-
-  let key = await OfficeRuntime.storage.getItem(USER_KEY_STORAGE_KEY);
-  if (!key) {
-    key = newUuid();
-    await OfficeRuntime.storage.setItem(USER_KEY_STORAGE_KEY, key);
+async function readUserDataAtAddresses(addresses) {
+  if (!addresses?.favoritesAddress || !addresses?.recentsAddress || !addresses?.settingsAddress) {
+    throw new Error("User data addresses not initialized yet.");
   }
-  return key;
+  if (!globalThis.Excel) throw new Error("Excel.js not available. Are you running inside Excel?");
+  await officeReady();
+
+  return Excel.run(async (context) => {
+    const ws = context.workbook.worksheets.getItem(SETTINGS_SHEET_NAME);
+
+    const favCell = ws.getRange(addresses.favoritesAddress);
+    const recCell = ws.getRange(addresses.recentsAddress);
+    const setCell = ws.getRange(addresses.settingsAddress);
+
+    favCell.load("values");
+    recCell.load("values");
+    setCell.load("values");
+    await context.sync();
+
+    const favRaw = favCell.values?.[0]?.[0];
+    const recRaw = recCell.values?.[0]?.[0];
+    const setRaw = setCell.values?.[0]?.[0];
+
+    const parseArray = (v) => {
+      if (typeof v !== "string") return [];
+      const t = v.trim();
+      if (!t) return [];
+      try {
+        const x = JSON.parse(t);
+        return Array.isArray(x) ? x : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const parseObject = (v) => {
+      if (typeof v !== "string") return {};
+      const t = v.trim();
+      if (!t) return {};
+      try {
+        const x = JSON.parse(t);
+        return (x && typeof x === "object" && !Array.isArray(x)) ? x : {};
+      } catch {
+        return {};
+      }
+    };
+
+    return {
+      favorites: parseArray(favRaw),
+      recents: parseArray(recRaw),
+      options: parseObject(setRaw),
+    };
+  });
 }
+
+async function updateUserDataAtAddresses(addresses, updater) {
+  if (!addresses?.favoritesAddress || !addresses?.recentsAddress || !addresses?.settingsAddress) {
+    throw new Error("User data addresses not initialized yet.");
+  }
+  if (!globalThis.Excel) throw new Error("Excel.js not available. Are you running inside Excel?");
+  await officeReady();
+
+  return Excel.run(async (context) => {
+    const ws = context.workbook.worksheets.getItem(SETTINGS_SHEET_NAME);
+
+    const favCell = ws.getRange(addresses.favoritesAddress);
+    const recCell = ws.getRange(addresses.recentsAddress);
+    const setCell = ws.getRange(addresses.settingsAddress);
+
+    favCell.load("values");
+    recCell.load("values");
+    setCell.load("values");
+    await context.sync();
+
+    const parseArray = (v) => {
+      if (typeof v !== "string") return [];
+      const t = v.trim();
+      if (!t) return [];
+      try {
+        const x = JSON.parse(t);
+        return Array.isArray(x) ? x : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const parseObject = (v) => {
+      if (typeof v !== "string") return {};
+      const t = v.trim();
+      if (!t) return {};
+      try {
+        const x = JSON.parse(t);
+        return (x && typeof x === "object" && !Array.isArray(x)) ? x : {};
+      } catch {
+        return {};
+      }
+    };
+
+    const current = {
+      favorites: parseArray(favCell.values?.[0]?.[0]),
+      recents: parseArray(recCell.values?.[0]?.[0]),
+      options: parseObject(setCell.values?.[0]?.[0]),
+    };
+
+    const next = (typeof updater === "function") ? (updater(current) ?? current) : current;
+
+    const nextFavorites = Array.isArray(next.favorites) ? next.favorites : [];
+    const nextRecents = Array.isArray(next.recents) ? next.recents : [];
+    const nextOptions = (next.options && typeof next.options === "object" && !Array.isArray(next.options)) ? next.options : {};
+
+    favCell.values = [[JSON.stringify(nextFavorites)]];
+    recCell.values = [[JSON.stringify(nextRecents)]];
+    setCell.values = [[JSON.stringify(nextOptions)]];
+
+    favCell.numberFormat = [["@"]];
+    recCell.numberFormat = [["@"]];
+    setCell.numberFormat = [["@"]];
+
+    await context.sync();
+    return { favorites: nextFavorites, recents: nextRecents, options: nextOptions };
+  });
+}
+
 
 /* =========================
    Settings sheet + user column/blob
@@ -434,7 +450,7 @@ async function ensureSettingsWorksheet() {
   });
 }
 
-async function ensureUserColumnAndBlob(userKey) {
+async function ensureUserColumnAndCells(userKey) {
   if (!globalThis.Excel) throw new Error("Excel.js not available. Are you running inside Excel?");
   await officeReady();
 
@@ -469,33 +485,69 @@ async function ensureUserColumnAndBlob(userKey) {
     }
 
     const colIndex0 = USER_COL_START - 1 + offset; // 0-based column index
-    const blobCell = ws.getCell(USER_BLOB_ROW - 1, colIndex0);
 
-    blobCell.load("values,address");
+    const favCell = ws.getCell(USER_FAVORITES_ROW - 1, colIndex0);
+    const recCell = ws.getCell(USER_RECENTS_ROW - 1, colIndex0);
+    const setCell = ws.getCell(USER_SETTINGS_ROW - 1, colIndex0);
+
+    favCell.load("values,address");
+    recCell.load("values,address");
+    setCell.load("values,address");
     await context.sync();
 
-    const current = blobCell.values?.[0]?.[0];
-    const asText = typeof current === "string" ? current.trim() : "";
-
-    let ok = false;
-    if (asText) {
-      try {
-        JSON.parse(asText);
-        ok = true;
-      } catch {
-        ok = false;
+    const ensureArrayJson = (cell) => {
+      const current = cell.values?.[0]?.[0];
+      const asText = (typeof current === "string") ? current.trim() : "";
+      let ok = false;
+      if (asText) {
+        try {
+          const parsed = JSON.parse(asText);
+          ok = Array.isArray(parsed);
+        } catch {
+          ok = false;
+        }
       }
-    }
+      if (!ok) {
+        cell.values = [[JSON.stringify([])]];
+        cell.numberFormat = [["@"]];
+      }
+    };
 
-    if (!ok) {
-      blobCell.values = [[JSON.stringify({ favorites: [], recents: [], options: {} })]];
-      blobCell.numberFormat = [["@"]];
-    }
+    const ensureObjectJson = (cell) => {
+      const current = cell.values?.[0]?.[0];
+      const asText = (typeof current === "string") ? current.trim() : "";
+      let ok = false;
+      if (asText) {
+        try {
+          const parsed = JSON.parse(asText);
+          ok = !!parsed && typeof parsed === "object" && !Array.isArray(parsed);
+        } catch {
+          ok = false;
+        }
+      }
+      if (!ok) {
+        cell.values = [[JSON.stringify({})]];
+        cell.numberFormat = [["@"]];
+      }
+    };
+
+    ensureArrayJson(favCell);
+    ensureArrayJson(recCell);
+    ensureObjectJson(setCell);
 
     await context.sync();
-    return { colIndex0, blobAddress: blobCell.address };
+
+    return {
+      colIndex0,
+      addresses: {
+        favoritesAddress: favCell.address,
+        recentsAddress: recCell.address,
+        settingsAddress: setCell.address,
+      },
+    };
   });
 }
+
 
 /* =========================
    Inventory + Frequency (E)
@@ -757,7 +809,7 @@ const App = (props) => {
   // User identity + storage coordinates
   const [userKey, setUserKey] = React.useState(null);
   const [userColIndex0, setUserColIndex0] = React.useState(null);
-  const [blobAddress, setBlobAddress] = React.useState(null);
+  const [userDataAddresses, setUserDataAddresses] = React.useState(null);
   const [userBlob, setUserBlob] = React.useState(normalizeBlob(null));
 
   // Frequency map for this user: sheetName -> count
@@ -803,14 +855,14 @@ const App = (props) => {
     });
   }, [filteredList, userBlob.favorites, userBlob.recents, freqMap]);
 
-  const isReady = status.state === "idle" && userColIndex0 !== null && !!blobAddress;
+  const isReady = status.state === "idle" && userColIndex0 !== null && !!userDataAddresses;
 
   /* ===== Favorites mutations (append to end) ===== */
 
   const addFavoriteAppend = React.useCallback(
     async (sheetName) => {
-      if (!blobAddress) return;
-      const updated = await updateUserBlobAtAddress(blobAddress, (b) => {
+      if (!userDataAddresses) return;
+      const updated = await updateUserDataAtAddresses(userDataAddresses, (b) => {
         const fav = b.favorites ?? [];
         if (fav.includes(sheetName)) return b;
         const next = [...fav, sheetName].slice(0, MAX_FAVORITES);
@@ -818,31 +870,31 @@ const App = (props) => {
       });
       setUserBlob(updated);
     },
-    [blobAddress]
+    [userDataAddresses]
   );
 
   const removeFavorite = React.useCallback(
     async (sheetName) => {
-      if (!blobAddress) return;
-      const updated = await updateUserBlobAtAddress(blobAddress, (b) => ({
+      if (!userDataAddresses) return;
+      const updated = await updateUserDataAtAddresses(userDataAddresses, (b) => ({
         ...b,
         favorites: (b.favorites ?? []).filter((x) => x !== sheetName),
       }));
       setUserBlob(updated);
     },
-    [blobAddress]
+    [userDataAddresses]
   );
 
   const setFavoritesOrder = React.useCallback(
     async (nextFavorites) => {
-      if (!blobAddress) return;
-      const updated = await updateUserBlobAtAddress(blobAddress, (b) => ({
+      if (!userDataAddresses) return;
+      const updated = await updateUserDataAtAddresses(userDataAddresses, (b) => ({
         ...b,
         favorites: (nextFavorites ?? []).slice(0, MAX_FAVORITES),
       }));
       setUserBlob(updated);
     },
-    [blobAddress]
+    [userDataAddresses]
   );
 
   /* ===== Centralized cleanup for missing sheets ===== */
@@ -851,8 +903,8 @@ const App = (props) => {
     async (sheetName) => {
       try {
         // 1) Remove from favorites + recents blob
-        if (blobAddress) {
-          const updated = await updateUserBlobAtAddress(blobAddress, (b) => ({
+        if (userDataAddresses) {
+          const updated = await updateUserDataAtAddresses(userDataAddresses, (b) => ({
             ...b,
             favorites: (b.favorites ?? []).filter((x) => x !== sheetName),
             recents: (b.recents ?? []).filter((x) => x !== sheetName),
@@ -884,7 +936,7 @@ const App = (props) => {
         setStatus({ state: "error", message: err?.message || String(err) });
       }
     },
-    [blobAddress]
+    [userDataAddresses]
   );
 
   /* ===== Activation pipeline ===== */
@@ -903,7 +955,7 @@ const App = (props) => {
     try {
       await activateWorksheetByName(sheetName);
 
-      const updated = await updateUserBlobAtAddress(blobAddress, (b) => ({
+      const updated = await updateUserDataAtAddresses(userDataAddresses, (b) => ({
         ...b,
         recents: pushUniqueFront(b.recents ?? [], sheetName, MAX_RECENTS),
       }));
@@ -929,7 +981,7 @@ const App = (props) => {
       setStatus({ state: "error", message: msg });
     }
   },
-  [isReady, fullList, blobAddress, userColIndex0, handleMissingSheet]
+  [isReady, fullList, userDataAddresses, userColIndex0, handleMissingSheet]
 );
 
 
@@ -948,14 +1000,14 @@ const App = (props) => {
         await ensureSettingsWorksheet();
 
         const key = await getOrCreateUserKey();
-        const { colIndex0, blobAddress: addr } = await ensureUserColumnAndBlob(key);
+        const { colIndex0, addresses: addr } = await ensureUserColumnAndCells(key);
 
         if (cancelled) return;
         setUserKey(key);
         setUserColIndex0(colIndex0);
-        setBlobAddress(addr);
+        setUserDataAddresses(addr);
 
-        const initialBlob = await readUserBlobAtAddress(addr);
+        const initialBlob = await readUserDataAtAddresses(addr);
         if (cancelled) return;
         setUserBlob(initialBlob);
 
@@ -1062,14 +1114,14 @@ const App = (props) => {
 
   const setOneDigitActivationEnabled = React.useCallback(
     async (enabled) => {
-      if (!blobAddress) return;
-      const updated = await updateUserBlobAtAddress(blobAddress, (b) => ({
+      if (!userDataAddresses) return;
+      const updated = await updateUserDataAtAddresses(userDataAddresses, (b) => ({
         ...b,
         options: { ...(b.options ?? {}), oneDigitActivationEnabled: !!enabled },
       }));
       setUserBlob(updated);
     },
-    [blobAddress]
+    [userDataAddresses]
   );
 
   const isFavorite = React.useCallback((name) => (userBlob.favorites ?? []).includes(name), [userBlob.favorites]);
