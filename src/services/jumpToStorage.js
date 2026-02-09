@@ -11,6 +11,19 @@ const ROW_FAVORITES = 2;
 const ROW_RECENTS = 3;
 const ROW_SETTINGS = 4;
 
+// Workbook-scoped user settings persisted in the workbook Settings sheet blob.
+const WB_SETTINGS_KEYS = ["oneDigitActivationEnabled"];
+
+function pickWbSettings(obj) {
+  const src = (obj && typeof obj === "object" && !Array.isArray(obj)) ? obj : {};
+  const out = {};
+  for (const k of WB_SETTINGS_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(src, k)) out[k] = src[k];
+  }
+  return out;
+}
+
+
 const IDENTITY_LOG_PREFIX = "[JumpTo][Identity]";
 
 function identityLog(message, data) {
@@ -857,14 +870,14 @@ export async function toggleFavorite(sheetId) {
       favs.push(sheetId);
       if (favs.length > MAX_FAVORITES) favs.length = MAX_FAVORITES;
     }
-
     const dts = Date.now();
-    await writeUserCells(context, sheet, colLetter, { favorites: favs, recents: state.recents, settings: state.settings, dtsOverride: dts });
+    const wbSettings = pickWbSettings(state.settings);
+    await writeUserCells(context, sheet, colLetter, { favorites: favs, recents: state.recents, settings: wbSettings, dtsOverride: dts });
 
     // Mirror into runtime safety net (best effort)
     const { workbookGuid, filenameFingerprint } = wbId || {};
     if (workbookGuid && filenameFingerprint) {
-      await rt10Write(workbookGuid, filenameFingerprint, favs, state.settings || {}, dts);
+      await rt10Write(workbookGuid, filenameFingerprint, favs, wbSettings, dts);
     }
 
     return favs;
@@ -885,7 +898,7 @@ export async function setFavorites(favIds) {
     const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
     const { recents, settings, __meta } = await readUserCells(context, settingsSheet, colLetter);
     const setValid = !!__meta?.settingsValid;
-    await writeUserCells(context, settingsSheet, colLetter, { favorites: nextFavs, recents, settings: setValid ? settings : undefined, dtsOverride: dts });
+    await writeUserCells(context, settingsSheet, colLetter, { favorites: nextFavs, recents, settings: setValid ? pickWbSettings(settings) : undefined, dtsOverride: dts });
     return { wbId, settings, __meta };
   });
 
@@ -945,7 +958,12 @@ export async function setUiSettings(nextSettings) {
   const userKey = await getOrCreateUserKey();
   if (!userKey) return;
 
-  const normalized = (nextSettings && typeof nextSettings === "object" && !Array.isArray(nextSettings)) ? nextSettings : {};
+  const incoming = (nextSettings && typeof nextSettings === "object" && !Array.isArray(nextSettings)) ? nextSettings : {};
+  // Only persist workbook-scoped settings in the workbook Settings sheet.
+  const normalized = {};
+  for (const k of WB_SETTINGS_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(incoming, k)) normalized[k] = incoming[k];
+  }
   const dts = Date.now();
 
   const out = await Excel.run(async (context) => {
@@ -954,7 +972,12 @@ export async function setUiSettings(nextSettings) {
     const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
     const { favorites, recents, settings: existingSettings, __meta } = await readUserCells(context, settingsSheet, colLetter);
     const favValid = !!__meta?.favoritesValid;
-    const mergedSettings = { ...(existingSettings || {}), ...normalized };
+    const prev = (existingSettings && typeof existingSettings === "object" && !Array.isArray(existingSettings)) ? existingSettings : {};
+    const prevFiltered = {};
+    for (const k of WB_SETTINGS_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(prev, k)) prevFiltered[k] = prev[k];
+    }
+    const mergedSettings = { ...prevFiltered, ...normalized };
     await writeUserCells(context, settingsSheet, colLetter, { favorites: favValid ? favorites : undefined, recents, settings: mergedSettings, dtsOverride: dts });
     return { wbId, favorites, __meta };
   });
