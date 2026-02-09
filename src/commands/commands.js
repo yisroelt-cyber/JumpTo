@@ -8,6 +8,7 @@ import {
   setFavorites as setFavoritesInStorage,
   recordActivation,
   setUiSettings as setUiSettingsInStorage,
+  setWorkbookSettings as setWorkbookSettingsInStorage,
 } from "../services/jumpToStorage";
 
 let lockBusy = false;
@@ -109,13 +110,14 @@ try {
   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
     const v = await OfficeRuntime.storage.getItem("JumpTo.Option.RowHeightPreset");
     if (v) rowHeightPreset = String(v);
-    const od = await OfficeRuntime.storage.getItem("JumpTo.Option.OneDigitActivation");
-    if (od === "false") oneDigitActivationEnabled = false;
-    else if (od === "true") oneDigitActivationEnabled = true;
   }
 } catch {
   // ignore
 }
+
+// Workbook-scoped option
+oneDigitActivationEnabled = baseState?.workbookSettings?.oneDigitActivationEnabled === undefined ? true : !!baseState.workbookSettings.oneDigitActivationEnabled;
+
 const baselineOrder = String(baseState.settings?.baselineOrder || "workbook");
 const frequentOnTop = baseState.settings?.frequentOnTop === undefined ? true : !!baseState.settings?.frequentOnTop;
 return {
@@ -272,22 +274,25 @@ if (msg.type === "setRowHeightPreset") {
 }
 
         if (msg.type === "setOneDigitActivation") {
-          const enabled = !!msg.enabled;
-          await withLock(async () => {
-            try {
-              if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                await OfficeRuntime.storage.setItem(
-                  "JumpTo.Option.OneDigitActivation",
-                  enabled ? "true" : "false"
-                );
-              }
-            } catch {}
-            cachedState = await getJumpToState();
-            const state = await buildDialogState(cachedState);
-            reply({ type: "stateData", state });
-          });
-          return;
-        }
+  const enabled = !!msg.enabled;
+  await withLock(async () => {
+    try {
+      await setWorkbookSettingsInStorage({ oneDigitActivationEnabled: enabled });
+    } catch {}
+    if (!cachedState) {
+      cachedState = await getJumpToState();
+    } else {
+      cachedState = {
+        ...cachedState,
+        workbookSettings: { ...(cachedState.workbookSettings || {}), oneDigitActivationEnabled: enabled }
+      };
+    }
+    const state = await buildDialogState(cachedState);
+    reply({ type: "stateData", state });
+  });
+  return;
+}
+
 
         if (msg.type === "selectSheet") {
           const sheetId = msg.sheetId;
