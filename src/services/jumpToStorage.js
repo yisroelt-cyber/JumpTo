@@ -4,8 +4,6 @@
 import { MAX_RECENTS, MAX_FAVORITES } from "../shared/constants";
 const SETTINGS_SHEET_NAME = "_JumpToAddinSettings";
 const USERKEY_STORAGE_KEY = "JumpTo.UserKey";
-const GLOBAL_UI_SETTINGS_KEY = "JumpTo.Global.UiSettings";
-
 
 // Row indices (1-based)
 const ROW_USERKEY = 1;
@@ -362,83 +360,6 @@ async function getOrCreateUserKey() {
   return key;
 }
 
-
-
-async function readGlobalUiSettings() {
-  const defaults = {
-    favPercentManual: 50,
-    recentsDisplayCount: 10,
-    baselineOrder: "workbook",
-    frequentOnTop: true
-  };
-
-  // 1) OfficeRuntime.storage (preferred)
-  try {
-    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
-      const raw = await OfficeRuntime.storage.getItem(GLOBAL_UI_SETTINGS_KEY);
-      if (raw) {
-        const parsed = safeJsonParse(raw, null);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          const s = parsed.settings && typeof parsed.settings === "object" && !Array.isArray(parsed.settings) ? parsed.settings : parsed;
-          return { ...defaults, ...s };
-        }
-      }
-    }
-  } catch {}
-
-  // 2) Roaming settings (fallback)
-  try {
-    const rs = Office?.context?.roamingSettings;
-    if (rs?.get) {
-      const raw = rs.get(GLOBAL_UI_SETTINGS_KEY);
-      if (raw) {
-        const parsed = safeJsonParse(raw, null);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          const s = parsed.settings && typeof parsed.settings === "object" && !Array.isArray(parsed.settings) ? parsed.settings : parsed;
-          return { ...defaults, ...s };
-        }
-      }
-    }
-  } catch {}
-
-  // 3) localStorage (last resort)
-  try {
-    const raw = globalThis?.localStorage?.getItem?.(GLOBAL_UI_SETTINGS_KEY);
-    if (raw) {
-      const parsed = safeJsonParse(raw, null);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        const s = parsed.settings && typeof parsed.settings === "object" && !Array.isArray(parsed.settings) ? parsed.settings : parsed;
-        return { ...defaults, ...s };
-      }
-    }
-  } catch {}
-
-  return defaults;
-}
-
-async function writeGlobalUiSettings(next) {
-  const payload = { dts: Date.now(), settings: next };
-
-  try {
-    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-      await OfficeRuntime.storage.setItem(GLOBAL_UI_SETTINGS_KEY, safeJsonStringify(payload));
-    }
-  } catch {}
-
-  try {
-    const rs = Office?.context?.roamingSettings;
-    if (rs?.set && rs?.saveAsync) {
-      rs.set(GLOBAL_UI_SETTINGS_KEY, safeJsonStringify(payload));
-      await new Promise((resolve) => rs.saveAsync(() => resolve()));
-    }
-  } catch {}
-
-  try {
-    globalThis?.localStorage?.setItem?.(GLOBAL_UI_SETTINGS_KEY, safeJsonStringify(payload));
-  } catch {}
-}
-
-
 function colIndexToLetter(idx1) {
   // 1-based index to A1 letter(s)
   let idx = idx1;
@@ -600,7 +521,7 @@ async function readUserCells(context, sheet, colLetter) {
   return {
     favorites: favParsed.favorites,
     recents,
-    workbookSettings: setParsed.settings,
+    settings: setParsed.settings,
     __meta: {
       favoritesValid: favParsed.valid,
       settingsValid: setParsed.valid,
@@ -612,7 +533,7 @@ async function readUserCells(context, sheet, colLetter) {
 
 
 
-async function writeUserCells(context, sheet, colLetter, { favorites, recents, workbookSettings, dtsOverride }) {
+async function writeUserCells(context, sheet, colLetter, { favorites, recents, settings, dtsOverride }) {
   const favCell = sheet.getRange(`${colLetter}${ROW_FAVORITES}`);
   const recCell = sheet.getRange(`${colLetter}${ROW_RECENTS}`);
   const setCell = sheet.getRange(`${colLetter}${ROW_SETTINGS}`);
@@ -620,7 +541,7 @@ async function writeUserCells(context, sheet, colLetter, { favorites, recents, w
   const dts = (typeof dtsOverride === "number" && isFinite(dtsOverride)) ? dtsOverride : Date.now();
 
   const favPayload = { dts, favorites: Array.isArray(favorites) ? favorites : [] };
-  const setPayload = { dts, settings: (workbookSettings && typeof workbookSettings === "object" && !Array.isArray(workbookSettings)) ? workbookSettings : {} };
+  const setPayload = { dts, settings: (settings && typeof settings === "object" && !Array.isArray(settings)) ? settings : {} };
 
   if (favorites !== undefined) {
     favCell.values = [[safeJsonStringify(favPayload)]];
@@ -628,7 +549,7 @@ async function writeUserCells(context, sheet, colLetter, { favorites, recents, w
   if (recents !== undefined) {
     recCell.values = [[safeJsonStringify(Array.isArray(recents) ? recents : [])]];
   }
-  if (workbookSettings !== undefined) {
+  if (settings !== undefined) {
     setCell.values = [[safeJsonStringify(setPayload)]];
   }
   await context.sync();
@@ -744,8 +665,6 @@ export async function getJumpToState(options = {}) {
     return { userKey: null, sheets: [], favorites: [], recents: [], settings: {}, global: {} };
   }
 
-  const globalSettings = await readGlobalUiSettings();
-
   // Phase 4 (perf): If requested, try a fast path that avoids enumerating worksheets.
   // We still read the per-user cells from the workbook (small), then use RT3 cache
   // for the visible worksheet list + name mapping (allowed to be stale).
@@ -754,14 +673,14 @@ export async function getJumpToState(options = {}) {
       const settingsSheet = await ensureSettingsSheet(context);
       const wbId = await ensureWorkbookIdentity(context, settingsSheet);
       const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
-      const { favorites, recents, workbookSettings, __meta } = await readUserCells(context, settingsSheet, colLetter);
+      const { favorites, recents, settings, __meta } = await readUserCells(context, settingsSheet, colLetter);
 
       return {
         __wbId: wbId,
         userKey,
         favorites,
         recents,
-        workbookSettings: (workbookSettings && typeof workbookSettings === "object") ? workbookSettings : {},
+        settings: (settings && typeof settings === "object") ? settings : {},
         __meta,
         global: { freqById: {} }
       };
@@ -783,8 +702,7 @@ export async function getJumpToState(options = {}) {
           sheets,
           favorites: favIds.map((id) => ({ id, name: idToName.get(id) || "" })),
           recents: recIds.map((id) => ({ id, name: idToName.get(id) || "" })),
-          settings: globalSettings,
-          workbookSettings: mini.workbookSettings || mini.settings,
+          settings: mini.settings,
           __meta: mini.__meta,
           global: { freqById: (perf.freqById && typeof perf.freqById === "object") ? perf.freqById : {} }
         };
@@ -808,7 +726,7 @@ export async function getJumpToState(options = {}) {
 
     // Reconcile inventory and read per-user blobs
     await syncInventoryWithVisibleSheets(context, settingsSheet, colLetter, visibleSheets);
-    const { favorites, recents, workbookSettings, __meta } = await readUserCells(context, settingsSheet, colLetter);
+    const { favorites, recents, settings, __meta } = await readUserCells(context, settingsSheet, colLetter);
 
     // Build enriched favorites/recents objects with names
     const idToName = new Map(visibleSheets.map(s => [s.id, s.name]));
@@ -828,7 +746,7 @@ export async function getJumpToState(options = {}) {
       sheets: visibleSheets,
       favorites: favObjs,
       recents: recObjs,
-      workbookSettings: (workbookSettings && typeof workbookSettings === "object") ? workbookSettings : {},
+      settings: (settings && typeof settings === "object") ? settings : {},
       __meta,
       global: { freqById }
     };
@@ -870,7 +788,7 @@ export async function getJumpToState(options = {}) {
       final = {
         ...wb,
         favorites: rtFavIds.map((id) => ({ id, name: idToName.get(id) || "" })),
-        workbookSettings: rtSet,
+        settings: rtSet,
         __meta: { ...(wb.__meta || {}), dts: rtDts, favoritesValid: true, settingsValid: true }
       };
 
@@ -883,7 +801,7 @@ export async function getJumpToState(options = {}) {
           await writeUserCells(context, settingsSheet, colLetter, {
             favorites: rtFavIds,
             recents: current.recents,
-            workbookSettings: rtSet,
+            settings: rtSet,
             dtsOverride: rtDts
           });
         }).catch(() => {});
@@ -893,54 +811,13 @@ export async function getJumpToState(options = {}) {
     if (choose === "wb" && wbValid) {
       // Background self-heal: write workbook-chosen state into runtime (best effort)
       const wbFavIds = (Array.isArray(wb?.favorites) ? wb.favorites : []).map((f) => (typeof f === "string" ? f : f?.id)).filter(Boolean);
-      const wbSet = wb?.workbookSettings || {};
+      const wbSet = wb?.settings || {};
       const dts = wbDts || Date.now();
       setTimeout(() => {
         rt10Write(workbookGuid, filenameFingerprint, wbFavIds, wbSet, dts).catch(() => {});
       }, 0);
     }
   }
-
-
-// Migration: legacy builds stored global UI settings in the workbook settings cell.
-// If we see those keys there, promote them to per-user global storage and strip them from workbookSettings.
-try {
-  const wbSet = (final && typeof final === "object") ? (final.workbookSettings || {}) : {};
-  const legacyKeys = ["favPercentManual", "recentsDisplayCount", "baselineOrder", "frequentOnTop"];
-  const legacyGlobal = {};
-  let found = false;
-  for (const k of legacyKeys) {
-    if (Object.prototype.hasOwnProperty.call(wbSet, k)) {
-      legacyGlobal[k] = wbSet[k];
-      found = true;
-    }
-  }
-  if (found) {
-    const mergedGlobal = { ...globalSettings, ...legacyGlobal };
-    await writeGlobalUiSettings(mergedGlobal);
-    // Remove legacy global keys from workbook settings.
-    const cleaned = { ...wbSet };
-    for (const k of legacyKeys) delete cleaned[k];
-    final = { ...(final || {}), workbookSettings: cleaned, settings: mergedGlobal };
-
-    // Best-effort: write cleaned workbookSettings back to the workbook so the blob stops carrying globals.
-    setTimeout(() => {
-      Excel.run(async (context) => {
-        const settingsSheet = await ensureSettingsSheet(context);
-        const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
-        const current = await readUserCells(context, settingsSheet, colLetter);
-        await writeUserCells(context, settingsSheet, colLetter, {
-          favorites: current.favorites,
-          recents: current.recents,
-          workbookSettings: cleaned,
-          dtsOverride: Date.now()
-        });
-      }).catch(() => {});
-    }, 0);
-  }
-} catch {
-  // ignore
-}
 
   // Phase 4: write perf cache (RT3) for visible worksheets + recents (cache-only).
   if (workbookGuid && filenameFingerprint) {
@@ -982,12 +859,12 @@ export async function toggleFavorite(sheetId) {
     }
 
     const dts = Date.now();
-    await writeUserCells(context, sheet, colLetter, { favorites: favs, recents: state.recents, workbookSettings: state.workbookSettings, dtsOverride: dts });
+    await writeUserCells(context, sheet, colLetter, { favorites: favs, recents: state.recents, settings: state.settings, dtsOverride: dts });
 
     // Mirror into runtime safety net (best effort)
     const { workbookGuid, filenameFingerprint } = wbId || {};
     if (workbookGuid && filenameFingerprint) {
-      await rt10Write(workbookGuid, filenameFingerprint, favs, state.workbookSettings || {}, dts);
+      await rt10Write(workbookGuid, filenameFingerprint, favs, state.settings || {}, dts);
     }
 
     return favs;
@@ -1008,7 +885,7 @@ export async function setFavorites(favIds) {
     const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
     const { recents, settings, __meta } = await readUserCells(context, settingsSheet, colLetter);
     const setValid = !!__meta?.settingsValid;
-    await writeUserCells(context, settingsSheet, colLetter, { favorites: nextFavs, recents, workbookSettings: setValid ? settings : undefined, dtsOverride: dts });
+    await writeUserCells(context, settingsSheet, colLetter, { favorites: nextFavs, recents, settings: setValid ? settings : undefined, dtsOverride: dts });
     return { wbId, settings, __meta };
   });
 
@@ -1065,57 +942,21 @@ export async function moveFavorite(sheetId, direction) {
 
 
 export async function setUiSettings(nextSettings) {
-  const normalized = (nextSettings && typeof nextSettings === "object" && !Array.isArray(nextSettings)) ? nextSettings : {};
-
-  // Merge into existing global settings.
-  const current = await readGlobalUiSettings();
-  const merged = { ...current, ...normalized };
-
-  // Clamp known numeric fields defensively (dialog already clamps, but keep safe).
-  if (merged.favPercentManual !== undefined) {
-    const v = Math.round(Number(merged.favPercentManual));
-    merged.favPercentManual = Number.isFinite(v) ? Math.min(80, Math.max(20, v)) : current.favPercentManual;
-  }
-  if (merged.recentsDisplayCount !== undefined) {
-    const v = Math.round(Number(merged.recentsDisplayCount));
-    merged.recentsDisplayCount = Number.isFinite(v) ? Math.min(MAX_RECENTS, Math.max(1, v)) : current.recentsDisplayCount;
-  }
-  merged.baselineOrder = (merged.baselineOrder === "alpha") ? "alpha" : "workbook";
-  merged.frequentOnTop = merged.frequentOnTop === undefined ? true : !!merged.frequentOnTop;
-
-  await writeGlobalUiSettings(merged);
-  return merged;
-}
-
-export async function setWorkbookSettings(nextWorkbookSettings) {
   const userKey = await getOrCreateUserKey();
-  if (!userKey) return null;
+  if (!userKey) return;
 
-  const normalized = (nextWorkbookSettings && typeof nextWorkbookSettings === "object" && !Array.isArray(nextWorkbookSettings))
-    ? nextWorkbookSettings
-    : {};
-
+  const normalized = (nextSettings && typeof nextSettings === "object" && !Array.isArray(nextSettings)) ? nextSettings : {};
   const dts = Date.now();
 
   const out = await Excel.run(async (context) => {
     const settingsSheet = await ensureSettingsSheet(context);
     const wbId = await ensureWorkbookIdentity(context, settingsSheet);
     const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
-    const { favorites, recents, workbookSettings, __meta } = await readUserCells(context, settingsSheet, colLetter);
+    const { favorites, recents, settings: existingSettings, __meta } = await readUserCells(context, settingsSheet, colLetter);
     const favValid = !!__meta?.favoritesValid;
-
-    const merged = { ...(workbookSettings || {}), ...normalized };
-    // Workbook-level: oneDigitActivationEnabled
-    if (merged.oneDigitActivationEnabled !== undefined) merged.oneDigitActivationEnabled = !!merged.oneDigitActivationEnabled;
-
-    await writeUserCells(context, settingsSheet, colLetter, {
-      favorites: favValid ? favorites : undefined,
-      recents,
-      workbookSettings: merged,
-      dtsOverride: dts
-    });
-
-    return { wbId, favorites, __meta, workbookSettings: merged };
+    const mergedSettings = { ...(existingSettings || {}), ...normalized };
+    await writeUserCells(context, settingsSheet, colLetter, { favorites: favValid ? favorites : undefined, recents, settings: mergedSettings, dtsOverride: dts });
+    return { wbId, favorites, __meta };
   });
 
   const { workbookGuid, filenameFingerprint } = out?.wbId || {};
@@ -1131,13 +972,9 @@ export async function setWorkbookSettings(nextWorkbookSettings) {
       }
     }
 
-    await rt10Write(workbookGuid, filenameFingerprint, favIds, out.workbookSettings || {}, dts);
+    await rt10Write(workbookGuid, filenameFingerprint, favIds, normalized, dts);
   }
-
-  return out?.workbookSettings || null;
 }
-
-
 
 export async function recordActivation(sheetId) {
   const userKey = await getOrCreateUserKey();
@@ -1170,7 +1007,7 @@ export async function recordActivation(sheetId) {
     const setValid = !!state?.__meta?.settingsValid;
     await writeUserCells(context, settingsSheet, colLetter, {
       favorites: favValid ? state.favorites : undefined,
-      workbookSettings: setValid ? state.workbookSettings : undefined,
+      settings: setValid ? state.settings : undefined,
       recents: rec
     });
     const nextFreq = await incrementFrequency(context, settingsSheet, colLetter, sheetId);
