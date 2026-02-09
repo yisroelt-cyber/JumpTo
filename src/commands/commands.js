@@ -26,6 +26,8 @@ const OPT_FREQUENT_ON_TOP = "JumpTo.Option.FrequentOnTop";
 const OPT_FAV_PERCENT = "JumpTo.Option.FavPercentManual";
 const OPT_RECENTS_DISPLAY_COUNT = "JumpTo.Option.RecentsDisplayCount";
 
+// Legacy key (previously global) for one-digit activation; now workbook-scoped.
+const OPT_ONE_DIGIT_LEGACY = "JumpTo.Option.OneDigitActivation";
 
 
 function withLock(fn) {
@@ -106,12 +108,18 @@ async function buildDialogState(baseState) {
   let oneDigitActivationEnabled = baseState.settings?.oneDigitActivationEnabled;
   if (oneDigitActivationEnabled === undefined) oneDigitActivationEnabled = true;
 
-  // Global-scoped settings (authoritative: OfficeRuntime.storage)
-  // Defaults if global storage is empty/unavailable.
-  let baselineOrder = "workbook";
-  let frequentOnTop = true;
-  let favPercentManual = 50;
-  let recentsDisplayCount = 20;
+  // Global-scoped settings (legacy fallback from workbook settings blob)
+  let baselineOrder = String(baseState.settings?.baselineOrder || "workbook");
+  let frequentOnTop =
+    baseState.settings?.frequentOnTop === undefined
+      ? true
+      : !!baseState.settings?.frequentOnTop;
+  let favPercentManual = Number.isFinite(Number(baseState.settings?.favPercentManual))
+    ? Number(baseState.settings?.favPercentManual)
+    : 50;
+  let recentsDisplayCount = Number.isFinite(Number(baseState.settings?.recentsDisplayCount))
+    ? Number(baseState.settings?.recentsDisplayCount)
+    : 20;
 
   try {
     if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
@@ -130,6 +138,46 @@ async function buildDialogState(baseState) {
 
       const rc = await OfficeRuntime.storage.getItem(OPT_RECENTS_DISPLAY_COUNT);
       if (rc !== null && rc !== undefined && rc !== "") recentsDisplayCount = Number(rc);
+
+      // Legacy one-digit activation was global; if workbook doesn't yet have an override, seed from legacy value.
+      if (baseState.settings?.oneDigitActivationEnabled === undefined) {
+        const od = await OfficeRuntime.storage.getItem(OPT_ONE_DIGIT_LEGACY);
+        if (od === "false") oneDigitActivationEnabled = false;
+        else if (od === "true") oneDigitActivationEnabled = true;
+      }
+
+      // Best-effort migration: promote legacy workbook-stored globals into global storage if missing.
+      if (!bo && baseState.settings?.baselineOrder)
+        await OfficeRuntime.storage.setItem(
+          OPT_BASELINE_ORDER,
+          String(baseState.settings.baselineOrder)
+        );
+
+      if (fot === null || fot === undefined) {
+        if (baseState.settings?.frequentOnTop !== undefined)
+          await OfficeRuntime.storage.setItem(
+            OPT_FREQUENT_ON_TOP,
+            baseState.settings.frequentOnTop ? "true" : "false"
+          );
+      }
+
+      if (
+        (fp === null || fp === undefined || fp === "") &&
+        baseState.settings?.favPercentManual !== undefined
+      )
+        await OfficeRuntime.storage.setItem(
+          OPT_FAV_PERCENT,
+          String(baseState.settings.favPercentManual)
+        );
+
+      if (
+        (rc === null || rc === undefined || rc === "") &&
+        baseState.settings?.recentsDisplayCount !== undefined
+      )
+        await OfficeRuntime.storage.setItem(
+          OPT_RECENTS_DISPLAY_COUNT,
+          String(baseState.settings.recentsDisplayCount)
+        );
     }
   } catch {
     // ignore
@@ -150,9 +198,12 @@ async function buildDialogState(baseState) {
 
   return {
     ...baseState,
-    // Keep workbook settings minimal; dialog UI can still display global values (provided via `global`).
-    settings: { favPercentManual, recentsDisplayCount },
-    global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop },
+    // Dialog UI hydrates UI prefs from `state.settings`.
+    // Even though baselineOrder/frequentOnTop are global-scoped, they must be included here
+    // so the dialog does not fall back to defaults and inadvertently overwrite global storage.
+    settings: { favPercentManual, recentsDisplayCount, baselineOrder, frequentOnTop },
+    // `global` is reserved for non-UI-preference globals (currently: one-digit activation + row height).
+    global: { oneDigitActivationEnabled, rowHeightPreset },
     recents: filtered.map((id) => ({ id, name: idToName.get(id) || "" })),
   };
 }
@@ -364,8 +415,11 @@ if (msg.type === "selectSheet") {
                 } catch {}
               }
 
-              const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
+              // Workbook-scoped: persist in workbook settings blob.
+              await setUiSettingsInStorage({ oneDigitActivationEnabled: !!snapshot.oneDigitActivationEnabled });
 
+              // Global-scoped UI settings may not have flushed yet (debounced in the dialog).
+              // Ensure we persist the latest snapshot values into OfficeRuntime.storage.
               if (uiSettings) {
                 await setGlobalUiSettings(uiSettings);
               }
@@ -403,8 +457,11 @@ if (msg.type === "selectSheet") {
                 } catch {}
               }
 
-              const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
+              // Workbook-scoped: persist in workbook settings blob.
+              await setUiSettingsInStorage({ oneDigitActivationEnabled: !!snapshot.oneDigitActivationEnabled });
 
+              // Global-scoped UI settings may not have flushed yet (debounced in the dialog).
+              // Ensure we persist the latest snapshot values into OfficeRuntime.storage.
               if (uiSettings) {
                 await setGlobalUiSettings(uiSettings);
               }
