@@ -29,6 +29,70 @@ const OPT_RECENTS_DISPLAY_COUNT = "JumpTo.Option.RecentsDisplayCount";
 // Legacy key (previously global) for one-digit activation; now workbook-scoped.
 const OPT_ONE_DIGIT_LEGACY = "JumpTo.Option.OneDigitActivation";
 
+async function getGlobalOpt(key) {
+  // Prefer OfficeRuntime.storage when available; fall back to roamingSettings, then localStorage.
+  try {
+    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
+      const v = await OfficeRuntime.storage.getItem(key);
+      if (v !== null && v !== undefined) return v;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const rs = Office?.context?.roamingSettings;
+    if (rs && typeof rs.get === "function") {
+      const v = rs.get(key);
+      if (v !== null && v !== undefined) return String(v);
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    if (typeof localStorage !== "undefined") {
+      const v = localStorage.getItem(key);
+      if (v !== null && v !== undefined) return v;
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+async function setGlobalOpt(key, value) {
+  const str = value === null || value === undefined ? "" : String(value);
+
+  try {
+    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+      await OfficeRuntime.storage.setItem(key, str);
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const rs = Office?.context?.roamingSettings;
+    if (rs && typeof rs.set === "function" && typeof rs.saveAsync === "function") {
+      rs.set(key, str);
+      await new Promise((resolve) => rs.saveAsync(() => resolve(true)));
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(key, str);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+
 
 function withLock(fn) {
   return new Promise((resolve, reject) => {
@@ -108,82 +172,33 @@ async function buildDialogState(baseState) {
   let oneDigitActivationEnabled = baseState.settings?.oneDigitActivationEnabled;
   if (oneDigitActivationEnabled === undefined) oneDigitActivationEnabled = true;
 
-  // Global-scoped settings (legacy fallback from workbook settings blob)
-  let baselineOrder = String(baseState.settings?.baselineOrder || "workbook");
-  let frequentOnTop =
-    baseState.settings?.frequentOnTop === undefined
-      ? true
-      : !!baseState.settings?.frequentOnTop;
-  let favPercentManual = Number.isFinite(Number(baseState.settings?.favPercentManual))
-    ? Number(baseState.settings?.favPercentManual)
-    : 50;
-  let recentsDisplayCount = Number.isFinite(Number(baseState.settings?.recentsDisplayCount))
-    ? Number(baseState.settings?.recentsDisplayCount)
-    : 20;
+  // Global-scoped settings (authoritative in global storage; defaults if missing)
+  let baselineOrder = "workbook";
+  let frequentOnTop = true;
+  let favPercentManual = 50;
+  let recentsDisplayCount = 20;
 
   try {
-    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
-      const v = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
-      if (v) rowHeightPreset = String(v);
+    const v = await getGlobalOpt(OPT_ROW_HEIGHT);
+    if (v) rowHeightPreset = String(v);
 
-      const bo = await OfficeRuntime.storage.getItem(OPT_BASELINE_ORDER);
-      if (bo) baselineOrder = String(bo);
+    const bo = await getGlobalOpt(OPT_BASELINE_ORDER);
+    if (bo) baselineOrder = String(bo);
 
-      const fot = await OfficeRuntime.storage.getItem(OPT_FREQUENT_ON_TOP);
-      if (fot === "false") frequentOnTop = false;
-      else if (fot === "true") frequentOnTop = true;
+    const fot = await getGlobalOpt(OPT_FREQUENT_ON_TOP);
+    if (fot === "false") frequentOnTop = false;
+    else if (fot === "true") frequentOnTop = true;
 
-      const fp = await OfficeRuntime.storage.getItem(OPT_FAV_PERCENT);
-      if (fp !== null && fp !== undefined && fp !== "") favPercentManual = Number(fp);
+    const fp = await getGlobalOpt(OPT_FAV_PERCENT);
+    if (fp !== null && fp !== undefined && fp !== "") favPercentManual = Number(fp);
 
-      const rc = await OfficeRuntime.storage.getItem(OPT_RECENTS_DISPLAY_COUNT);
-      if (rc !== null && rc !== undefined && rc !== "") recentsDisplayCount = Number(rc);
-
-      // Legacy one-digit activation was global; if workbook doesn't yet have an override, seed from legacy value.
-      if (baseState.settings?.oneDigitActivationEnabled === undefined) {
-        const od = await OfficeRuntime.storage.getItem(OPT_ONE_DIGIT_LEGACY);
-        if (od === "false") oneDigitActivationEnabled = false;
-        else if (od === "true") oneDigitActivationEnabled = true;
-      }
-
-      // Best-effort migration: promote legacy workbook-stored globals into global storage if missing.
-      if (!bo && baseState.settings?.baselineOrder)
-        await OfficeRuntime.storage.setItem(
-          OPT_BASELINE_ORDER,
-          String(baseState.settings.baselineOrder)
-        );
-
-      if (fot === null || fot === undefined) {
-        if (baseState.settings?.frequentOnTop !== undefined)
-          await OfficeRuntime.storage.setItem(
-            OPT_FREQUENT_ON_TOP,
-            baseState.settings.frequentOnTop ? "true" : "false"
-          );
-      }
-
-      if (
-        (fp === null || fp === undefined || fp === "") &&
-        baseState.settings?.favPercentManual !== undefined
-      )
-        await OfficeRuntime.storage.setItem(
-          OPT_FAV_PERCENT,
-          String(baseState.settings.favPercentManual)
-        );
-
-      if (
-        (rc === null || rc === undefined || rc === "") &&
-        baseState.settings?.recentsDisplayCount !== undefined
-      )
-        await OfficeRuntime.storage.setItem(
-          OPT_RECENTS_DISPLAY_COUNT,
-          String(baseState.settings.recentsDisplayCount)
-        );
-    }
+    const rc = await getGlobalOpt(OPT_RECENTS_DISPLAY_COUNT);
+    if (rc !== null && rc !== undefined && rc !== "") recentsDisplayCount = Number(rc);
   } catch {
     // ignore
   }
 
-  // Clamp recentsDisplayCount for use in filtered Recents list.
+// Clamp recentsDisplayCount for use in filtered Recents list.
   const n = Number.isFinite(recentsDisplayCount)
     ? Math.max(1, Math.min(20, Math.floor(recentsDisplayCount)))
     : 20;
@@ -198,11 +213,8 @@ async function buildDialogState(baseState) {
 
   return {
     ...baseState,
-    // Dialog UI hydrates UI prefs from `state.settings`.
-    // Even though baselineOrder/frequentOnTop are global-scoped, they must be included here
-    // so the dialog does not fall back to defaults and inadvertently overwrite global storage.
+    // Dialog hydrates UI prefs from `settings`; these are global-scoped but delivered here for backward-compatible hydration.
     settings: { favPercentManual, recentsDisplayCount, baselineOrder, frequentOnTop },
-    // `global` is reserved for non-UI-preference globals (currently: one-digit activation + row height).
     global: { oneDigitActivationEnabled, rowHeightPreset },
     recents: filtered.map((id) => ({ id, name: idToName.get(id) || "" })),
   };
@@ -212,18 +224,17 @@ async function buildDialogState(baseState) {
 
 async function setGlobalUiSettings(patch) {
   const p = patch && typeof patch === "object" ? patch : {};
-  if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage?.setItem) return;
 
   // Only persist recognized global-scoped keys.
   const writes = [];
-  if (p.favPercentManual !== undefined) writes.push(OfficeRuntime.storage.setItem(OPT_FAV_PERCENT, String(p.favPercentManual)));
-  if (p.recentsDisplayCount !== undefined) writes.push(OfficeRuntime.storage.setItem(OPT_RECENTS_DISPLAY_COUNT, String(p.recentsDisplayCount)));
-  if (p.baselineOrder !== undefined) writes.push(OfficeRuntime.storage.setItem(OPT_BASELINE_ORDER, String(p.baselineOrder)));
-  if (p.frequentOnTop !== undefined) writes.push(OfficeRuntime.storage.setItem(OPT_FREQUENT_ON_TOP, p.frequentOnTop ? "true" : "false"));
+  if (p.favPercentManual !== undefined) writes.push(setGlobalOpt(OPT_FAV_PERCENT, String(p.favPercentManual)));
+  if (p.recentsDisplayCount !== undefined) writes.push(setGlobalOpt(OPT_RECENTS_DISPLAY_COUNT, String(p.recentsDisplayCount)));
+  if (p.baselineOrder !== undefined) writes.push(setGlobalOpt(OPT_BASELINE_ORDER, String(p.baselineOrder)));
+  if (p.frequentOnTop !== undefined) writes.push(setGlobalOpt(OPT_FREQUENT_ON_TOP, p.frequentOnTop ? "true" : "false"));
   await Promise.all(writes);
 }
 
-async function activateSheetById(sheetId) {
+async function activateSheetByIdasync function activateSheetById(sheetId) {
   return Excel.run(async (context) => {
     const sheets = context.workbook.worksheets;
     sheets.load("items/id,name");
@@ -351,9 +362,7 @@ if (msg.type === "setRowHeightPreset") {
   if (!preset) return;
   await withLock(async () => {
     try {
-      if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
-      }
+      await setGlobalOpt(OPT_ROW_HEIGHT, preset);
     } catch {}
     cachedState = await getJumpToState();
     const state = await buildDialogState(cachedState);
@@ -410,18 +419,24 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await setGlobalOpt(OPT_ROW_HEIGHT, rowHeightPreset);
                   }
                 } catch {}
               }
 
-              // Workbook-scoped: persist in workbook settings blob.
-              await setUiSettingsInStorage({ oneDigitActivationEnabled: !!snapshot.oneDigitActivationEnabled });
+              const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
 
-              // Global-scoped UI settings may not have flushed yet (debounced in the dialog).
-              // Ensure we persist the latest snapshot values into OfficeRuntime.storage.
+              try {
+                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                  await OfficeRuntime.storage.setItem(
+                    "JumpTo.Option.OneDigitActivation",
+                    oneDigitActivationEnabled ? "true" : "false"
+                  );
+                }
+              } catch {}
+
               if (uiSettings) {
-                await setGlobalUiSettings(uiSettings);
+                await setUiSettingsInStorage(uiSettings);
               }
 
               if (favorites) {
@@ -452,18 +467,24 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await setGlobalOpt(OPT_ROW_HEIGHT, rowHeightPreset);
                   }
                 } catch {}
               }
 
-              // Workbook-scoped: persist in workbook settings blob.
-              await setUiSettingsInStorage({ oneDigitActivationEnabled: !!snapshot.oneDigitActivationEnabled });
+              const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
 
-              // Global-scoped UI settings may not have flushed yet (debounced in the dialog).
-              // Ensure we persist the latest snapshot values into OfficeRuntime.storage.
+              try {
+                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                  await OfficeRuntime.storage.setItem(
+                    "JumpTo.Option.OneDigitActivation",
+                    oneDigitActivationEnabled ? "true" : "false"
+                  );
+                }
+              } catch {}
+
               if (uiSettings) {
-                await setGlobalUiSettings(uiSettings);
+                await setUiSettingsInStorage(uiSettings);
               }
 
               if (favorites) {
