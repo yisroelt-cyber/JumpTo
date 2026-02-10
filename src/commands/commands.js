@@ -1,55 +1,48 @@
 
 
-// DEBUG: persistence diagnostics to workbook sheet (temporary)
-const PERSIST_DIAG_SHEET_MARK = true;
-const PERSIST_DIAG_SHEET_NAME = "JumpToDiag";
+// DEBUG: persistence diagnostics to existing settings sheet (temporary)
+const PERSIST_DIAG_SETTINGS_SHEET_MARK = true;
+const PERSIST_DIAG_TARGET_SHEET = "_JumpToAddinSettings"; // already exists (veryHidden)
+const PERSIST_DIAG_RANGE = "C1:C500"; // use column C for diag lines
 
-async function persistDiagWriteToSheet(tag, payload) {
+async function persistDiagAppendLine(tag, payload) {
+  const now = new Date().toISOString();
+  let line = "";
+  try {
+    line = `${now} | ${tag} | ${JSON.stringify(payload)}`;
+  } catch (e) {
+    line = `${now} | ${tag} | [payload stringify failed: ${String(e)}]`;
+  }
+
   try {
     await Excel.run(async (context) => {
       const sheets = context.workbook.worksheets;
-      let diagSheet = null;
-      try {
-        diagSheet = sheets.getItem(PERSIST_DIAG_SHEET_NAME);
-        diagSheet.load("name,visibility");
-      } catch (e) {
-        diagSheet = sheets.add(PERSIST_DIAG_SHEET_NAME);
-        diagSheet.visibility = Excel.SheetVisibility.hidden;
-      }
-
-      const now = new Date().toISOString();
-      const line = `${now} | ${tag} | ${JSON.stringify(payload)}`;
-
-      // Append to column A: find first empty row up to a cap
-      const range = diagSheet.getRange("A1:A500");
-      range.load("values");
+      const sh = sheets.getItem(PERSIST_DIAG_TARGET_SHEET);
+      sh.load("name");
+      const col = sh.getRange(PERSIST_DIAG_RANGE);
+      col.load("values");
       await context.sync();
-      const values = range.values || [];
+
+      const values = col.values || [];
       let row = 0;
       for (let i = 0; i < values.length; i++) {
-        if (!values[i] || values[i][0] === "" || values[i][0] == null) { row = i; break; }
+        const v = values[i] && values[i][0];
+        if (v === "" || v == null) { row = i; break; }
         row = i + 1;
       }
-      if (row >= 500) row = 499;
-      diagSheet.getRange(`A${row+1}`).values = [[line]];
-      diagSheet.visibility = Excel.SheetVisibility.hidden;
+      if (row >= values.length) row = values.length - 1;
+
+      sh.getRange(`C${row + 1}`).values = [[line]];
       await context.sync();
     });
   } catch (e) {
-    // swallow diagnostics errors
+    try {
+      console.error("[PersistDiag] FAILED to write to settings sheet", tag, e);
+    } catch {}
   }
 }
 
-async function persistDiagSnapshotEnv() {
-  return {
-    href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
-    origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
-    hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
-    hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
-  };
-}
-
-async function persistDiagDumpGlobals() {
+async function persistDiagSnapshot() {
   const keys = [
     "JumpTo.Option.RowHeightPreset",
     "JumpTo.Option.FavPercentManual",
@@ -66,6 +59,12 @@ async function persistDiagDumpGlobals() {
     }
   }
   return out;
+}
+
+
+async function dbgSetPersistKey(key, value) {
+  try { persistDiagAppendLine(`setItem ${key}`, { value }); } catch {}
+  return OfficeRuntime.storage.setItem(key, value);
 }
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
@@ -391,9 +390,9 @@ function openJumpDialog(event) {
         if (cachedState) {
           const state = await buildDialogState(cachedState);
           
-      // DEBUG: dump persistence diagnostics to hidden sheet
-      persistDiagWriteToSheet("env", await persistDiagSnapshotEnv());
-      persistDiagWriteToSheet("globals", await persistDiagDumpGlobals());
+      // DEBUG: dump persistence diagnostics to settings sheet
+      persistDiagAppendLine("env", { href: (typeof window!=="undefined"&&window.location)?window.location.href:null, origin: (typeof window!=="undefined"&&window.location)?window.location.origin:null, hasOfficeRuntime: typeof OfficeRuntime!=="undefined", hasOfficeRuntimeStorage: (typeof OfficeRuntime!=="undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem) });
+      persistDiagAppendLine("globals", await persistDiagSnapshot());
 while (pendingStateRequests.length) {
             pendingStateRequests.pop();
             reply({ type: "stateData", state });
@@ -486,7 +485,7 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await (persistDiagWriteToSheet(`setItem "JumpTo.Option.RowHeightPreset"`, { value: preset }), OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", preset));
+        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset);
       }
     } catch {}
     cachedState = await getJumpToState();
@@ -544,7 +543,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await (persistDiagWriteToSheet(`setItem "JumpTo.Option.RowHeightPreset"`, { value: rowHeightPreset }), OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset));
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
@@ -592,7 +591,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await (persistDiagWriteToSheet(`setItem "JumpTo.Option.RowHeightPreset"`, { value: rowHeightPreset }), OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset));
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
