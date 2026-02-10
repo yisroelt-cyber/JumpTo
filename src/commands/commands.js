@@ -1,3 +1,99 @@
+
+
+// DEBUG: persistence diagnostics to workbook sheet (temporary)
+const PERSIST_DIAG_SHEET_MARK = true;
+const PERSIST_DIAG_SHEET_NAME = "JumpToDiag";
+
+async function persistDiagWriteToSheet(tag, payload) {
+  try {
+    await Excel.run(async (context) => {
+      const sheets = context.workbook.worksheets;
+      let diagSheet = null;
+      try {
+        diagSheet = sheets.getItem(PERSIST_DIAG_SHEET_NAME);
+        diagSheet.load("name,visibility");
+      } catch (e) {
+        diagSheet = sheets.add(PERSIST_DIAG_SHEET_NAME);
+        diagSheet.visibility = Excel.SheetVisibility.hidden;
+      }
+
+      const now = new Date().toISOString();
+      const line = `${now} | ${tag} | ${JSON.stringify(payload)}`;
+
+      // Append to column A: find first empty row up to a cap
+      const range = diagSheet.getRange("A1:A500");
+      range.load("values");
+      await context.sync();
+      const values = range.values || [];
+      let row = 0;
+      for (let i = 0; i < values.length; i++) {
+        if (!values[i] || values[i][0] === "" || values[i][0] == null) { row = i; break; }
+        row = i + 1;
+      }
+      if (row >= 500) row = 499;
+      diagSheet.getRange(`A${row+1}`).values = [[line]];
+      diagSheet.visibility = Excel.SheetVisibility.hidden;
+      await context.sync();
+    });
+  } catch (e) {
+    // swallow diagnostics errors
+  }
+}
+
+async function persistDiagSnapshotEnv() {
+  return {
+    href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
+    origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
+    hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
+    hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
+  };
+}
+
+async function persistDiagDumpGlobals() {
+  const keys = [
+    "JumpTo.Option.RowHeightPreset",
+    "JumpTo.Option.FavPercentManual",
+    "JumpTo.Option.RecentsDisplayCount",
+    "JumpTo.Option.BaselineOrder",
+    "JumpTo.Option.FrequentOnTop",
+  ];
+  const out = {};
+  for (const k of keys) {
+    try {
+      out[k] = await OfficeRuntime.storage.getItem(k);
+    } catch (e) {
+      out[k] = `ERROR: ${String(e)}`;
+    }
+  }
+  return out;
+}
+// DEBUG: persistence instrumentation (temporary)
+const DEBUG_PERSIST = true;
+
+
+
+function dbgPersist(tag, payload) {
+  if (!DEBUG_PERSIST) return;
+  try {
+    console.groupCollapsed(`[JumpTo Persist DEBUG] ${tag}`);
+
+
+function sendPersistDiagToDialog(tag, payload) {
+  if (!DEBUG_PERSIST) return;
+  try {
+    if (typeof Office !== "undefined" && Office.context && Office.context.ui && Office.context.ui.messageParent) {
+      Office.context.ui.messageParent(JSON.stringify({ type: "persistDiag", tag, payload }));
+    }
+  } catch (e) {
+    // no-op
+  }
+}
+    console.log(payload);
+    console.groupEnd();
+  } catch (e) {
+    // no-op
+  }
+}
 /*
   commands.js – Option B engine with cache + refresh-on-open (signature based)
 */
@@ -89,8 +185,43 @@ async function getActiveWorksheetId() {
 
 async function buildDialogState(baseState) {
 
+// --- Persist debug: environment + tracing (Excel restart diagnosis) ---
+const PERSIST_TRACE_MARK = true;
+const PERSIST_READ_KEYS = {
+  rowHeight: "JumpTo.Option.RowHeightPreset",
+  favPercent: "JumpTo.Option.FavPercentManual",
+  recentsCount: "JumpTo.Option.RecentsDisplayCount",
+  baselineOrder: "JumpTo.Option.BaselineOrder",
+  frequentOnTop: "JumpTo.Option.FrequentOnTop",
+};
 
-  if (!baseState) return baseState;
+const env = {
+  href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
+  origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
+  hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
+  hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
+};
+dbgPersist("env", env);
+sendPersistDiagToDialog("env", env);
+
+function trace(tag, payload) {
+  dbgPersist(tag, payload);
+  sendPersistDiagToDialog(tag, payload);
+}
+
+async function dbgGet(key) {
+  try {
+    const v = await OfficeRuntime.storage.getItem(key);
+    trace(`getItem ${key}`, { value: v });
+    return v;
+  } catch (e) {
+    trace(`getItem ERROR ${key}`, { error: String(e) });
+    throw e;
+  }
+}
+
+  if (!baseState) trace("earlyReturn baseState", { baseState });
+      return baseState;
 
   const activeId = await getActiveWorksheetId();
 
@@ -254,42 +385,16 @@ function openJumpDialog(event) {
         } catch {}
       };
 
-// DEBUG: persistence diagnostics via dialog console (temporary)
-const persistDiag = (tag, payload) => {
-  try { reply({ type: "persistDiag", tag, payload }); } catch {}
-};
-const persistDiagEnv = () => {
-  persistDiag("env", {
-    href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
-    origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
-    hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
-    hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
-  });
-};
-const persistDiagReadGlobals = async () => {
-  try {
-    persistDiagEnv();
-    const keys = [OPT_ROW_HEIGHT, OPT_FAV_PERCENT, OPT_RECENTS_DISPLAY_COUNT, OPT_BASELINE_ORDER, OPT_FREQUENT_ON_TOP];
-    for (const k of keys) {
-      try {
-        const v = await OfficeRuntime.storage.getItem(k);
-        persistDiag(`getItem ${k}`, { value: v });
-      } catch (e) {
-        persistDiag(`getItem ERROR ${k}`, { error: String(e) });
-      }
-    }
-  } catch (e) {
-    persistDiag("diagError", { error: String(e) });
-  }
-};
-
-
       const flushStateQueue = async () => {
         // Phase 4: fast-first render. If we have an in-memory cache, use it immediately.
         // Otherwise, try a perf-cache-backed state (preferCache) before doing the full refresh.
         if (cachedState) {
           const state = await buildDialogState(cachedState);
-          while (pendingStateRequests.length) {
+          
+      // DEBUG: dump persistence diagnostics to hidden sheet
+      persistDiagWriteToSheet("env", await persistDiagSnapshotEnv());
+      persistDiagWriteToSheet("globals", await persistDiagDumpGlobals());
+while (pendingStateRequests.length) {
             pendingStateRequests.pop();
             reply({ type: "stateData", state });
           }
@@ -325,8 +430,6 @@ const persistDiagReadGlobals = async () => {
 
         if (msg.type === "ping") {
           reply({ type: "parentReady" });
-          // DEBUG: run persistence diagnostics right after handshake
-          await persistDiagReadGlobals();
           return;
         }
 
@@ -383,7 +486,7 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
+        await (persistDiagWriteToSheet(`setItem "JumpTo.Option.RowHeightPreset"`, { value: preset }), OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", preset));
       }
     } catch {}
     cachedState = await getJumpToState();
@@ -441,7 +544,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await (persistDiagWriteToSheet(`setItem "JumpTo.Option.RowHeightPreset"`, { value: rowHeightPreset }), OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset));
                   }
                 } catch {}
               }
@@ -489,7 +592,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await (persistDiagWriteToSheet(`setItem "JumpTo.Option.RowHeightPreset"`, { value: rowHeightPreset }), OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset));
                   }
                 } catch {}
               }
