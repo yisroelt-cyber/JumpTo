@@ -363,15 +363,6 @@ function DialogApp() {
           const msg = safeJsonParse(arg?.message);
           if (!msg?.type) return;
 
-          if (msg.type === "persistDiag") {
-            try {
-              console.groupCollapsed(`[PersistDiag] ${msg.tag}`);
-              console.log(msg.payload);
-              console.groupEnd();
-            } catch {}
-            return;
-          }
-
           if (msg.type === "parentReady") {
             parentReadyRef.current = true;
             if (pingTimer) {
@@ -1865,3 +1856,22 @@ function waitForOfficeGlobal(timeoutMs = 4000, pollMs = 25) {
     boot();
   }
 })();
+
+// DEBUG: receive persistence diagnostics from parent (temporary)
+try {
+  if (typeof Office !== "undefined" && Office.context && Office.context.ui && Office.context.ui.addHandlerAsync) {
+    Office.context.ui.addHandlerAsync(Office.EventType.DialogParentMessageReceived, function (arg) {
+      try {
+        const msg = JSON.parse(arg.message);
+        if (msg && msg.type === "persistDiag") {
+          console.log(`[PersistDiag] ${msg.tag}`);
+          console.log(msg.payload);
+        }
+      } catch (e) {
+        // ignore non-JSON
+      }
+    });
+  }
+} catch (e) {
+  // no-op
+}
