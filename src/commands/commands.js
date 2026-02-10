@@ -1,3 +1,24 @@
+// DEBUG: persistence instrumentation (temporary)
+const DEBUG_PERSIST = true;
+
+
+
+function dbgPersist(tag, payload) {
+  if (!DEBUG_PERSIST) return;
+  try {
+    console.groupCollapsed(`[JumpTo Persist DEBUG] ${tag}`);
+
+
+async function dbgSet(key, value) {
+  if (DEBUG_PERSIST) dbgPersist(`setItem ${key}`, { value });
+  return OfficeRuntime.storage.setItem(key, value);
+}
+    console.log(payload);
+    console.groupEnd();
+  } catch (e) {
+    // no-op
+  }
+}
 /*
   commands.js – Option B engine with cache + refresh-on-open (signature based)
 */
@@ -88,6 +109,38 @@ async function getActiveWorksheetId() {
 }
 
 async function buildDialogState(baseState) {
+
+// --- Persist debug: environment + raw reads (Excel restart diagnosis) ---
+const PERSIST_READ_KEYS = {
+  rowHeight: "JumpTo.Option.RowHeightPreset",
+  favPercent: "JumpTo.Option.FavPercentManual",
+  recentsCount: "JumpTo.Option.RecentsDisplayCount",
+  baselineOrder: "JumpTo.Option.BaselineOrder",
+  frequentOnTop: "JumpTo.Option.FrequentOnTop",
+};
+
+if (DEBUG_PERSIST) {
+  dbgPersist("env", {
+    href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
+    origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
+    hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
+    hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
+    hasRoamingSettings: (typeof Office !== "undefined") && !!(Office.context && Office.context.roamingSettings),
+    hasLocalStorage: (typeof localStorage !== "undefined"),
+  });
+}
+
+async function dbgGet(key) {
+  try {
+    const v = await OfficeRuntime.storage.getItem(key);
+    if (DEBUG_PERSIST) dbgPersist(`getItem ${key}`, { value: v });
+    return v;
+  } catch (e) {
+    if (DEBUG_PERSIST) dbgPersist(`getItem ERROR ${key}`, { error: String(e) });
+    throw e;
+  }
+}
+
   if (!baseState) return baseState;
 
   const activeId = await getActiveWorksheetId();
@@ -349,7 +402,7 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
+        await dbgSet("JumpTo.Option.RowHeightPreset", preset);
       }
     } catch {}
     cachedState = await getJumpToState();
@@ -407,7 +460,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await dbgSet("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
@@ -455,7 +508,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await dbgSet("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
