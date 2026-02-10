@@ -202,10 +202,14 @@ const env = {
 };
 dbgPersist("env", env);
 sendPersistDiagToDialog("env", env);
+try { if (PERSIST_DIAG_SETTINGS_SHEET_MARK) persistDiagAppendLine("env", env); } catch {}
+trace("buildDialogState begin", {});
 
 function trace(tag, payload) {
   dbgPersist(tag, payload);
   sendPersistDiagToDialog(tag, payload);
+  // Also persist to the existing veryHidden settings sheet so we can see sequences even when console is silent.
+  try { if (PERSIST_DIAG_SETTINGS_SHEET_MARK) persistDiagAppendLine(tag, payload); } catch {}
 }
 
 async function dbgGet(key) {
@@ -219,8 +223,10 @@ async function dbgGet(key) {
   }
 }
 
-  if (!baseState) trace("earlyReturn baseState", { baseState });
-      return baseState;
+  if (!baseState) {
+    trace("earlyReturn baseState", { baseState });
+    return baseState;
+  }
 
   const activeId = await getActiveWorksheetId();
 
@@ -255,20 +261,20 @@ async function dbgGet(key) {
 
   try {
     if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
-      const v = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
+      const v = await dbgGet(OPT_ROW_HEIGHT);
       if (v) rowHeightPreset = String(v);
 
-      const bo = await OfficeRuntime.storage.getItem(OPT_BASELINE_ORDER);
+      const bo = await dbgGet(OPT_BASELINE_ORDER);
       if (bo) baselineOrder = String(bo);
 
-      const fot = await OfficeRuntime.storage.getItem(OPT_FREQUENT_ON_TOP);
+      const fot = await dbgGet(OPT_FREQUENT_ON_TOP);
       if (fot === "false") frequentOnTop = false;
       else if (fot === "true") frequentOnTop = true;
 
-      const fp = await OfficeRuntime.storage.getItem(OPT_FAV_PERCENT);
+      const fp = await dbgGet(OPT_FAV_PERCENT);
       if (fp !== null && fp !== undefined && fp !== "") favPercentManual = Number(fp);
 
-      const rc = await OfficeRuntime.storage.getItem(OPT_RECENTS_DISPLAY_COUNT);
+      const rc = await dbgGet(OPT_RECENTS_DISPLAY_COUNT);
       if (rc !== null && rc !== undefined && rc !== "") recentsDisplayCount = Number(rc);
 
       // Legacy one-digit activation was global; if workbook doesn't yet have an override, seed from legacy value.
@@ -280,15 +286,13 @@ async function dbgGet(key) {
 
       // Best-effort migration: promote legacy workbook-stored globals into global storage if missing.
       if (!bo && baseState.settings?.baselineOrder)
-        await OfficeRuntime.storage.setItem(
-          OPT_BASELINE_ORDER,
+        await dbgSetPersistKey(OPT_BASELINE_ORDER,
           String(baseState.settings.baselineOrder)
         );
 
       if (fot === null || fot === undefined) {
         if (baseState.settings?.frequentOnTop !== undefined)
-          await OfficeRuntime.storage.setItem(
-            OPT_FREQUENT_ON_TOP,
+          await dbgSetPersistKey(OPT_FREQUENT_ON_TOP,
             baseState.settings.frequentOnTop ? "true" : "false"
           );
       }
@@ -297,8 +301,7 @@ async function dbgGet(key) {
         (fp === null || fp === undefined || fp === "") &&
         baseState.settings?.favPercentManual !== undefined
       )
-        await OfficeRuntime.storage.setItem(
-          OPT_FAV_PERCENT,
+        await dbgSetPersistKey(OPT_FAV_PERCENT,
           String(baseState.settings.favPercentManual)
         );
 
@@ -306,8 +309,7 @@ async function dbgGet(key) {
         (rc === null || rc === undefined || rc === "") &&
         baseState.settings?.recentsDisplayCount !== undefined
       )
-        await OfficeRuntime.storage.setItem(
-          OPT_RECENTS_DISPLAY_COUNT,
+        await dbgSetPersistKey(OPT_RECENTS_DISPLAY_COUNT,
           String(baseState.settings.recentsDisplayCount)
         );
     }
@@ -328,6 +330,7 @@ async function dbgGet(key) {
     if (filtered.length >= n) break;
   }
 
+  trace("buildDialogState globals", { rowHeightPreset, oneDigitActivationEnabled, baselineOrder, frequentOnTop, favPercentManual, recentsDisplayCount });
   return {
     ...baseState,
     // Keep workbook settings minimal; dialog UI can still display global values (provided via `global`).
@@ -345,10 +348,10 @@ async function setGlobalUiSettings(patch) {
 
   // Only persist recognized global-scoped keys.
   const writes = [];
-  if (p.favPercentManual !== undefined) writes.push(OfficeRuntime.storage.setItem(OPT_FAV_PERCENT, String(p.favPercentManual)));
-  if (p.recentsDisplayCount !== undefined) writes.push(OfficeRuntime.storage.setItem(OPT_RECENTS_DISPLAY_COUNT, String(p.recentsDisplayCount)));
-  if (p.baselineOrder !== undefined) writes.push(OfficeRuntime.storage.setItem(OPT_BASELINE_ORDER, String(p.baselineOrder)));
-  if (p.frequentOnTop !== undefined) writes.push(OfficeRuntime.storage.setItem(OPT_FREQUENT_ON_TOP, p.frequentOnTop ? "true" : "false"));
+  if (p.favPercentManual !== undefined) writes.push(dbgSetPersistKey(OPT_FAV_PERCENT, String(p.favPercentManual)));
+  if (p.recentsDisplayCount !== undefined) writes.push(dbgSetPersistKey(OPT_RECENTS_DISPLAY_COUNT, String(p.recentsDisplayCount)));
+  if (p.baselineOrder !== undefined) writes.push(dbgSetPersistKey(OPT_BASELINE_ORDER, String(p.baselineOrder)));
+  if (p.frequentOnTop !== undefined) writes.push(dbgSetPersistKey(OPT_FREQUENT_ON_TOP, p.frequentOnTop ? "true" : "false"));
   await Promise.all(writes);
 }
 
@@ -552,8 +555,7 @@ if (msg.type === "selectSheet") {
 
               try {
                 if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                  await OfficeRuntime.storage.setItem(
-                    "JumpTo.Option.OneDigitActivation",
+                  await dbgSetPersistKey("JumpTo.Option.OneDigitActivation",
                     oneDigitActivationEnabled ? "true" : "false"
                   );
                 }
@@ -600,8 +602,7 @@ if (msg.type === "selectSheet") {
 
               try {
                 if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                  await OfficeRuntime.storage.setItem(
-                    "JumpTo.Option.OneDigitActivation",
+                  await dbgSetPersistKey("JumpTo.Option.OneDigitActivation",
                     oneDigitActivationEnabled ? "true" : "false"
                   );
                 }
