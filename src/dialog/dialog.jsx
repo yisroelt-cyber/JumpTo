@@ -363,6 +363,15 @@ function DialogApp() {
           const msg = safeJsonParse(arg?.message);
           if (!msg?.type) return;
 
+          if (msg.type === "persistDiag") {
+            try {
+              console.groupCollapsed(`[PersistDiag] ${msg.tag}`);
+              console.log(msg.payload);
+              console.groupEnd();
+            } catch {}
+            return;
+          }
+
           if (msg.type === "parentReady") {
             parentReadyRef.current = true;
             if (pingTimer) {

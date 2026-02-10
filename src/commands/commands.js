@@ -6,18 +6,17 @@ const DEBUG_PERSIST = true;
 function dbgPersist(tag, payload) {
   if (!DEBUG_PERSIST) return;
   try {
+    // Console (when available)
     console.groupCollapsed(`[JumpTo Persist DEBUG] ${tag}`);
-
-
-async function dbgSet(key, value) {
-  if (DEBUG_PERSIST) dbgPersist(`setItem ${key}`, { value });
-  return OfficeRuntime.storage.setItem(key, value);
-}
     console.log(payload);
     console.groupEnd();
-  } catch (e) {
-    // no-op
-  }
+  } catch {}
+  try {
+    // Pipe to dialog console (Excel Win32 often cannot inspect parent runtime)
+    if (__jtDebugDialog) {
+      __jtDebugDialog.messageChild(JSON.stringify({ type: "persistDiag", tag, payload }));
+    }
+  } catch {}
 }
 /*
   commands.js – Option B engine with cache + refresh-on-open (signature based)
@@ -36,6 +35,8 @@ const lockQueue = [];
 const pendingStateRequests = [];
 
 let cachedState = null;
+let __jtDebugDialog = null; // DEBUG: active dialog ref for piping diagnostics
+
 let cachedSignature = "";
 let lastCheckTs = 0;
 const CHECK_TTL_MS = 1500;
@@ -119,24 +120,20 @@ const PERSIST_READ_KEYS = {
   frequentOnTop: "JumpTo.Option.FrequentOnTop",
 };
 
-if (DEBUG_PERSIST) {
-  dbgPersist("env", {
-    href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
-    origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
-    hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
-    hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
-    hasRoamingSettings: (typeof Office !== "undefined") && !!(Office.context && Office.context.roamingSettings),
-    hasLocalStorage: (typeof localStorage !== "undefined"),
-  });
-}
+dbgPersist("env", {
+  href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
+  origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
+  hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
+  hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
+});
 
 async function dbgGet(key) {
   try {
     const v = await OfficeRuntime.storage.getItem(key);
-    if (DEBUG_PERSIST) dbgPersist(`getItem ${key}`, { value: v });
+    dbgPersist(`getItem ${key}`, { value: v });
     return v;
   } catch (e) {
-    if (DEBUG_PERSIST) dbgPersist(`getItem ERROR ${key}`, { error: String(e) });
+    dbgPersist(`getItem ERROR ${key}`, { error: String(e) });
     throw e;
   }
 }
@@ -299,6 +296,9 @@ function openJumpDialog(event) {
 
       const dialog = result.value;
 
+      // DEBUG: pipe persistence diagnostics into the dialog console
+      __jtDebugDialog = dialog;
+
       const reply = (msg) => {
         try {
           dialog.messageChild(JSON.stringify(msg));
@@ -402,7 +402,7 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await dbgSet("JumpTo.Option.RowHeightPreset", preset);
+        await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
       }
     } catch {}
     cachedState = await getJumpToState();
@@ -460,7 +460,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSet("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
@@ -508,7 +508,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSet("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
