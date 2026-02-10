@@ -1,30 +1,3 @@
-// DEBUG: persistence instrumentation (temporary)
-const DEBUG_PERSIST = true;
-
-
-
-function dbgPersist(tag, payload) {
-  if (!DEBUG_PERSIST) return;
-  try {
-    console.groupCollapsed(`[JumpTo Persist DEBUG] ${tag}`);
-
-
-function sendPersistDiagToDialog(tag, payload) {
-  if (!DEBUG_PERSIST) return;
-  try {
-    if (typeof Office !== "undefined" && Office.context && Office.context.ui && Office.context.ui.messageParent) {
-      Office.context.ui.messageParent(JSON.stringify({ type: "persistDiag", tag, payload }));
-    }
-  } catch (e) {
-    // no-op
-  }
-}
-    console.log(payload);
-    console.groupEnd();
-  } catch (e) {
-    // no-op
-  }
-}
 /*
   commands.js – Option B engine with cache + refresh-on-open (signature based)
 */
@@ -116,66 +89,8 @@ async function getActiveWorksheetId() {
 
 async function buildDialogState(baseState) {
 
-// DEBUG: persist diagnostics (temporary)
-try {
-  sendPersistDiag("env", {
-    href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
-    origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
-    hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
-    hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
-  });
-} catch (e) {}
 
-async function dbgGetPersistKey(key) {
-  try {
-    const v = await OfficeRuntime.storage.getItem(key);
-    sendPersistDiag(`getItem ${key}`, { value: v });
-    return v;
-  } catch (e) {
-    sendPersistDiag(`getItem ERROR ${key}`, { error: String(e) });
-    throw e;
-  }
-}
-
-
-
-// --- Persist debug: environment + tracing (Excel restart diagnosis) ---
-const PERSIST_TRACE_MARK = true;
-const PERSIST_READ_KEYS = {
-  rowHeight: "JumpTo.Option.RowHeightPreset",
-  favPercent: "JumpTo.Option.FavPercentManual",
-  recentsCount: "JumpTo.Option.RecentsDisplayCount",
-  baselineOrder: "JumpTo.Option.BaselineOrder",
-  frequentOnTop: "JumpTo.Option.FrequentOnTop",
-};
-
-const env = {
-  href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
-  origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
-  hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
-  hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
-};
-dbgPersist("env", env);
-sendPersistDiagToDialog("env", env);
-
-function trace(tag, payload) {
-  dbgPersist(tag, payload);
-  sendPersistDiagToDialog(tag, payload);
-}
-
-async function dbgGet(key) {
-  try {
-    const v = await OfficeRuntime.storage.getItem(key);
-    trace(`getItem ${key}`, { value: v });
-    return v;
-  } catch (e) {
-    trace(`getItem ERROR ${key}`, { error: String(e) });
-    throw e;
-  }
-}
-
-  if (!baseState) trace("earlyReturn baseState", { baseState });
-      return baseState;
+  if (!baseState) return baseState;
 
   const activeId = await getActiveWorksheetId();
 
@@ -339,16 +254,34 @@ function openJumpDialog(event) {
         } catch {}
       };
 
-
-// DEBUG: persistence diagnostics sender (temporary)
-const sendPersistDiag = (tag, payload) => {
+// DEBUG: persistence diagnostics via dialog console (temporary)
+const persistDiag = (tag, payload) => {
   try { reply({ type: "persistDiag", tag, payload }); } catch {}
 };
-
-async function dbgSetPersistKey(key, value) {
-  sendPersistDiag(`setItem ${key}`, { value });
-  return OfficeRuntime.storage.setItem(key, value);
-}
+const persistDiagEnv = () => {
+  persistDiag("env", {
+    href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
+    origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
+    hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
+    hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
+  });
+};
+const persistDiagReadGlobals = async () => {
+  try {
+    persistDiagEnv();
+    const keys = [OPT_ROW_HEIGHT, OPT_FAV_PERCENT, OPT_RECENTS_DISPLAY_COUNT, OPT_BASELINE_ORDER, OPT_FREQUENT_ON_TOP];
+    for (const k of keys) {
+      try {
+        const v = await OfficeRuntime.storage.getItem(k);
+        persistDiag(`getItem ${k}`, { value: v });
+      } catch (e) {
+        persistDiag(`getItem ERROR ${k}`, { error: String(e) });
+      }
+    }
+  } catch (e) {
+    persistDiag("diagError", { error: String(e) });
+  }
+};
 
 
       const flushStateQueue = async () => {
@@ -392,6 +325,8 @@ async function dbgSetPersistKey(key, value) {
 
         if (msg.type === "ping") {
           reply({ type: "parentReady" });
+          // DEBUG: run persistence diagnostics right after handshake
+          await persistDiagReadGlobals();
           return;
         }
 
@@ -448,7 +383,7 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset);
+        await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
       }
     } catch {}
     cachedState = await getJumpToState();
@@ -506,7 +441,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
@@ -554,7 +489,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
