@@ -62,8 +62,8 @@ async function persistDiagSnapshot() {
 }
 
 
-async function dbgSetPersistKey(key, value, src) {
-  try { persistDiagAppendLine(`setItem ${key}`, { value, src: src || "" }); } catch {}
+async function dbgSetPersistKey(key, value) {
+  try { persistDiagAppendLine(`setItem ${key}`, { value }); } catch {}
   return OfficeRuntime.storage.setItem(key, value);
 }
 // DEBUG: persistence instrumentation (temporary)
@@ -485,7 +485,7 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, "msg:setRowHeightPreset");
+        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset);
       }
     } catch {}
     cachedState = await getJumpToState();
@@ -524,6 +524,7 @@ if (msg.type === "selectSheet") {
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
           const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
+          const globalsDirty = !!snapshot.globalsDirty;
 
           // Close + complete immediately so the dialog feels instant.
           try {
@@ -540,10 +541,12 @@ if (msg.type === "selectSheet") {
               }
 
               // Persist latest state AFTER activation so persistence work doesn't delay the jump.
-              if (rowHeightPreset) {
+              // Persist snapshot globals only if the user considers them changed in this dialog session.
+              // This prevents cold-start default globals from overwriting persisted values.
+              if (globalsDirty && rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, msg.type === "selectSheet" ? "msg:selectSheet snapshot" : "msg:cancel snapshot");
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
@@ -580,6 +583,7 @@ if (msg.type === "selectSheet") {
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
           const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
+          const globalsDirty = !!snapshot.globalsDirty;
 
           try {
             dialog.close();
@@ -588,10 +592,12 @@ if (msg.type === "selectSheet") {
 
           (async () => {
             await withLock(async () => {
-              if (rowHeightPreset) {
+              // Persist snapshot globals only if the user considers them changed in this dialog session.
+              // This prevents cold-start default globals from overwriting persisted values.
+              if (globalsDirty && rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, msg.type === "selectSheet" ? "msg:selectSheet snapshot" : "msg:cancel snapshot");
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
