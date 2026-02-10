@@ -1,42 +1,3 @@
-
-
-// DEBUG: persistence diagnostics plumbing (temporary)
-const PERSIST_DIAG_PARENT_MARK = true;
-let __persistDiagDialog = null;          // Office dialog instance (from displayDialogAsync)
-const __persistDiagBuffer = [];          // buffered messages until dialog is ready
-
-function persistDiagSend(tag, payload) {
-  try {
-    const msg = JSON.stringify({ type: "persistDiag", tag, payload });
-    if (__persistDiagDialog && typeof __persistDiagDialog.messageChild === "function") {
-      __persistDiagDialog.messageChild(msg);
-    } else {
-      __persistDiagBuffer.push(msg);
-    }
-  } catch (e) {
-    // no-op
-  }
-}
-
-function persistDiagAttachDialog(dialog) {
-  __persistDiagDialog = dialog || null;
-  if (!__persistDiagDialog || typeof __persistDiagDialog.messageChild !== "function") return;
-  try {
-    while (__persistDiagBuffer.length) {
-      __persistDiagDialog.messageChild(__persistDiagBuffer.shift());
-    }
-
-
-async function dbgSetPersistKey(key, value) {
-  try {
-    persistDiagSend(`setItem ${key}`, { value });
-  } catch (e) {}
-  return OfficeRuntime.storage.setItem(key, value);
-}
-  } catch (e) {
-    // no-op
-  }
-}
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
 
@@ -155,29 +116,27 @@ async function getActiveWorksheetId() {
 
 async function buildDialogState(baseState) {
 
-// Persist diagnostics: environment snapshot
+// DEBUG: persist diagnostics (temporary)
 try {
-  persistDiagSend("env", {
+  sendPersistDiag("env", {
     href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
     origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
     hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
     hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
   });
-} catch (e) {
-  // no-op
-}
-
+} catch (e) {}
 
 async function dbgGetPersistKey(key) {
   try {
     const v = await OfficeRuntime.storage.getItem(key);
-    persistDiagSend(`getItem ${key}`, { value: v });
+    sendPersistDiag(`getItem ${key}`, { value: v });
     return v;
   } catch (e) {
-    persistDiagSend(`getItem ERROR ${key}`, { error: String(e) });
+    sendPersistDiag(`getItem ERROR ${key}`, { error: String(e) });
     throw e;
   }
 }
+
 
 
 // --- Persist debug: environment + tracing (Excel restart diagnosis) ---
@@ -374,12 +333,23 @@ function openJumpDialog(event) {
 
       const dialog = result.value;
 
-      persistDiagAttachDialog(dialog);
-const reply = (msg) => {
+      const reply = (msg) => {
         try {
           dialog.messageChild(JSON.stringify(msg));
         } catch {}
       };
+
+
+// DEBUG: persistence diagnostics sender (temporary)
+const sendPersistDiag = (tag, payload) => {
+  try { reply({ type: "persistDiag", tag, payload }); } catch {}
+};
+
+async function dbgSetPersistKey(key, value) {
+  sendPersistDiag(`setItem ${key}`, { value });
+  return OfficeRuntime.storage.setItem(key, value);
+}
+
 
       const flushStateQueue = async () => {
         // Phase 4: fast-first render. If we have an in-memory cache, use it immediately.
