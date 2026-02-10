@@ -140,8 +140,7 @@ function trace(tag, payload) {
   sendPersistDiagToDialog(tag, payload);
 }
 
-async function trace("beforeStorageRead", {});
-      dbgGet(key) {
+async function dbgGet(key) {
   try {
     const v = await OfficeRuntime.storage.getItem(key);
     trace(`getItem ${key}`, { value: v });
