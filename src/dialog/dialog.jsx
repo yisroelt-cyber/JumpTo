@@ -1875,3 +1875,25 @@ try {
 } catch (e) {
   // no-op
 }
+
+
+// DEBUG: persistence diagnostics receiver (temporary)
+const PERSIST_DIAG_RECEIVER_MARK = true;
+try {
+  if (typeof Office !== "undefined" && Office.context && Office.context.ui && Office.context.ui.addHandlerAsync) {
+    Office.context.ui.addHandlerAsync(Office.EventType.DialogParentMessageReceived, function (arg) {
+      try {
+        const msg = JSON.parse(arg.message);
+        if (msg && msg.type === "persistDiag") {
+          // Keep output flat and copy/pastable
+          console.log(`[PersistDiag] ${msg.tag}`);
+          console.log(msg.payload);
+        }
+      } catch (e) {
+        // ignore non-JSON messages
+      }
+    });
+  }
+} catch (e) {
+  // no-op
+}

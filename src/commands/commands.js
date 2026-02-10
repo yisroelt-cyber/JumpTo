@@ -1,3 +1,42 @@
+
+
+// DEBUG: persistence diagnostics plumbing (temporary)
+const PERSIST_DIAG_PARENT_MARK = true;
+let __persistDiagDialog = null;          // Office dialog instance (from displayDialogAsync)
+const __persistDiagBuffer = [];          // buffered messages until dialog is ready
+
+function persistDiagSend(tag, payload) {
+  try {
+    const msg = JSON.stringify({ type: "persistDiag", tag, payload });
+    if (__persistDiagDialog && typeof __persistDiagDialog.messageChild === "function") {
+      __persistDiagDialog.messageChild(msg);
+    } else {
+      __persistDiagBuffer.push(msg);
+    }
+  } catch (e) {
+    // no-op
+  }
+}
+
+function persistDiagAttachDialog(dialog) {
+  __persistDiagDialog = dialog || null;
+  if (!__persistDiagDialog || typeof __persistDiagDialog.messageChild !== "function") return;
+  try {
+    while (__persistDiagBuffer.length) {
+      __persistDiagDialog.messageChild(__persistDiagBuffer.shift());
+    }
+
+
+async function dbgSetPersistKey(key, value) {
+  try {
+    persistDiagSend(`setItem ${key}`, { value });
+  } catch (e) {}
+  return OfficeRuntime.storage.setItem(key, value);
+}
+  } catch (e) {
+    // no-op
+  }
+}
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
 
@@ -115,6 +154,31 @@ async function getActiveWorksheetId() {
 }
 
 async function buildDialogState(baseState) {
+
+// Persist diagnostics: environment snapshot
+try {
+  persistDiagSend("env", {
+    href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
+    origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
+    hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
+    hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
+  });
+} catch (e) {
+  // no-op
+}
+
+
+async function dbgGetPersistKey(key) {
+  try {
+    const v = await OfficeRuntime.storage.getItem(key);
+    persistDiagSend(`getItem ${key}`, { value: v });
+    return v;
+  } catch (e) {
+    persistDiagSend(`getItem ERROR ${key}`, { error: String(e) });
+    throw e;
+  }
+}
+
 
 // --- Persist debug: environment + tracing (Excel restart diagnosis) ---
 const PERSIST_TRACE_MARK = true;
@@ -310,7 +374,8 @@ function openJumpDialog(event) {
 
       const dialog = result.value;
 
-      const reply = (msg) => {
+      persistDiagAttachDialog(dialog);
+const reply = (msg) => {
         try {
           dialog.messageChild(JSON.stringify(msg));
         } catch {}
@@ -413,7 +478,7 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", preset);
+        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset);
       }
     } catch {}
     cachedState = await getJumpToState();
@@ -471,7 +536,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
@@ -519,7 +584,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await OfficeRuntime.storage.setItem("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch {}
               }
