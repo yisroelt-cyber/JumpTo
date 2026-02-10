@@ -1,23 +1,3 @@
-// DEBUG: persistence instrumentation (temporary)
-const DEBUG_PERSIST = true;
-
-
-
-function dbgPersist(tag, payload) {
-  if (!DEBUG_PERSIST) return;
-  try {
-    // Console (when available)
-    console.groupCollapsed(`[JumpTo Persist DEBUG] ${tag}`);
-    console.log(payload);
-    console.groupEnd();
-  } catch {}
-  try {
-    // Pipe to dialog console (Excel Win32 often cannot inspect parent runtime)
-    if (__jtDebugDialog) {
-      __jtDebugDialog.messageChild(JSON.stringify({ type: "persistDiag", tag, payload }));
-    }
-  } catch {}
-}
 /*
   commands.js – Option B engine with cache + refresh-on-open (signature based)
 */
@@ -35,8 +15,6 @@ const lockQueue = [];
 const pendingStateRequests = [];
 
 let cachedState = null;
-let __jtDebugDialog = null; // DEBUG: active dialog ref for piping diagnostics
-
 let cachedSignature = "";
 let lastCheckTs = 0;
 const CHECK_TTL_MS = 1500;
@@ -110,35 +88,10 @@ async function getActiveWorksheetId() {
 }
 
 async function buildDialogState(baseState) {
-
-// --- Persist debug: environment + raw reads (Excel restart diagnosis) ---
-const PERSIST_READ_KEYS = {
-  rowHeight: "JumpTo.Option.RowHeightPreset",
-  favPercent: "JumpTo.Option.FavPercentManual",
-  recentsCount: "JumpTo.Option.RecentsDisplayCount",
-  baselineOrder: "JumpTo.Option.BaselineOrder",
-  frequentOnTop: "JumpTo.Option.FrequentOnTop",
-};
-
-dbgPersist("env", {
-  href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
-  origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
-  hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
-  hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
-});
-
-async function dbgGet(key) {
-  try {
-    const v = await OfficeRuntime.storage.getItem(key);
-    dbgPersist(`getItem ${key}`, { value: v });
-    return v;
-  } catch (e) {
-    dbgPersist(`getItem ERROR ${key}`, { error: String(e) });
-    throw e;
-  }
-}
-
-  if (!baseState) return baseState;
+  if (!baseState) {
+      if (DEBUG_PERSIST) dbgPersist("earlyReturn !baseState", { baseState });
+      return baseState;
+    }
 
   const activeId = await getActiveWorksheetId();
 
@@ -171,6 +124,7 @@ async function dbgGet(key) {
     ? Number(baseState.settings?.recentsDisplayCount)
     : 20;
 
+  if (DEBUG_PERSIST) dbgPersist("beforeStorageRead", { rowHeightPreset, baselineOrder, frequentOnTop, favPercentManual, recentsDisplayCount });
   try {
     if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
       const v = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
@@ -229,8 +183,8 @@ async function dbgGet(key) {
           String(baseState.settings.recentsDisplayCount)
         );
     }
-  } catch {
-    // ignore
+  } catch (e) {
+      if (DEBUG_PERSIST) dbgPersist("storageRead catch", { error: String(e) });// ignore
   }
 
   // Clamp recentsDisplayCount for use in filtered Recents list.
@@ -246,6 +200,7 @@ async function dbgGet(key) {
     if (filtered.length >= n) break;
   }
 
+  if (DEBUG_PERSIST) dbgPersist("returnState", { rowHeightPreset, baselineOrder, frequentOnTop, favPercentManual, recentsDisplayCount, oneDigitActivationEnabled });
   return {
     ...baseState,
     // Keep workbook settings minimal; dialog UI can still display global values (provided via `global`).
@@ -295,9 +250,6 @@ function openJumpDialog(event) {
       }
 
       const dialog = result.value;
-
-      // DEBUG: pipe persistence diagnostics into the dialog console
-      __jtDebugDialog = dialog;
 
       const reply = (msg) => {
         try {
