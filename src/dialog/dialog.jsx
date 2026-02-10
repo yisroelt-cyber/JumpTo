@@ -400,8 +400,10 @@ function DialogApp() {
           });
             setRecents(Array.isArray(state.recents) ? state.recents : []);
             const incomingMeta = state && typeof state === "object" ? state.__meta : null;
-            const incomingSettingsValid = !!incomingMeta?.settingsValid;
-            const incomingFavoritesValid = !!incomingMeta?.favoritesValid;
+            // Back-compat: older parent builds may not send __meta. In that case,
+            // treat incoming state as valid for hydration so persisted settings apply.
+            const incomingSettingsValid = incomingMeta ? !!incomingMeta?.settingsValid : true;
+            const incomingFavoritesValid = incomingMeta ? !!incomingMeta?.favoritesValid : true;
 
             const hydratePrefs =
               (!prefsHydratedRef.current && (incomingSettingsValid || incomingFavoritesValid)) ||
@@ -843,12 +845,16 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
 
   const schedulePersistGlobalOptions = (reason) => {
+    // Only persist global options when the user explicitly changed them.
+    // This prevents startup hydration/defaults from overwriting persisted values.
+    if (!globalOptionsDirtyRef.current) return;
     if (globalOptionsPersistTimerRef.current) {
       clearTimeout(globalOptionsPersistTimerRef.current);
     }
     globalOptionsPersistTimerRef.current = setTimeout(() => {
       globalOptionsPersistTimerRef.current = null;
       try {
+        if (!globalOptionsDirtyRef.current) return;
         const preset = String(globalOptions?.rowHeightPreset || "Standard");
 
         try {
@@ -1045,14 +1051,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     const rowHeightPreset = String(globalOptions?.rowHeightPreset || "Standard");
     const oneDigitActivationEnabled = !!(globalOptions?.oneDigitActivationEnabled);
 
-    // IMPORTANT: On cold Excel start, globalOptions may briefly reflect defaults before
-    // persisted values are hydrated. If the parent persists snapshot globals unconditionally
-    // on cancel/select, it can overwrite real persisted values with defaults.
-    // We therefore include a dirty flag so the parent only persists globals when the user
-    // actually changed them during this dialog session.
-    const globalsDirty = !!(globalOptionsDirtyRef && globalOptionsDirtyRef.current);
-
-    return { uiSettings, favorites: favoritesIds, rowHeightPreset, oneDigitActivationEnabled, globalsDirty };
+    return { uiSettings, favorites: favoritesIds, rowHeightPreset, oneDigitActivationEnabled };
   };
 
 const onSelect = (sheet) => {
