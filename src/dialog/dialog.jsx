@@ -848,6 +848,9 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     }
     globalOptionsPersistTimerRef.current = setTimeout(() => {
       globalOptionsPersistTimerRef.current = null;
+      // If the user hasn't explicitly changed globals, never persist on a timer.
+      // This prevents cold-start hydration from overwriting stored values.
+      if (!globalOptionsDirtyRef.current) return;
       try {
         const preset = String(globalOptions?.rowHeightPreset || "Standard");
 
@@ -876,6 +879,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       clearTimeout(globalOptionsPersistTimerRef.current);
       globalOptionsPersistTimerRef.current = null;
     }
+    // Only persist if the user explicitly changed a global option.
+    if (!globalOptionsDirtyRef.current) return;
     try {
       const preset = String(globalOptions?.rowHeightPreset || "Standard");
 
@@ -929,6 +934,11 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   // Persist global options when they change (debounced).
   useEffect(() => {
     if (!parentReadyRef.current) return;
+    // IMPORTANT: do NOT persist globals simply because they were hydrated from the parent.
+    // On cold start, hydrating defaults (e.g. "Standard") and immediately persisting them
+    // can overwrite valid stored values (write-before-trusted-read).
+    // Only persist when the user has explicitly changed a global option locally.
+    if (!globalOptionsDirtyRef.current) return;
     schedulePersistGlobalOptions("global-change");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled]);
