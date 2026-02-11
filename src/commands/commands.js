@@ -62,8 +62,8 @@ async function persistDiagSnapshot() {
 }
 
 
-async function dbgSetPersistKey(key, value) {
-  try { persistDiagAppendLine(`setItem ${key}`, { value }); } catch (e) {}
+async function dbgSetPersistKey(key, value, src) {
+  try { persistDiagAppendLine(`setItem ${key}`, { value, src: src || "unknown" }); } catch (e) {}
   return OfficeRuntime.storage.setItem(key, value);
 }
 // DEBUG: persistence instrumentation (temporary)
@@ -200,20 +200,16 @@ const env = {
   hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
   hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
 };
+
+// Mirror BOOT markers to settings sheet (no-console cold start)
+try { persistDiagAppendLine("BOOT buildDialogState", env); } catch (e) {}
+
 dbgPersist("env", env);
 sendPersistDiagToDialog("env", env);
-// Boot marker for cold-start ordering. This MUST run before any persistence
-// hydration or default writes.
-try { persistDiagAppendLine("BOOT buildDialogState", env); } catch (e) {}
 
 function trace(tag, payload) {
   dbgPersist(tag, payload);
   sendPersistDiagToDialog(tag, payload);
-  // Mirror diagnostics into the existing veryHidden settings sheet so we can
-  // recover startup ordering even when the browser/taskpane console is silent.
-  if (PERSIST_DIAG_SETTINGS_SHEET_MARK) {
-    try { persistDiagAppendLine(tag, payload); } catch (e) {}
-  }
 }
 
 async function dbgGet(key) {
@@ -495,7 +491,7 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset);
+        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, "rowHeight", "msg:setRowHeightPreset");
       }
     } catch (e) {}
     cachedState = await getJumpToState();
@@ -553,7 +549,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "rowHeight", "msg:selectSheet snapshot");
                   }
                 } catch (e) {}
               }
@@ -601,7 +597,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "rowHeight", "msg:cancel snapshot");
                   }
                 } catch (e) {}
               }
