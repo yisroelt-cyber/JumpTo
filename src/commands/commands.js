@@ -62,20 +62,21 @@ async function persistDiagSnapshot() {
 }
 
 
-async function dbgSetPersistKey(key, value) {
-  try { persistDiagAppendLine(`setItem ${key}`, { value }); } catch (e) {}
-  return OfficeRuntime.storage.setItem(key, value);
-}
+async function dbgSetPersistKey(key, value, src = "") {
+  try { persistDiagAppendLine(`setItem ${key}`, { value, src: String(src || "") }); } catch (e) {}
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
-
-
 
 function dbgPersist(tag, payload) {
   if (!DEBUG_PERSIST) return;
   try {
     console.groupCollapsed(`[JumpTo Persist DEBUG] ${tag}`);
-
+    console.log(payload);
+    console.groupEnd();
+  } catch (e) {
+    // no-op
+  }
+}
 
 function sendPersistDiagToDialog(tag, payload) {
   if (!DEBUG_PERSIST) return;
@@ -87,12 +88,7 @@ function sendPersistDiagToDialog(tag, payload) {
     // no-op
   }
 }
-    console.log(payload);
-    console.groupEnd();
-  } catch (e) {
-    // no-op
-  }
-}
+
 /*
   commands.js – Option B engine with cache + refresh-on-open (signature based)
 */
@@ -202,10 +198,12 @@ const env = {
 };
 dbgPersist("env", env);
 sendPersistDiagToDialog("env", env);
+try { persistDiagAppendLine("BOOT buildDialogState", env); } catch (e) {}
 
 function trace(tag, payload) {
   dbgPersist(tag, payload);
   sendPersistDiagToDialog(tag, payload);
+  try { persistDiagAppendLine(tag, payload); } catch (e) {}
 }
 
 async function dbgGet(key) {
@@ -219,8 +217,10 @@ async function dbgGet(key) {
   }
 }
 
-  if (!baseState) trace("earlyReturn baseState", { baseState });
-      return baseState;
+  if (!baseState) {
+  trace("earlyReturn baseState", { baseState });
+  return baseState;
+}
 
   const activeId = await getActiveWorksheetId();
 
@@ -485,7 +485,7 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset);
+        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, `rowHeight:${msg.__src || ""}`);
       }
     } catch (e) {}
     cachedState = await getJumpToState();

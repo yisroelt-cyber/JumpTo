@@ -36,7 +36,7 @@ const ROW_HEIGHT_PRESETS = {
 function safeJsonParse(str) {
   try {
     return JSON.parse(str);
-  } catch {
+  } catch (e) {
     return null;
   }
 }
@@ -194,7 +194,7 @@ function DialogApp() {
     // Cancel any existing scheduled focus attempts.
     try {
       (focusTimersRef.current || []).forEach((t) => window.clearTimeout(t));
-    } catch {
+    } catch (e) {
       // ignore
     }
     focusTimersRef.current = [];
@@ -204,7 +204,7 @@ function DialogApp() {
       if (!el || typeof el.focus !== "function") return;
       try {
         el.focus();
-      } catch {
+      } catch (e) {
         // ignore
       }
     };
@@ -232,7 +232,7 @@ function DialogApp() {
         const msg = evt?.message || "Unknown error";
         console.error("[JumpToSheet][Dialog] window.onerror:", msg, evt);
         setInitError((prev) => prev || msg);
-      } catch {
+      } catch (e) {
         // ignore
       }
     };
@@ -242,7 +242,7 @@ function DialogApp() {
         const msg = reason?.message || String(reason || "Unhandled promise rejection");
         console.error("[JumpToSheet][Dialog] unhandledrejection:", msg, evt);
         setInitError((prev) => prev || msg);
-      } catch {
+      } catch (e) {
         // ignore
       }
     };
@@ -255,7 +255,7 @@ function DialogApp() {
       window.removeEventListener("unhandledrejection", onUnhandled);
       try {
         (focusTimersRef.current || []).forEach((t) => window.clearTimeout(t));
-      } catch {
+      } catch (e) {
         // ignore
       }
       focusTimersRef.current = [];
@@ -271,7 +271,7 @@ function DialogApp() {
         const bodyRect = body.getBoundingClientRect();
         const h = Math.max(220, Math.floor(bodyRect.height));
         setPanelHeight(h);
-      } catch {
+      } catch (e) {
         // ignore
       }
     };
@@ -316,7 +316,7 @@ function DialogApp() {
           Office.context.ui &&
           typeof Office.context.ui.messageParent === "function"
         );
-      } catch {
+      } catch (e) {
         return false;
       }
     };
@@ -352,7 +352,7 @@ function DialogApp() {
       Office.onReady(() => {
       try {
         console.log(`[JT][build 37] dialog ready`, window.location.href);
-      } catch { /* ignore */ }
+      } catch (e) { /* ignore */ }
       if (disposed) return;
 
       // Listen for parent responses.
@@ -817,7 +817,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
           baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
           frequentOnTop: !!(globalOptions?.frequentOnTop),
         });
-      } catch {
+      } catch (e) {
         // ignore
       }
     }, 700);
@@ -836,13 +836,14 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
         baselineOrder: (globalOptions?.baselineOrder === "alpha" ? "alpha" : "workbook"),
         frequentOnTop: !!(globalOptions?.frequentOnTop),
       });
-    } catch {
+    } catch (e) {
       // ignore
     }
   };
 
 
   const schedulePersistGlobalOptions = (reason) => {
+    if (!globalOptionsDirtyRef.current) return;
     if (globalOptionsPersistTimerRef.current) {
       clearTimeout(globalOptionsPersistTimerRef.current);
     }
@@ -855,8 +856,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
           if (Office?.context?.ui?.messageParent) {
 
-            Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset, __src: `dialog:flushPersistGlobalOptionsNow:${String(reason||"")}` }));
-            Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!(globalOptions?.oneDigitActivationEnabled), __src: `dialog:flushPersistGlobalOptionsNow:${String(reason||"")}` }));
+            Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset, __src: `dialog:schedule:${reason}` }));
+            Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!(globalOptions?.oneDigitActivationEnabled) }));
 
           }
 
@@ -865,16 +866,13 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
           console.error("messageParent(setRowHeightPreset) failed:", err);
 
         }
-      } catch {
+      } catch (e) {
         // ignore
       }
     }, 600);
   };
 
   const flushPersistGlobalOptionsNow = (reason) => {
-    // Only persist globals when user explicitly changed them.
-    if (!globalOptionsDirtyRef.current) return;
-
     if (globalOptionsPersistTimerRef.current) {
       clearTimeout(globalOptionsPersistTimerRef.current);
       globalOptionsPersistTimerRef.current = null;
@@ -886,7 +884,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
         if (Office?.context?.ui?.messageParent) {
 
-          Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset }));
+          Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset, __src: `dialog:schedule:${reason}` }));
           Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!(globalOptions?.oneDigitActivationEnabled) }));
 
         }
@@ -895,7 +893,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
         console.error("messageParent(setRowHeightPreset) failed:", err);
 
-      }} catch {
+      }} catch (e) {
       // ignore
     }
   };
@@ -917,7 +915,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
         body.style.height = "100%";
         body.style.overflow = "hidden";
       }
-    } catch {
+    } catch (e) {
       // ignore
     }
   }, []);
@@ -962,7 +960,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
         if (!el) return false;
         try {
           el.scrollIntoView({ block: "nearest" });
-        } catch {
+        } catch (e) {
           // ignore
         }
         return true;
@@ -977,7 +975,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
         if (doScroll()) favTabPendingScrollIdRef.current = null;
       });
       return () => window.cancelAnimationFrame(raf);
-    } catch {
+    } catch (e) {
       // ignore
     }
   }, [activeTab, favorites]);
@@ -995,7 +993,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
         const ids = (Array.isArray(favoritesRef.current) ? favoritesRef.current : []).map((x) => x?.id).filter(Boolean);
         sendSetFavoritesToParent(ids);
         favDirtyRef.current = false;
-      } catch {
+      } catch (e) {
         // ignore
       }
     }, 900);
@@ -1010,7 +1008,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     try {
       const ids = (Array.isArray(favoritesRef.current) ? favoritesRef.current : []).map((x) => x?.id).filter(Boolean);
       sendSetFavoritesToParent(ids);
-    } catch {
+    } catch (e) {
       // ignore
     }
     favDirtyRef.current = false;
@@ -1082,7 +1080,7 @@ const onCancel = () => {
   try {
     const snapshot = buildPersistSnapshot();
     Office.context.ui.messageParent(JSON.stringify({ type: "cancel", snapshot }));
-  } catch {
+  } catch (e) {
     // ignore
   }
 };
@@ -1103,7 +1101,7 @@ useEffect(() => {
   if (el && typeof el.scrollIntoView === "function") {
     try {
       el.scrollIntoView({ block: "nearest" });
-    } catch {
+    } catch (e) {
       // ignore
     }
   }
@@ -1226,7 +1224,7 @@ return (
                           onCancel();
                         }
                       }
-                    } catch {
+                    } catch (e) {
                       // ignore
                     }
                   }}
@@ -1451,7 +1449,7 @@ return (
                         if (s?.id) addFavoriteLocal(s.id);
                         return;
                       }
-                    } catch {
+                    } catch (e) {
                       // ignore
                     }
                   }}
