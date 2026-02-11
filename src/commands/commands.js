@@ -63,7 +63,9 @@ async function persistDiagSnapshot() {
 
 
 async function dbgSetPersistKey(key, value, src) {
-  try { persistDiagAppendLine(`setItem ${key}`, { value, src: src || "unknown" }); } catch (e) {}
+  try { await persistDiagAppendLine(`setItem ${key}`, { value, src }); } catch (e) {}
+  return OfficeRuntime.storage.setItem(key, value);
+}`, { value }); } catch (e) {}
   return OfficeRuntime.storage.setItem(key, value);
 }
 // DEBUG: persistence instrumentation (temporary)
@@ -200,10 +202,6 @@ const env = {
   hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
   hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
 };
-
-// Mirror BOOT markers to settings sheet (no-console cold start)
-try { persistDiagAppendLine("BOOT buildDialogState", env); } catch (e) {}
-
 dbgPersist("env", env);
 sendPersistDiagToDialog("env", env);
 
@@ -223,10 +221,8 @@ async function dbgGet(key) {
   }
 }
 
-  if (!baseState) {
-    trace("earlyReturn baseState", { baseState });
-    return baseState;
-  }
+  if (!baseState) trace("earlyReturn baseState", { baseState });
+      return baseState;
 
   const activeId = await getActiveWorksheetId();
 
@@ -491,7 +487,8 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, "rowHeight", "msg:setRowHeightPreset");
+        await persistDiagAppendLine("MSG setRowHeightPreset", { preset, __src: msg.__src || null });
+        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, `rowHeight:${String(msg.__src || "none")}`);
       }
     } catch (e) {}
     cachedState = await getJumpToState();
@@ -549,7 +546,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "rowHeight", "msg:selectSheet snapshot");
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch (e) {}
               }
@@ -597,7 +594,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "rowHeight", "msg:cancel snapshot");
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
                 } catch (e) {}
               }
