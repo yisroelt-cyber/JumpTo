@@ -64,6 +64,7 @@ async function persistDiagSnapshot() {
 
 async function dbgSetPersistKey(key, value, src = "") {
   try { persistDiagAppendLine(`setItem ${key}`, { value, src: String(src || "") }); } catch (e) {}
+}
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
 
