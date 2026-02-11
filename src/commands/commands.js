@@ -62,28 +62,9 @@ async function persistDiagSnapshot() {
 }
 
 
-async function dbgSetPersistKey(key, value, meta = undefined) {
-  // meta is optional and should be JSON-serializable; used to tag write source.
-  try {
-    const payload = meta && typeof meta === "object" ? { value, ...meta } : { value };
-    persistDiagAppendLine(`setItem ${key}`, payload);
-  } catch {}
+async function dbgSetPersistKey(key, value) {
+  try { persistDiagAppendLine(`setItem ${key}`, { value }); } catch {}
   return OfficeRuntime.storage.setItem(key, value);
-}
-
-async function dbgGetPersistKey(key, meta = undefined) {
-  try {
-    const v = await OfficeRuntime.storage.getItem(key);
-    const payload = meta && typeof meta === "object" ? { value: v, ...meta } : { value: v };
-    persistDiagAppendLine(`getItem ${key}`, payload);
-    return v;
-  } catch (e) {
-    try {
-      const payload = meta && typeof meta === "object" ? { error: String(e), ...meta } : { error: String(e) };
-      persistDiagAppendLine(`getItem ERROR ${key}`, payload);
-    } catch {}
-    throw e;
-  }
 }
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
@@ -203,20 +184,6 @@ async function getActiveWorksheetId() {
 
 async function buildDialogState(baseState) {
 
-  // Persist debug: always write a boot marker + global key snapshot to the settings sheet.
-  // This is critical when the console is silent and we need to see cold-start read results.
-  const bootEnv = {
-    href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
-    origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
-    hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
-    hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
-  };
-  try { await persistDiagAppendLine("BOOT buildDialogState", bootEnv); } catch {}
-  try {
-    const snap = await persistDiagSnapshot();
-    await persistDiagAppendLine("BOOT snapshot", snap);
-  } catch {}
-
 // --- Persist debug: environment + tracing (Excel restart diagnosis) ---
 const PERSIST_TRACE_MARK = true;
 const PERSIST_READ_KEYS = {
@@ -252,10 +219,8 @@ async function dbgGet(key) {
   }
 }
 
-  if (!baseState) {
-    try { await persistDiagAppendLine("WARN baseState missing", { baseState }); } catch {}
-    return baseState;
-  }
+  if (!baseState) trace("earlyReturn baseState", { baseState });
+      return baseState;
 
   const activeId = await getActiveWorksheetId();
 
@@ -291,24 +256,19 @@ async function dbgGet(key) {
   try {
     if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
       const v = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
-      try { await persistDiagAppendLine(`getItem ${OPT_ROW_HEIGHT}`, { value: v, src: "buildDialogState" }); } catch {}
       if (v) rowHeightPreset = String(v);
 
       const bo = await OfficeRuntime.storage.getItem(OPT_BASELINE_ORDER);
-      try { await persistDiagAppendLine(`getItem ${OPT_BASELINE_ORDER}`, { value: bo, src: "buildDialogState" }); } catch {}
       if (bo) baselineOrder = String(bo);
 
       const fot = await OfficeRuntime.storage.getItem(OPT_FREQUENT_ON_TOP);
-      try { await persistDiagAppendLine(`getItem ${OPT_FREQUENT_ON_TOP}`, { value: fot, src: "buildDialogState" }); } catch {}
       if (fot === "false") frequentOnTop = false;
       else if (fot === "true") frequentOnTop = true;
 
       const fp = await OfficeRuntime.storage.getItem(OPT_FAV_PERCENT);
-      try { await persistDiagAppendLine(`getItem ${OPT_FAV_PERCENT}`, { value: fp, src: "buildDialogState" }); } catch {}
       if (fp !== null && fp !== undefined && fp !== "") favPercentManual = Number(fp);
 
       const rc = await OfficeRuntime.storage.getItem(OPT_RECENTS_DISPLAY_COUNT);
-      try { await persistDiagAppendLine(`getItem ${OPT_RECENTS_DISPLAY_COUNT}`, { value: rc, src: "buildDialogState" }); } catch {}
       if (rc !== null && rc !== undefined && rc !== "") recentsDisplayCount = Number(rc);
 
       // Legacy one-digit activation was global; if workbook doesn't yet have an override, seed from legacy value.
@@ -563,7 +523,6 @@ if (msg.type === "selectSheet") {
           const snapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
-          const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
 
           // Close + complete immediately so the dialog feels instant.
           try {
@@ -578,13 +537,6 @@ if (msg.type === "selectSheet") {
                 await activateSheetById(sheetId);
                 await recordActivation(sheetId);
               }
-
-              // Persist latest state AFTER activation so persistence work doesn't delay the jump.
-              if (rowHeightPreset) {
-                try {
-                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
-                  }
                 } catch {}
               }
 
@@ -619,7 +571,6 @@ if (msg.type === "selectSheet") {
           const snapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
-          const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
 
           try {
             dialog.close();
@@ -628,11 +579,6 @@ if (msg.type === "selectSheet") {
 
           (async () => {
             await withLock(async () => {
-              if (rowHeightPreset) {
-                try {
-                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
-                  }
                 } catch {}
               }
 
