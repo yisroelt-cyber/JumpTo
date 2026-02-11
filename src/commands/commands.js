@@ -38,7 +38,7 @@ async function persistDiagAppendLine(tag, payload) {
   } catch (e) {
     try {
       console.error("[PersistDiag] FAILED to write to settings sheet", tag, e);
-    } catch {}
+    } catch (e) {}
   }
 }
 
@@ -63,7 +63,7 @@ async function persistDiagSnapshot() {
 
 
 async function dbgSetPersistKey(key, value) {
-  try { persistDiagAppendLine(`setItem ${key}`, { value }); } catch {}
+  try { persistDiagAppendLine(`setItem ${key}`, { value }); } catch (e) {}
   return OfficeRuntime.storage.setItem(key, value);
 }
 // DEBUG: persistence instrumentation (temporary)
@@ -202,10 +202,18 @@ const env = {
 };
 dbgPersist("env", env);
 sendPersistDiagToDialog("env", env);
+// Boot marker for cold-start ordering. This MUST run before any persistence
+// hydration or default writes.
+try { persistDiagAppendLine("BOOT buildDialogState", env); } catch (e) {}
 
 function trace(tag, payload) {
   dbgPersist(tag, payload);
   sendPersistDiagToDialog(tag, payload);
+  // Mirror diagnostics into the existing veryHidden settings sheet so we can
+  // recover startup ordering even when the browser/taskpane console is silent.
+  if (PERSIST_DIAG_SETTINGS_SHEET_MARK) {
+    try { persistDiagAppendLine(tag, payload); } catch (e) {}
+  }
 }
 
 async function dbgGet(key) {
@@ -219,8 +227,10 @@ async function dbgGet(key) {
   }
 }
 
-  if (!baseState) trace("earlyReturn baseState", { baseState });
-      return baseState;
+  if (!baseState) {
+    trace("earlyReturn baseState", { baseState });
+    return baseState;
+  }
 
   const activeId = await getActiveWorksheetId();
 
@@ -381,7 +391,7 @@ function openJumpDialog(event) {
       const reply = (msg) => {
         try {
           dialog.messageChild(JSON.stringify(msg));
-        } catch {}
+        } catch (e) {}
       };
 
       const flushStateQueue = async () => {
@@ -487,7 +497,7 @@ if (msg.type === "setRowHeightPreset") {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
         await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset);
       }
-    } catch {}
+    } catch (e) {}
     cachedState = await getJumpToState();
     const state = await buildDialogState(cachedState);
     reply({ type: "stateData", state });
@@ -523,11 +533,12 @@ if (msg.type === "selectSheet") {
           const snapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
+          const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
 
           // Close + complete immediately so the dialog feels instant.
           try {
             dialog.close();
-          } catch {}
+          } catch (e) {}
           event.completed();
 
           // Continue work in the background so UI close is not blocked by Excel writes.
@@ -537,7 +548,14 @@ if (msg.type === "selectSheet") {
                 await activateSheetById(sheetId);
                 await recordActivation(sheetId);
               }
-                } catch {}
+
+              // Persist latest state AFTER activation so persistence work doesn't delay the jump.
+              if (rowHeightPreset) {
+                try {
+                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                  }
+                } catch (e) {}
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
@@ -549,7 +567,7 @@ if (msg.type === "selectSheet") {
                     oneDigitActivationEnabled ? "true" : "false"
                   );
                 }
-              } catch {}
+              } catch (e) {}
 
               if (uiSettings) {
                 await setUiSettingsInStorage(uiSettings);
@@ -571,15 +589,21 @@ if (msg.type === "selectSheet") {
           const snapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
+          const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
 
           try {
             dialog.close();
-          } catch {}
+          } catch (e) {}
           event.completed();
 
           (async () => {
             await withLock(async () => {
-                } catch {}
+              if (rowHeightPreset) {
+                try {
+                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                  }
+                } catch (e) {}
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
@@ -591,7 +615,7 @@ if (msg.type === "selectSheet") {
                     oneDigitActivationEnabled ? "true" : "false"
                   );
                 }
-              } catch {}
+              } catch (e) {}
 
               if (uiSettings) {
                 await setUiSettingsInStorage(uiSettings);
