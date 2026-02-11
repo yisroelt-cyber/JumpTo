@@ -62,10 +62,8 @@ async function persistDiagSnapshot() {
 }
 
 
-async function dbgSetPersistKey(key, value, src) {
-  try { await persistDiagAppendLine(`setItem ${key}`, { value, src }); } catch (e) {}
-  return OfficeRuntime.storage.setItem(key, value);
-}`, { value }); } catch (e) {}
+async function dbgSetPersistKey(key, value) {
+  try { persistDiagAppendLine(`setItem ${key}`, { value }); } catch (e) {}
   return OfficeRuntime.storage.setItem(key, value);
 }
 // DEBUG: persistence instrumentation (temporary)
@@ -487,8 +485,7 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await persistDiagAppendLine("MSG setRowHeightPreset", { preset, __src: msg.__src || null });
-        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, `rowHeight:${String(msg.__src || "none")}`);
+        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset);
       }
     } catch (e) {}
     cachedState = await getJumpToState();
