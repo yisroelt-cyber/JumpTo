@@ -400,10 +400,8 @@ function DialogApp() {
           });
             setRecents(Array.isArray(state.recents) ? state.recents : []);
             const incomingMeta = state && typeof state === "object" ? state.__meta : null;
-            // Back-compat: older parent builds may not send __meta. In that case,
-            // treat incoming state as valid for hydration so persisted settings apply.
-            const incomingSettingsValid = incomingMeta ? !!incomingMeta?.settingsValid : true;
-            const incomingFavoritesValid = incomingMeta ? !!incomingMeta?.favoritesValid : true;
+            const incomingSettingsValid = !!incomingMeta?.settingsValid;
+            const incomingFavoritesValid = !!incomingMeta?.favoritesValid;
 
             const hydratePrefs =
               (!prefsHydratedRef.current && (incomingSettingsValid || incomingFavoritesValid)) ||
@@ -845,8 +843,9 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
 
   const schedulePersistGlobalOptions = (reason) => {
-    // Only persist global options when the user explicitly changed them.
-    // This prevents startup hydration/defaults from overwriting persisted values.
+    // Persist globals only on explicit user change.
+    // On cold start, globalOptions may briefly be defaults during hydration;
+    // writing them would overwrite the persisted values.
     if (!globalOptionsDirtyRef.current) return;
     if (globalOptionsPersistTimerRef.current) {
       clearTimeout(globalOptionsPersistTimerRef.current);
@@ -854,7 +853,6 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     globalOptionsPersistTimerRef.current = setTimeout(() => {
       globalOptionsPersistTimerRef.current = null;
       try {
-        if (!globalOptionsDirtyRef.current) return;
         const preset = String(globalOptions?.rowHeightPreset || "Standard");
 
         try {
@@ -878,6 +876,9 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   };
 
   const flushPersistGlobalOptionsNow = (reason) => {
+    // Same guard as schedulePersistGlobalOptions(): never write globals during
+    // hydration / init unless the user explicitly changed them.
+    if (!globalOptionsDirtyRef.current) return;
     if (globalOptionsPersistTimerRef.current) {
       clearTimeout(globalOptionsPersistTimerRef.current);
       globalOptionsPersistTimerRef.current = null;
@@ -935,6 +936,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   // Persist global options when they change (debounced).
   useEffect(() => {
     if (!parentReadyRef.current) return;
+    if (!globalOptionsDirtyRef.current) return;
     schedulePersistGlobalOptions("global-change");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled]);
