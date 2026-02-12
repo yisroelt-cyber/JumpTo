@@ -68,7 +68,31 @@ async function dbgSetPersistKey(key, value, src = "") {
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
 
-try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "bootread-v1" }); } catch (e) {}
+
+// DEBUG: wrap storage mutation methods to detect unexpected clearing/removals.
+try {
+  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage) {
+    const __jtStorage = OfficeRuntime.storage;
+    if (__jtStorage && !__jtStorage.__jtWrapped) {
+      const __origClear = __jtStorage.clear ? __jtStorage.clear.bind(__jtStorage) : null;
+      const __origRemove = __jtStorage.removeItem ? __jtStorage.removeItem.bind(__jtStorage) : null;
+      if (__origClear) {
+        __jtStorage.clear = async function () {
+          try { persistDiagAppendLine("STORAGE clear()", {}); } catch (e) {}
+          return __origClear();
+        };
+      }
+      if (__origRemove) {
+        __jtStorage.removeItem = async function (key) {
+          try { persistDiagAppendLine("STORAGE removeItem", { key: String(key || "") }); } catch (e) {}
+          return __origRemove(key);
+        };
+      }
+      __jtStorage.__jtWrapped = true;
+    }
+  }
+} catch (e) {}
+try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "sentinel-v1" }); } catch (e) {}
 function dbgPersist(tag, payload) {
   if (!DEBUG_PERSIST) return;
   try {
@@ -205,7 +229,24 @@ try {
   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
     const bootRH = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
     persistDiagAppendLine("BOOT storageRowHeightPreset", { value: String(bootRH || "") });
-  } else {
+  
+        // Storage sentinel: verifies whether OfficeRuntime.storage survives a full Excel restart.
+        try {
+          if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem && OfficeRuntime.storage?.setItem) {
+            const SENTINEL_KEY = "JumpTo.Diag.Sentinel";
+            const sentinel = await OfficeRuntime.storage.getItem(SENTINEL_KEY);
+            const sentinelStr = sentinel === null || sentinel === undefined ? "" : String(sentinel);
+            persistDiagAppendLine("BOOT storageSentinel", { value: sentinelStr });
+            if (!sentinelStr) {
+              const newVal = "sent-" + String(Date.now()) + "-" + String(Math.floor(Math.random() * 1000000));
+              await OfficeRuntime.storage.setItem(SENTINEL_KEY, newVal);
+              persistDiagAppendLine("BOOT storageSentinel set", { value: newVal });
+            }
+          } else {
+            persistDiagAppendLine("BOOT storageSentinel", { value: "", note: "no OfficeRuntime.storage getItem/setItem" });
+          }
+        } catch (e) { try { persistDiagAppendLine("BOOT storageSentinel ERR", { msg: String(e && e.message ? e.message : e) }); } catch (e2) {} }
+} else {
     persistDiagAppendLine("BOOT storageRowHeightPreset", { value: "", note: "no OfficeRuntime.storage.getItem" });
   }
 } catch (e) {
