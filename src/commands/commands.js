@@ -68,6 +68,7 @@ async function dbgSetPersistKey(key, value, src = "") {
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
 
+try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "v4b" }); } catch (e) {}
 function dbgPersist(tag, payload) {
   if (!DEBUG_PERSIST) return;
   try {
@@ -204,8 +205,10 @@ try { persistDiagAppendLine("BOOT buildDialogState", env);
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
         const bootRH = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
         persistDiagAppendLine("BOOT storageRowHeightPreset", { value: String(bootRH || "") });
+      } else {
+        persistDiagAppendLine("BOOT storageRowHeightPreset", { value: "", note: "no OfficeRuntime.storage.getItem" });
       }
-    } catch (e) {}
+    } catch (e) { try { persistDiagAppendLine("BOOT storageRowHeightPreset ERR", { msg: String(e && e.message ? e.message : e) }); } catch (e2) {} }
 } catch (e) {}
 
 function trace(tag, payload) {
@@ -560,10 +563,12 @@ if (msg.type === "selectSheet") {
                     if (isDefault && wouldOverwrite) {
                       await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist:skipOverwrite existing=" + existingStr);
                     } else {
+                      try { persistDiagAppendLine("POSTACT aboutToWrite", { value: String(currentStr) }); } catch (e) {}
                       await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist");
                     }
                   } else if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
+                    try { persistDiagAppendLine("POSTACT aboutToWrite", { value: String(rowHeightPreset) }); } catch (e) {}
+                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
                   }
                 } catch (e) {}
               }
@@ -620,10 +625,12 @@ const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
                     if (isDefault && wouldOverwrite) {
                       await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist:skipOverwrite existing=" + existingStr);
                     } else {
+                      try { persistDiagAppendLine("POSTACT aboutToWrite", { value: String(currentStr) }); } catch (e) {}
                       await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist");
                     }
                   } else if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
+                    try { persistDiagAppendLine("POSTACT aboutToWrite", { value: String(rowHeightPreset) }); } catch (e) {}
+                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
                   }
                 } catch (e) {}
               }
