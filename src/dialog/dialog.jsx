@@ -1,7 +1,25 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { diagTraceRowHeight, diagFlushRowHeightTrace } from "../services/rowHeightTrace";
 import { MAX_RECENTS } from "../shared/constants";
 
 import { createRoot } from "react-dom/client";
+
+function fireAndForget(promise, tag) {
+  try {
+    if (promise && typeof promise.then === "function") {
+      promise.catch((e) => {
+        try {
+          console.error('[RowHeightTrace] dialog fireAndForget error', tag || '', e);
+        } catch (e2) {}
+      });
+    }
+  } catch (e) {
+    try {
+      console.error('[RowHeightTrace] dialog fireAndForget failure', tag || '', e);
+    } catch (e2) {}
+  }
+}
+
 
 /* global Office */
 
@@ -121,6 +139,13 @@ function sameFavoriteIds(a, b) {
 }
 
 function DialogApp() {
+
+  useEffect(() => {
+    fireAndForget(diagTraceRowHeight("dialog", "DialogApp", "mount"), "DialogApp.mount");
+    return () => {
+      fireAndForget(diagFlushRowHeightTrace("dialog", "DialogApp", "unmount"), "DialogApp.unmount");
+    };
+  }, []);
   const [allSheets, setAllSheets] = useState([]);
   const [favorites, setFavorites] = useState([]);
   // Favorites bounce fix: prevent stale parent-state hydration from overwriting recent UI edits.
@@ -858,7 +883,9 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
           if (Office?.context?.ui?.messageParent) {
 
+            fireAndForget(diagTraceRowHeight("dialog", "scheduleGlobalPersist", "beforeSend:" + String(reason || "")), "scheduleGlobalPersist.beforeSend");
             Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset, __src: "dialog:schedule:" + String(reason || "") }));
+            fireAndForget(diagTraceRowHeight("dialog", "scheduleGlobalPersist", "afterSend:" + String(reason || "")), "scheduleGlobalPersist.afterSend");
             Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!(globalOptions?.oneDigitActivationEnabled) }));
 
           }

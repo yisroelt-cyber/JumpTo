@@ -1,4 +1,4 @@
-
+import { diagTraceRowHeight, diagFlushRowHeightTrace } from "../services/rowHeightTrace";
 
 // DEBUG: persistence diagnostics to existing settings sheet (temporary)
 const PERSIST_DIAG_SETTINGS_SHEET_MARK = true;
@@ -41,6 +41,23 @@ async function persistDiagAppendLine(tag, payload) {
     } catch (e) {}
   }
 }
+
+function fireAndForget(promise, tag) {
+  try {
+    if (promise && typeof promise.then === "function") {
+      promise.catch((e) => {
+        try {
+          console.error("[RowHeightTrace] fireAndForget error", tag || "", e);
+        } catch (e2) {}
+      });
+    }
+  } catch (e) {
+    try {
+      console.error("[RowHeightTrace] fireAndForget failure", tag || "", e);
+    } catch (e2) {}
+  }
+}
+
 
 async function persistDiagSnapshot() {
   const keys = [
@@ -257,6 +274,7 @@ async function getActiveWorksheetId() {
 }
 
 async function buildDialogState(baseState) {
+  await diagTraceRowHeight("commands", "buildDialogState", "entry");
 
 // --- Persist debug: environment + tracing (Excel restart diagnosis) ---
 const PERSIST_TRACE_MARK = true;
@@ -473,6 +491,7 @@ async function activateSheetById(sheetId) {
 }
 
 function openJumpDialog(event) {
+  fireAndForget(diagTraceRowHeight("commands", "openJumpDialog", "entry"), "commands.openJumpDialog");
   const dialogUrl = new URL("./dialog.html", window.location.href).toString();
 
   Office.context.ui.displayDialogAsync(
@@ -548,6 +567,7 @@ while (pendingStateRequests.length) {
 
         if (msg.type === "toggleFavorite") {
           await withLock(async () => {
+    await diagTraceRowHeight("commands", "setRowHeightPreset", "before:" + String(msg.__src || ""));
             await toggleFavoriteInStorage(msg.sheetId);
             cachedState = await getJumpToState();
             const state = await buildDialogState(cachedState);
@@ -594,6 +614,7 @@ if (msg.type === "setRowHeightPreset") {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
         await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, `rowHeight:${msg.__src || ""}`);
+        await diagTraceRowHeight("commands", "setRowHeightPreset", "after:" + String(msg.__src || ""));
       }
     } catch (e) {}
     cachedState = await getJumpToState();
@@ -652,8 +673,10 @@ if (msg.type === "selectSheet") {
               // Only persist RowHeightPreset from the snapshot if the user actually changed it
               // during this dialog session. Otherwise, a default UI value could overwrite the
               // existing global value (e.g., when the dialog closes quickly).
+              await diagTraceRowHeight("commands", "snapshotSelect", "beforePersist");
               if (rowHeightDirty && rowHeightPreset) {
                 await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "snapshot:select");
+                await diagTraceRowHeight("commands", "snapshotSelect", "afterPersist");
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
@@ -678,7 +701,9 @@ if (msg.type === "selectSheet") {
               // Keep cache coherent for the next dialog open.
               cachedState = await getJumpToState();
             });
-          })().catch((err) => console.error("selectSheet background handler failed:", err));
+          
+              await diagFlushRowHeightTrace("commands", "selectSheet", "end");
+})().catch((err) => console.error("selectSheet background handler failed:", err));
 
           return;
         }
@@ -697,8 +722,10 @@ if (msg.type === "selectSheet") {
 
           (async () => {
             await withLock(async () => {
+              await diagTraceRowHeight("commands", "snapshotCancel", "beforePersist");
               if (rowHeightDirty && rowHeightPreset) {
                 await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "snapshot:cancel");
+                await diagTraceRowHeight("commands", "snapshotCancel", "afterPersist");
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
@@ -722,7 +749,9 @@ if (msg.type === "selectSheet") {
 
               cachedState = await getJumpToState();
             });
-          })().catch((err) => console.error("cancel background handler failed:", err));
+          
+              await diagFlushRowHeightTrace("commands", "cancel", "end");
+})().catch((err) => console.error("cancel background handler failed:", err));
           return;
         }
       });
