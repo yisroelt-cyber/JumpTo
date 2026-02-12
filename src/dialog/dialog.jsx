@@ -856,7 +856,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
           if (Office?.context?.ui?.messageParent) {
 
-            Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset, __src: `dialog:schedule:${reason}` }));
+            Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset, __src: "dialog:setRowHeightPreset_2", __src: "dialog:setRowHeightPreset_1", __src: `dialog:schedule:${reason}` }));
             Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!(globalOptions?.oneDigitActivationEnabled) }));
 
           }
