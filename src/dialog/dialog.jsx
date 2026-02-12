@@ -166,10 +166,6 @@ function DialogApp() {
   // Favorites persistence (Favorites tab): debounce writes to minimize sheet churn
   const favPersistTimerRef = useRef(null);
   const favDirtyRef = useRef(false);
-  // RowHeightPreset is global (ORTS). Only persist it from snapshot-based actions (select/cancel)
-  // if the user actually changed it during this dialog session; otherwise a default UI value
-  // can overwrite the true persisted value.
-  const rowHeightDirtyRef = useRef(false);
   const favoritesRef = useRef([]);
 
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -186,6 +182,7 @@ function DialogApp() {
   const uiSettingsDirtyDesiredRef = useRef(null);
   const globalOptionsDirtyRef = useRef(false);
   const globalOptionsDirtyDesiredRef = useRef(null);
+  const rowHeightDirtyRef = useRef(false);
   const prefsHydratedRef = useRef(false);
   const prefsHydratedFromValidRef = useRef(false);
   useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
@@ -1051,7 +1048,9 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     const rowHeightPreset = String(globalOptions?.rowHeightPreset || "Standard");
     const oneDigitActivationEnabled = !!(globalOptions?.oneDigitActivationEnabled);
 
-    return { uiSettings, favorites: favoritesIds, rowHeightPreset, rowHeightDirty: rowHeightDirtyRef.current === true, oneDigitActivationEnabled };
+    const rowHeightDirty = !!rowHeightDirtyRef.current;
+
+    return { uiSettings, favorites: favoritesIds, rowHeightPreset, rowHeightDirty, oneDigitActivationEnabled };
   };
 
 const onSelect = (sheet) => {
@@ -1673,12 +1672,12 @@ return (
                     checked={activePresetName === name}
                     onChange={() => {
                       const nextPreset = String(name);
+                      rowHeightDirtyRef.current = true;
                       globalOptionsDirtyRef.current = true;
                       globalOptionsDirtyDesiredRef.current = {
                         oneDigitActivationEnabled: !!(globalOptions?.oneDigitActivationEnabled),
                         rowHeightPreset: nextPreset,
                       };
-                      rowHeightDirtyRef.current = true;
                       setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: nextPreset }));
                     }}
                   />

@@ -63,7 +63,28 @@ async function persistDiagSnapshot() {
 
 
 async function dbgSetPersistKey(key, value, src = "") {
-  try { persistDiagAppendLine(`setItem ${key}`, { value, src: String(src || "") }); } catch (e) {}
+  // Diagnostic line (best-effort), plus real persistence.
+  try {
+    persistDiagAppendLine(`setItem ${key}`, { value, src: String(src || "") });
+  } catch (e) {
+    try {
+      persistDiagAppendLine("setItem DIAG ERR", { key: String(key || ""), msg: String(e && e.message ? e.message : e) });
+    } catch (e2) {
+      // last-resort: do nothing
+    }
+  }
+
+  try {
+    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+      await OfficeRuntime.storage.setItem(String(key || ""), String(value ?? ""));
+    }
+  } catch (e) {
+    try {
+      persistDiagAppendLine("setItem ORTS ERR", { key: String(key || ""), msg: String(e && e.message ? e.message : e) });
+    } catch (e2) {
+      // last-resort: do nothing
+    }
+  }
 }
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
@@ -611,7 +632,7 @@ if (msg.type === "selectSheet") {
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
           const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
-          const rowHeightDirty = snapshot.rowHeightDirty === true;
+          const rowHeightDirty = !!snapshot.rowHeightDirty;
 
           // Close + complete immediately so the dialog feels instant.
           try {
@@ -628,16 +649,11 @@ if (msg.type === "selectSheet") {
               }
 
               // Persist latest state AFTER activation so persistence work doesn't delay the jump.
-              // IMPORTANT: only persist RowHeightPreset if the user actually changed it in this dialog session.
-              // Otherwise, a default UI value (e.g. "Standard") can overwrite the true global value.
-              if (rowHeightPreset && rowHeightDirty) {
-                try {
-                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
-                  }
-                } catch (e) {
-                  console.error("persist RowHeightPreset failed:", e);
-                }
+              // Only persist RowHeightPreset from the snapshot if the user actually changed it
+              // during this dialog session. Otherwise, a default UI value could overwrite the
+              // existing global value (e.g., when the dialog closes quickly).
+              if (rowHeightDirty && rowHeightPreset) {
+                await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "snapshot:select");
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
@@ -672,7 +688,7 @@ if (msg.type === "selectSheet") {
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
           const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
-          const rowHeightDirty = snapshot.rowHeightDirty === true;
+          const rowHeightDirty = !!snapshot.rowHeightDirty;
 
           try {
             dialog.close();
@@ -681,16 +697,8 @@ if (msg.type === "selectSheet") {
 
           (async () => {
             await withLock(async () => {
-              // IMPORTANT: only persist RowHeightPreset if the user actually changed it in this dialog session.
-              // Otherwise, a default UI value (e.g. "Standard") can overwrite the true global value.
-              if (rowHeightPreset && rowHeightDirty) {
-                try {
-                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
-                  }
-                } catch (e) {
-                  console.error("persist RowHeightPreset failed:", e);
-                }
+              if (rowHeightDirty && rowHeightPreset) {
+                await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "snapshot:cancel");
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
