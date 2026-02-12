@@ -25,7 +25,7 @@
   </Hosts>
 
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://yisroelt-cyber.github.io/JumpTo/taskpane.html?v=37"/>
+    <SourceLocation DefaultValue="https://yisroelt-cyber.github.io/JumpTo/taskpane.html?v=38"/>
   </DefaultSettings>
 
   <Permissions>ReadWriteDocument</Permissions>
@@ -107,10 +107,10 @@
       </bt:Images>
 
       <bt:Urls>
-        <bt:Url id="Commands.Url" DefaultValue="https://yisroelt-cyber.github.io/JumpTo/commands.html?v=37"/>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://yisroelt-cyber.github.io/JumpTo/taskpane.html?v=37"/>
+        <bt:Url id="Commands.Url" DefaultValue="https://yisroelt-cyber.github.io/JumpTo/commands.html?v=38"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://yisroelt-cyber.github.io/JumpTo/taskpane.html?v=38"/>
                 <bt:Url id="TaskpaneShim.Url" DefaultValue="https://yisroelt-cyber.github.io/JumpTo/taskpane.html?shim=1&amp;v=36"/>
-<bt:Url id="Dialog.Url" DefaultValue="https://yisroelt-cyber.github.io/JumpTo/dialog.html?v=37"/>
+<bt:Url id="Dialog.Url" DefaultValue="https://yisroelt-cyber.github.io/JumpTo/dialog.html?v=38"/>
       </bt:Urls>
 
       <bt:ShortStrings>
