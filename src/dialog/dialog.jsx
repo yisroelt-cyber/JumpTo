@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS } from "../shared/constants";
 
-import { diagTraceRowHeight } from "../services/rowHeightTrace";
-
 import { createRoot } from "react-dom/client";
 
 /* global Office */
@@ -168,6 +166,10 @@ function DialogApp() {
   // Favorites persistence (Favorites tab): debounce writes to minimize sheet churn
   const favPersistTimerRef = useRef(null);
   const favDirtyRef = useRef(false);
+  // RowHeightPreset is global (ORTS). Only persist it from snapshot-based actions (select/cancel)
+  // if the user actually changed it during this dialog session; otherwise a default UI value
+  // can overwrite the true persisted value.
+  const rowHeightDirtyRef = useRef(false);
   const favoritesRef = useRef([]);
 
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -428,6 +430,7 @@ function DialogApp() {
                   // Parent has caught up; accept incoming and clear dirty.
                   globalOptionsDirtyRef.current = false;
                   globalOptionsDirtyDesiredRef.current = null;
+                  rowHeightDirtyRef.current = false;
                   return incoming;
                 }
                 // Ignore stale incoming globals while dirty.
@@ -852,7 +855,6 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     globalOptionsPersistTimerRef.current = setTimeout(() => {
       globalOptionsPersistTimerRef.current = null;
       try {
-        try { diagTraceRowHeight("dialog", "schedulePersistGlobalOptions", String(reason || "")); } catch (e) { /* ignore */ }
         const preset = String(globalOptions?.rowHeightPreset || "Standard");
 
         try {
@@ -881,7 +883,6 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       globalOptionsPersistTimerRef.current = null;
     }
     try {
-      try { diagTraceRowHeight("dialog", "flushPersistGlobalOptionsNow", String(reason || "")); } catch (e) { /* ignore */ }
       const preset = String(globalOptions?.rowHeightPreset || "Standard");
 
       try {
@@ -1050,7 +1051,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     const rowHeightPreset = String(globalOptions?.rowHeightPreset || "Standard");
     const oneDigitActivationEnabled = !!(globalOptions?.oneDigitActivationEnabled);
 
-    return { uiSettings, favorites: favoritesIds, rowHeightPreset, oneDigitActivationEnabled };
+    return { uiSettings, favorites: favoritesIds, rowHeightPreset, rowHeightDirty: rowHeightDirtyRef.current === true, oneDigitActivationEnabled };
   };
 
 const onSelect = (sheet) => {
@@ -1677,6 +1678,7 @@ return (
                         oneDigitActivationEnabled: !!(globalOptions?.oneDigitActivationEnabled),
                         rowHeightPreset: nextPreset,
                       };
+                      rowHeightDirtyRef.current = true;
                       setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: nextPreset }));
                     }}
                   />

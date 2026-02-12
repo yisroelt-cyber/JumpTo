@@ -63,21 +63,7 @@ async function persistDiagSnapshot() {
 
 
 async function dbgSetPersistKey(key, value, src = "") {
-  // This helper must BOTH persist to OfficeRuntime.storage and append to the diagnostics sheet.
-  // It is used by multiple dialog message handlers that expect the value to be durable.
-  try {
-    persistDiagAppendLine(`setItem ${key}`, { value, src: String(src || "") });
-  } catch (e) {
-    console.error("[dbgSetPersistKey] persistDiagAppendLine failed", key, e);
-  }
-
-  try {
-    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-      await OfficeRuntime.storage.setItem(key, String(value));
-    }
-  } catch (e) {
-    console.error("[dbgSetPersistKey] OfficeRuntime.storage.setItem failed", key, e);
-  }
+  try { persistDiagAppendLine(`setItem ${key}`, { value, src: String(src || "") }); } catch (e) {}
 }
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
@@ -625,6 +611,7 @@ if (msg.type === "selectSheet") {
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
           const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
+          const rowHeightDirty = snapshot.rowHeightDirty === true;
 
           // Close + complete immediately so the dialog feels instant.
           try {
@@ -641,12 +628,16 @@ if (msg.type === "selectSheet") {
               }
 
               // Persist latest state AFTER activation so persistence work doesn't delay the jump.
-              if (rowHeightPreset) {
+              // IMPORTANT: only persist RowHeightPreset if the user actually changed it in this dialog session.
+              // Otherwise, a default UI value (e.g. "Standard") can overwrite the true global value.
+              if (rowHeightPreset && rowHeightDirty) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
                     await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
-                } catch (e) {}
+                } catch (e) {
+                  console.error("persist RowHeightPreset failed:", e);
+                }
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
@@ -681,6 +672,7 @@ if (msg.type === "selectSheet") {
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
           const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
+          const rowHeightDirty = snapshot.rowHeightDirty === true;
 
           try {
             dialog.close();
@@ -689,12 +681,16 @@ if (msg.type === "selectSheet") {
 
           (async () => {
             await withLock(async () => {
-              if (rowHeightPreset) {
+              // IMPORTANT: only persist RowHeightPreset if the user actually changed it in this dialog session.
+              // Otherwise, a default UI value (e.g. "Standard") can overwrite the true global value.
+              if (rowHeightPreset && rowHeightDirty) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
                     await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
                   }
-                } catch (e) {}
+                } catch (e) {
+                  console.error("persist RowHeightPreset failed:", e);
+                }
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
