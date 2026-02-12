@@ -63,7 +63,21 @@ async function persistDiagSnapshot() {
 
 
 async function dbgSetPersistKey(key, value, src = "") {
-  try { persistDiagAppendLine(`setItem ${key}`, { value, src: String(src || "") }); } catch (e) {}
+  // This helper must BOTH persist to OfficeRuntime.storage and append to the diagnostics sheet.
+  // It is used by multiple dialog message handlers that expect the value to be durable.
+  try {
+    persistDiagAppendLine(`setItem ${key}`, { value, src: String(src || "") });
+  } catch (e) {
+    console.error("[dbgSetPersistKey] persistDiagAppendLine failed", key, e);
+  }
+
+  try {
+    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+      await OfficeRuntime.storage.setItem(key, String(value));
+    }
+  } catch (e) {
+    console.error("[dbgSetPersistKey] OfficeRuntime.storage.setItem failed", key, e);
+  }
 }
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
@@ -158,11 +172,6 @@ import {
   setUiSettings as setUiSettingsInStorage,
 } from "../services/jumpToStorage";
 
-import {
-  diagTraceRowHeight,
-  diagFlushRowHeightTrace,
-} from "../services/rowHeightTrace";
-
 let lockBusy = false;
 const lockQueue = [];
 const pendingStateRequests = [];
@@ -241,8 +250,6 @@ async function getActiveWorksheetId() {
 }
 
 async function buildDialogState(baseState) {
-  // Layered trace: capture ORTS RowHeightPreset at the earliest meaningful parent entry.
-  try { await diagTraceRowHeight("commands", "buildDialogState"); } catch (e) { /* ignore */ }
 
 // --- Persist debug: environment + tracing (Excel restart diagnosis) ---
 const PERSIST_TRACE_MARK = true;
@@ -459,8 +466,6 @@ async function activateSheetById(sheetId) {
 }
 
 function openJumpDialog(event) {
-  // Earliest dialog entry point from the Ribbon command.
-  try { diagTraceRowHeight("commands", "openJumpDialog"); } catch (e) { /* ignore */ }
   const dialogUrl = new URL("./dialog.html", window.location.href).toString();
 
   Office.context.ui.displayDialogAsync(
@@ -481,7 +486,6 @@ function openJumpDialog(event) {
       };
 
       const flushStateQueue = async () => {
-        try { await diagTraceRowHeight("commands", "flushStateQueue"); } catch (e) { /* ignore */ }
         // Phase 4: fast-first render. If we have an in-memory cache, use it immediately.
         // Otherwise, try a perf-cache-backed state (preferCache) before doing the full refresh.
         if (cachedState) {
@@ -517,7 +521,6 @@ while (pendingStateRequests.length) {
       };
 
       dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
-        try { await diagTraceRowHeight("commands", "DialogMessageReceived"); } catch (e) { /* ignore */ }
         let msg;
         try {
           msg = JSON.parse(arg.message);
@@ -578,7 +581,6 @@ while (pendingStateRequests.length) {
 
 
 if (msg.type === "setRowHeightPreset") {
-  try { await diagTraceRowHeight("commands", "onSetRowHeightPreset", "before"); } catch (e) { /* ignore */ }
   const preset = typeof msg.preset === "string" ? msg.preset : "";
   if (!preset) return;
   await withLock(async () => {
@@ -587,7 +589,6 @@ if (msg.type === "setRowHeightPreset") {
         await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, `rowHeight:${msg.__src || ""}`);
       }
     } catch (e) {}
-    try { await diagTraceRowHeight("commands", "onSetRowHeightPreset", "after"); } catch (e) { /* ignore */ }
     cachedState = await getJumpToState();
     const state = await buildDialogState(cachedState);
     reply({ type: "stateData", state });
@@ -615,7 +616,6 @@ if (msg.type === "setRowHeightPreset") {
         }
 
 if (msg.type === "selectSheet") {
-          try { await diagTraceRowHeight("commands", "onSelectSheet", "before-close"); } catch (e) { /* ignore */ }
           const sheetId = msg.sheetId;
 
           // Snapshot-based persistence: the dialog may close immediately after selection,
@@ -671,16 +671,12 @@ if (msg.type === "selectSheet") {
               // Keep cache coherent for the next dialog open.
               cachedState = await getJumpToState();
             });
-
-            // Final flush for this execution path.
-            try { await diagFlushRowHeightTrace("commands", "onSelectSheet", "end"); } catch (e) { /* ignore */ }
           })().catch((err) => console.error("selectSheet background handler failed:", err));
 
           return;
         }
 
         if (msg.type === "cancel") {
-          try { await diagTraceRowHeight("commands", "onCancel", "before-close"); } catch (e) { /* ignore */ }
           const snapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
@@ -722,9 +718,6 @@ if (msg.type === "selectSheet") {
 
               cachedState = await getJumpToState();
             });
-
-            // Final flush for this execution path.
-            try { await diagFlushRowHeightTrace("commands", "onCancel", "end"); } catch (e) { /* ignore */ }
           })().catch((err) => console.error("cancel background handler failed:", err));
           return;
         }
