@@ -69,30 +69,61 @@ async function dbgSetPersistKey(key, value, src = "") {
 const DEBUG_PERSIST = true;
 
 
-// DEBUG: wrap storage mutation methods to detect unexpected clearing/removals.
+// DEBUG: wrap OfficeRuntime.storage methods to trace real keys and detect unexpected clearing/removals.
 try {
   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage) {
     const __jtStorage = OfficeRuntime.storage;
     if (__jtStorage && !__jtStorage.__jtWrapped) {
+      const __origGet = __jtStorage.getItem ? __jtStorage.getItem.bind(__jtStorage) : null;
+      const __origSet = __jtStorage.setItem ? __jtStorage.setItem.bind(__jtStorage) : null;
       const __origClear = __jtStorage.clear ? __jtStorage.clear.bind(__jtStorage) : null;
       const __origRemove = __jtStorage.removeItem ? __jtStorage.removeItem.bind(__jtStorage) : null;
+
+      if (__origGet) {
+        __jtStorage.getItem = async function (key) {
+          const k = String(key || "");
+          let v;
+          try {
+            v = await __origGet(key);
+          } catch (e) {
+            try { persistDiagAppendLine("STORAGE getItem ERR", { key: k, msg: String(e && e.message ? e.message : e) }); } catch (e2) {}
+            throw e;
+          }
+          const vs = v === null || v === undefined ? "" : String(v);
+          // Avoid huge payloads; log full value for our small keys.
+          try { persistDiagAppendLine("STORAGE getItem", { key: k, value: vs }); } catch (e) {}
+          return v;
+        };
+      }
+
+      if (__origSet) {
+        __jtStorage.setItem = async function (key, value) {
+          const k = String(key || "");
+          const vs = value === null || value === undefined ? "" : String(value);
+          try { persistDiagAppendLine("STORAGE setItem", { key: k, value: vs }); } catch (e) {}
+          return __origSet(key, value);
+        };
+      }
+
       if (__origClear) {
         __jtStorage.clear = async function () {
           try { persistDiagAppendLine("STORAGE clear()", {}); } catch (e) {}
           return __origClear();
         };
       }
+
       if (__origRemove) {
         __jtStorage.removeItem = async function (key) {
           try { persistDiagAppendLine("STORAGE removeItem", { key: String(key || "") }); } catch (e) {}
           return __origRemove(key);
         };
       }
+
       __jtStorage.__jtWrapped = true;
     }
   }
 } catch (e) {}
-try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "sentinel-v1" }); } catch (e) {}
+try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "tracekeys-v1" }); } catch (e) {}
 function dbgPersist(tag, payload) {
   if (!DEBUG_PERSIST) return;
   try {
