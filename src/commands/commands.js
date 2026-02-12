@@ -486,7 +486,8 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, `rowHeight:${msg.__src || ""}`);
+        const src = msg && msg.__src ? String(msg.__src) : "msg:setRowHeightPreset";
+        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, src);
       }
     } catch (e) {}
     cachedState = await getJumpToState();
