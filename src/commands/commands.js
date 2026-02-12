@@ -68,7 +68,7 @@ async function dbgSetPersistKey(key, value, src = "") {
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
 
-try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "v5-explicit-only" }); } catch (e) {}
+try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "bootread-v1" }); } catch (e) {}
 function dbgPersist(tag, payload) {
   if (!DEBUG_PERSIST) return;
   try {
@@ -200,7 +200,20 @@ const env = {
 };
 dbgPersist("env", env);
 sendPersistDiagToDialog("env", env);
-try { persistDiagAppendLine("BOOT buildDialogState", env); } catch (e) {}
+try { persistDiagAppendLine("BOOT buildDialogState", env); 
+try {
+  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
+    const bootRH = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
+    persistDiagAppendLine("BOOT storageRowHeightPreset", { value: String(bootRH || "") });
+  } else {
+    persistDiagAppendLine("BOOT storageRowHeightPreset", { value: "", note: "no OfficeRuntime.storage.getItem" });
+  }
+} catch (e) {
+  try {
+    persistDiagAppendLine("BOOT storageRowHeightPreset ERR", { msg: String((e && e.message) ? e.message : e) });
+  } catch (e2) {}
+}
+} catch (e) {}
 
 function trace(tag, payload) {
   dbgPersist(tag, payload);
@@ -484,11 +497,10 @@ while (pendingStateRequests.length) {
 if (msg.type === "setRowHeightPreset") {
   const preset = typeof msg.preset === "string" ? msg.preset : "";
   if (!preset) return;
-  try { persistDiagAppendLine("RX setRowHeightPreset", { preset, __src: String((msg && msg.__src) || "") }); } catch (e) {}
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, "rowHeight:" + String(msg.__src || ""));
+        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, `rowHeight:${msg.__src || ""}`);
       }
     } catch (e) {}
     cachedState = await getJumpToState();
@@ -545,7 +557,9 @@ if (msg.type === "selectSheet") {
               // Persist latest state AFTER activation so persistence work doesn't delay the jump.
               if (rowHeightPreset) {
                 try {
-                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {                  }
+                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                  }
                 } catch (e) {}
               }
 
@@ -591,7 +605,9 @@ if (msg.type === "selectSheet") {
             await withLock(async () => {
               if (rowHeightPreset) {
                 try {
-                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {                  }
+                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                  }
                 } catch (e) {}
               }
 
