@@ -68,6 +68,7 @@ async function dbgSetPersistKey(key, value, src = "") {
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
 
+try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "v5-explicit-only" }); } catch (e) {}
 function dbgPersist(tag, payload) {
   if (!DEBUG_PERSIST) return;
   try {
@@ -540,8 +541,15 @@ if (msg.type === "selectSheet") {
                 await activateSheetById(sheetId);
                 await recordActivation(sheetId);
               }
-              // RowHeightPreset persistence removed from activation path (explicit-change only)
-const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
+
+              // Persist latest state AFTER activation so persistence work doesn't delay the jump.
+              if (rowHeightPreset) {
+                try {
+                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {                  }
+                } catch (e) {}
+              }
+
+              const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
 
               try {
                 if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
@@ -583,9 +591,7 @@ const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
             await withLock(async () => {
               if (rowHeightPreset) {
                 try {
-                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
-                  }
+                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {                  }
                 } catch (e) {}
               }
 
