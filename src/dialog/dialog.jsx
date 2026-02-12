@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS } from "../shared/constants";
 
+import { diagTraceRowHeight } from "../services/rowHeightTrace";
+
 import { createRoot } from "react-dom/client";
 
 /* global Office */
@@ -850,6 +852,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     globalOptionsPersistTimerRef.current = setTimeout(() => {
       globalOptionsPersistTimerRef.current = null;
       try {
+        try { diagTraceRowHeight("dialog", "schedulePersistGlobalOptions", String(reason || "")); } catch (e) { /* ignore */ }
         const preset = String(globalOptions?.rowHeightPreset || "Standard");
 
         try {
@@ -878,6 +881,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       globalOptionsPersistTimerRef.current = null;
     }
     try {
+      try { diagTraceRowHeight("dialog", "flushPersistGlobalOptionsNow", String(reason || "")); } catch (e) { /* ignore */ }
       const preset = String(globalOptions?.rowHeightPreset || "Standard");
 
       try {
