@@ -68,7 +68,6 @@ async function dbgSetPersistKey(key, value, src = "") {
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
 
-try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "v4b" }); } catch (e) {}
 function dbgPersist(tag, payload) {
   if (!DEBUG_PERSIST) return;
   try {
@@ -200,16 +199,7 @@ const env = {
 };
 dbgPersist("env", env);
 sendPersistDiagToDialog("env", env);
-try { persistDiagAppendLine("BOOT buildDialogState", env); 
-    try {
-      if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
-        const bootRH = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
-        persistDiagAppendLine("BOOT storageRowHeightPreset", { value: String(bootRH || "") });
-      } else {
-        persistDiagAppendLine("BOOT storageRowHeightPreset", { value: "", note: "no OfficeRuntime.storage.getItem" });
-      }
-    } catch (e) { try { persistDiagAppendLine("BOOT storageRowHeightPreset ERR", { msg: String(e && e.message ? e.message : e) }); } catch (e2) {} }
-} catch (e) {}
+try { persistDiagAppendLine("BOOT buildDialogState", env); } catch (e) {}
 
 function trace(tag, payload) {
   dbgPersist(tag, payload);
@@ -549,29 +539,8 @@ if (msg.type === "selectSheet") {
               if (sheetId) {
                 await activateSheetById(sheetId);
                 await recordActivation(sheetId);
-              }              // Persist latest state AFTER activation so persistence work doesn't delay the jump.
-              // Guard: do not overwrite an existing persisted RowHeightPreset with the in-memory default on cold start.
-              if (rowHeightPreset) {
-                try {
-                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
-                    const existing = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
-                    const existingStr = existing === null || existing === undefined ? "" : String(existing);
-                    const currentStr = String(rowHeightPreset);
-                    const isDefault = currentStr === "Standard";
-                    const wouldOverwrite = !!existingStr && existingStr !== currentStr;
-                    try { persistDiagAppendLine("POSTACT rowHeight check", { current: currentStr, existing: existingStr, isDefault: isDefault, wouldOverwrite: wouldOverwrite }); } catch (e) {}
-                    if (isDefault && wouldOverwrite) {
-                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist:skipOverwrite existing=" + existingStr);
-                    } else {
-                      try { persistDiagAppendLine("POSTACT aboutToWrite", { value: String(currentStr) }); } catch (e) {}
-                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist");
-                    }
-                  } else if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    try { persistDiagAppendLine("POSTACT aboutToWrite", { value: String(rowHeightPreset) }); } catch (e) {}
-                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
-                  }
-                } catch (e) {}
               }
+              // RowHeightPreset persistence removed from activation path (explicit-change only)
 const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
 
               try {
@@ -611,30 +580,16 @@ const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
           event.completed();
 
           (async () => {
-            await withLock(async () => {              // Persist latest state AFTER activation so persistence work doesn't delay the jump.
-              // Guard: do not overwrite an existing persisted RowHeightPreset with the in-memory default on cold start.
+            await withLock(async () => {
               if (rowHeightPreset) {
                 try {
-                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
-                    const existing = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
-                    const existingStr = existing === null || existing === undefined ? "" : String(existing);
-                    const currentStr = String(rowHeightPreset);
-                    const isDefault = currentStr === "Standard";
-                    const wouldOverwrite = !!existingStr && existingStr !== currentStr;
-                    try { persistDiagAppendLine("POSTACT rowHeight check", { current: currentStr, existing: existingStr, isDefault: isDefault, wouldOverwrite: wouldOverwrite }); } catch (e) {}
-                    if (isDefault && wouldOverwrite) {
-                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist:skipOverwrite existing=" + existingStr);
-                    } else {
-                      try { persistDiagAppendLine("POSTACT aboutToWrite", { value: String(currentStr) }); } catch (e) {}
-                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist");
-                    }
-                  } else if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    try { persistDiagAppendLine("POSTACT aboutToWrite", { value: String(rowHeightPreset) }); } catch (e) {}
-                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
+                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
                   }
                 } catch (e) {}
               }
-const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
+
+              const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
 
               try {
                 if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
