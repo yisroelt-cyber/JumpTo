@@ -199,7 +199,14 @@ const env = {
 };
 dbgPersist("env", env);
 sendPersistDiagToDialog("env", env);
-try { persistDiagAppendLine("BOOT buildDialogState", env); } catch (e) {}
+try { persistDiagAppendLine("BOOT buildDialogState", env); 
+    try {
+      if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
+        const bootRH = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
+        persistDiagAppendLine("BOOT storageRowHeightPreset", { value: String(bootRH || "") });
+      }
+    } catch (e) {}
+} catch (e) {}
 
 function trace(tag, payload) {
   dbgPersist(tag, payload);
@@ -549,6 +556,7 @@ if (msg.type === "selectSheet") {
                     const currentStr = String(rowHeightPreset);
                     const isDefault = currentStr === "Standard";
                     const wouldOverwrite = !!existingStr && existingStr !== currentStr;
+                    try { persistDiagAppendLine("POSTACT rowHeight check", { current: currentStr, existing: existingStr, isDefault: isDefault, wouldOverwrite: wouldOverwrite }); } catch (e) {}
                     if (isDefault && wouldOverwrite) {
                       await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist:skipOverwrite existing=" + existingStr);
                     } else {
@@ -608,6 +616,7 @@ const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
                     const currentStr = String(rowHeightPreset);
                     const isDefault = currentStr === "Standard";
                     const wouldOverwrite = !!existingStr && existingStr !== currentStr;
+                    try { persistDiagAppendLine("POSTACT rowHeight check", { current: currentStr, existing: existingStr, isDefault: isDefault, wouldOverwrite: wouldOverwrite }); } catch (e) {}
                     if (isDefault && wouldOverwrite) {
                       await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist:skipOverwrite existing=" + existingStr);
                     } else {
