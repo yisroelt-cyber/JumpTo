@@ -539,18 +539,27 @@ if (msg.type === "selectSheet") {
               if (sheetId) {
                 await activateSheetById(sheetId);
                 await recordActivation(sheetId);
-              }
-
-              // Persist latest state AFTER activation so persistence work doesn't delay the jump.
+              }              // Persist latest state AFTER activation so persistence work doesn't delay the jump.
+              // Guard: do not overwrite an existing persisted RowHeightPreset with the in-memory default on cold start.
               if (rowHeightPreset) {
                 try {
-                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
+                    const existing = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
+                    const existingStr = existing === null || existing === undefined ? "" : String(existing);
+                    const currentStr = String(rowHeightPreset);
+                    const isDefault = currentStr === "Standard";
+                    const wouldOverwrite = !!existingStr && existingStr !== currentStr;
+                    if (isDefault && wouldOverwrite) {
+                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist:skipOverwrite existing=" + existingStr);
+                    } else {
+                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist");
+                    }
+                  } else if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
                     await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
                   }
                 } catch (e) {}
               }
-
-              const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
+const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
 
               try {
                 if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
@@ -589,16 +598,27 @@ if (msg.type === "selectSheet") {
           event.completed();
 
           (async () => {
-            await withLock(async () => {
+            await withLock(async () => {              // Persist latest state AFTER activation so persistence work doesn't delay the jump.
+              // Guard: do not overwrite an existing persisted RowHeightPreset with the in-memory default on cold start.
               if (rowHeightPreset) {
                 try {
-                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
+                    const existing = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
+                    const existingStr = existing === null || existing === undefined ? "" : String(existing);
+                    const currentStr = String(rowHeightPreset);
+                    const isDefault = currentStr === "Standard";
+                    const wouldOverwrite = !!existingStr && existingStr !== currentStr;
+                    if (isDefault && wouldOverwrite) {
+                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist:skipOverwrite existing=" + existingStr);
+                    } else {
+                      await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", currentStr, "cmd:postActivationPersist");
+                    }
+                  } else if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
                     await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
                   }
                 } catch (e) {}
               }
-
-              const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
+const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
 
               try {
                 if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
