@@ -856,7 +856,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
           if (Office?.context?.ui?.messageParent) {
 
-            Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset, __src: "dialog:schedulePersistGlobalOptions:" + String(reason || "") }));
+            Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset, __src: "dialog:schedule:" + String(reason || "") }));
             Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!(globalOptions?.oneDigitActivationEnabled) }));
 
           }
@@ -884,7 +884,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
         if (Office?.context?.ui?.messageParent) {
 
-          Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset, __src: "dialog:flushPersistGlobalOptionsNow:" + String(reason || "") }));
+          Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset, __src: "dialog:flush:" + String(reason || "") }));
           Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!(globalOptions?.oneDigitActivationEnabled) }));
 
         }

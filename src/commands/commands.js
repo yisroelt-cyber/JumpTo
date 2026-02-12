@@ -483,11 +483,11 @@ while (pendingStateRequests.length) {
 if (msg.type === "setRowHeightPreset") {
   const preset = typeof msg.preset === "string" ? msg.preset : "";
   if (!preset) return;
+  try { persistDiagAppendLine("RX setRowHeightPreset", { preset, __src: String((msg && msg.__src) || "") }); } catch (e) {}
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        const src = msg && msg.__src ? String(msg.__src) : "msg:setRowHeightPreset";
-        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, src);
+        await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, "rowHeight:" + String(msg.__src || ""));
       }
     } catch (e) {}
     cachedState = await getJumpToState();
@@ -545,7 +545,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
                   }
                 } catch (e) {}
               }
@@ -593,7 +593,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightPreset) {
                 try {
                   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset);
+                    await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "cmd:postActivationPersist");
                   }
                 } catch (e) {}
               }
