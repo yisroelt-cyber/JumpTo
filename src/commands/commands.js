@@ -106,6 +106,7 @@ async function dbgSetPersistKey(key, value, src = "") {
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
 
+try { persistDiagAppendLine("BOOT patchVersion", { value: "RH_TRACE_v4" }); } catch (e) {}
 
 // DEBUG: wrap OfficeRuntime.storage methods to trace real keys and detect unexpected clearing/removals.
 try {
@@ -138,18 +139,7 @@ try {
         __jtStorage.setItem = async function (key, value) {
           const k = String(key || "");
           const vs = value === null || value === undefined ? "" : String(value);
-                    try { persistDiagAppendLine("STORAGE setItem", { key: k, value: vs }); } catch (e) {}
-          if (k === "JumpTo.Option.RowHeightPreset") {
-            // Diagnostics only: trace writes to the RowHeightPreset key to catch silent overwrites.
-            let caller = "";
-            try {
-              const st = (new Error("JT_RH_WRITE")).stack || "";
-              const lines = String(st).split(/\r?\n/).map((s) => String(s).trim()).filter(Boolean);
-              caller = lines.length >= 3 ? lines[2] : (lines.length >= 2 ? lines[1] : "");
-            } catch (e) { /* ignore */ }
-            try { diagTraceRowHeight("WRITE", { key: k, value: vs, caller }); } catch (e) { /* ignore */ }
-          }
-
+          try { persistDiagAppendLine("STORAGE setItem", { key: k, value: vs }); } catch (e) {}
           return __origSet(key, value);
         };
       }
@@ -568,12 +558,6 @@ while (pendingStateRequests.length) {
         if (msg.type === "ping") {
           reply({ type: "parentReady" });
           return;
-        if (msg.type === "diagRowHeight") {
-          // Diagnostics only: dialog-side rowHeight hydration logs routed to the same trace pipe.
-          try { diagTraceRowHeight("DIALOG", msg.payload || {}); } catch (e) { /* ignore */ }
-          return;
-        }
-
         }
 
         if (msg.type === "getSheets") {
@@ -581,6 +565,19 @@ while (pendingStateRequests.length) {
           await withLock(flushStateQueue);
           return;
         }
+
+        if (msg.type === "diagRowHeight") {
+          try {
+            const p = msg.payload || {};
+            const tag = String(p.tag || "");
+            const data = p.data || {};
+            await diagTraceRowHeight("dialog", tag, JSON.stringify(data));
+          } catch (e) {
+            // no-op
+          }
+          return;
+        }
+
 
         if (msg.type === "toggleFavorite") {
           await withLock(async () => {

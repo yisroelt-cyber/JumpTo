@@ -154,17 +154,6 @@ function DialogApp() {
 
   const [recents, setRecents] = useState([]);
   const [globalOptions, setGlobalOptions] = useState({ oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true });
-
-  // RowHeightPreset hydration diagnostics
-  useEffect(() => {
-    try { diagRowHeight("mount", { uiRowHeightPreset: String(globalOptions?.rowHeightPreset || "") }); } catch (e) { /* ignore */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    try { diagRowHeight("uiStateChange", { uiRowHeightPreset: String(globalOptions?.rowHeightPreset || "") }); } catch (e) { /* ignore */ }
-  }, [globalOptions?.rowHeightPreset]);
-
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Loading…");
   const [isActivating, setIsActivating] = useState(false);
@@ -358,18 +347,6 @@ function DialogApp() {
       }
     };
 
-    const diagRowHeight = (event, data) => {
-      // Diagnostics only. Send to parent so it can be flushed to the settings sheet.
-      try { console.log("[JT_RH][dialog]", event, data || {}); } catch (e) { /* ignore */ }
-      if (!canMessageParent()) return;
-      try {
-        Office.context.ui.messageParent(
-          JSON.stringify({ type: "diagRowHeight", payload: { event: String(event || ""), ...(data || {}) } })
-        );
-      } catch (e) { /* ignore */ }
-    };
-
-
     const requestSheets = () => {
       // Only attempt to talk to the parent after Office is actually initialized.
       if (!canMessageParent()) {
@@ -388,6 +365,17 @@ function DialogApp() {
       }
     };
 
+const sendDiagRowHeight = (tag, data) => {
+  if (!canMessageParent()) return;
+  try {
+    Office.context.ui.messageParent(
+      JSON.stringify({ type: "diagRowHeight", payload: { tag: String(tag || ""), data: data || {} } })
+    );
+  } catch (e) {
+    // ignore
+  }
+};
+
     const sendPing = () => {
       if (!canMessageParent()) return;
       try {
@@ -399,6 +387,7 @@ function DialogApp() {
 
     if (window.Office && typeof Office.onReady === "function") {
       Office.onReady(() => {
+        sendDiagRowHeight("mount", { href: String(window.location && window.location.href ? window.location.href : "") });
       try {
         console.log(`[JT][build 37] dialog ready`, window.location.href);
       } catch (e) { /* ignore */ }
@@ -425,18 +414,8 @@ function DialogApp() {
           }
 
           if (msg.type === "stateData") {
+        try { sendDiagRowHeight("stateData", { rowHeightPreset: msg.state && msg.state.globalOptions ? msg.state.globalOptions.rowHeightPreset : undefined }); } catch (e) {}
             const state = msg.state || {};
-          try {
-            const incoming = (state.global && state.global.rowHeightPreset) ? String(state.global.rowHeightPreset) : "";
-            diagRowHeight("stateData", {
-              incomingRowHeightPreset: incoming,
-              uiRowHeightPresetBefore: String(globalOptions?.rowHeightPreset || ""),
-              incomingSettingsValid: !!state._incomingSettingsValid,
-              incomingFavoritesValid: !!state._incomingFavoritesValid,
-              prefsHydrated: !!state._prefsHydrated,
-            });
-          } catch (e) { /* ignore */ }
-
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             setAllSheets(sheets);
             setFavorites((prev) => {
@@ -473,12 +452,6 @@ function DialogApp() {
             }
                         if (hydratePrefs) {
             setGlobalOptions((prev) => {
-              try {
-                diagRowHeight("hydrateGlobals:enter", {
-                  uiRowHeightPresetPrev: String((prev && prev.rowHeightPreset) || ""),
-                  dirty: !!globalOptionsDirtyRef.current,
-                });
-              } catch (e) { /* ignore */ }
               const incoming = state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard" };
               // If the user has changed global options locally (e.g. clicked a checkbox) and we're still waiting
               // for parent persistence to catch up, don't let late-arriving stateData overwrite the user's intent.
@@ -493,12 +466,7 @@ function DialogApp() {
                   globalOptionsDirtyRef.current = false;
                   globalOptionsDirtyDesiredRef.current = null;
                   rowHeightDirtyRef.current = false;
-                  try {
-                diagRowHeight("hydrateGlobals:apply", {
-                  incomingRowHeightPreset: String(incoming.rowHeightPreset || ""),
-                });
-              } catch (e) { /* ignore */ }
-              return incoming;
+                  return incoming;
                 }
                 // Ignore stale incoming globals while dirty.
                 return prev || incoming;
