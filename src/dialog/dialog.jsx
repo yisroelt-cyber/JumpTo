@@ -450,7 +450,6 @@ const sendDiagRowHeight = (tag, data) => {
               prefsHydratedRef.current = true;
               if (incomingSettingsValid) prefsHydratedFromValidRef.current = true;
             }
-                        if (hydratePrefs) {
             setGlobalOptions((prev) => {
               const incoming = state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard" };
               // If the user has changed global options locally (e.g. clicked a checkbox) and we're still waiting
@@ -473,8 +472,6 @@ const sendDiagRowHeight = (tag, data) => {
               }
               return incoming;
             });
-            }
-
             // UI settings (persisted per-user)
             if (hydratePrefs) {
             try {
@@ -482,9 +479,6 @@ const sendDiagRowHeight = (tag, data) => {
               const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
               const incomingFav = Math.min(80, Math.max(20, Math.round(favPct)));
               const incomingCnt = Math.min(MAX_RECENTS, Math.max(1, Math.round(recCnt)));
-
-const incomingBaseOrder = (ui.baselineOrder === "alpha" ? "alpha" : "workbook");
-const incomingFrequentOnTop = !!ui.frequentOnTop;
 
               if (uiSettingsDirtyRef.current) {
                 const desired = uiSettingsDirtyDesiredRef.current;
@@ -497,7 +491,6 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
                   uiSettingsDirtyDesiredRef.current = null;
                   setUiFavPercentManual(incomingFav);
                   setUiRecentsDisplayCount(incomingCnt);
-                setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
                 } else {
                   // Ignore stale incoming UI settings while dirty.
                 }
