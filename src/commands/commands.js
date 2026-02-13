@@ -139,7 +139,24 @@ try {
           const k = String(key || "");
           const vs = value === null || value === undefined ? "" : String(value);
           try { persistDiagAppendLine("STORAGE setItem", { key: k, value: vs }); } catch (e) {}
-          return __origSet(key, value);
+          const __ret = await __origSet(key, value);
+try {
+  if (k === "JumpTo.Option.RowHeightPreset") {
+    let caller = "";
+    try {
+      const stack = new Error().stack || "";
+      const parts = String(stack).split("\n").map((s) => String(s).trim()).filter(Boolean);
+      const frame = parts.find((s) => !s.includes("commands.js") && !s.includes("OfficeRuntime.storage")) || parts[1] || "";
+      caller = frame ? String(frame) : "";
+    } catch (e) {
+      caller = "";
+    }
+    await diagTraceRowHeight("commands", "ORTS.setItem", `WRITE value:${vs}${caller ? " | caller:" + caller : ""}`);
+  }
+} catch (e) {
+  // ignore (diagnostics-only)
+}
+return __ret;
         };
       }
 
