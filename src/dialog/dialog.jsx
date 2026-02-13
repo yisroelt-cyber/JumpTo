@@ -154,26 +154,17 @@ function DialogApp() {
 
   const [recents, setRecents] = useState([]);
   const [globalOptions, setGlobalOptions] = useState({ oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true });
-const globalOptionsRef = useRef(null);
-const rowHeightChangeCauseRef = useRef("init");
 
-useEffect(() => {
-  globalOptionsRef.current = globalOptions;
-}, [globalOptions]);
+  // RowHeightPreset hydration diagnostics
+  useEffect(() => {
+    try { diagRowHeight("mount", { uiRowHeightPreset: String(globalOptions?.rowHeightPreset || "") }); } catch (e) { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-useEffect(() => {
-  const uiPreset = String(globalOptions?.rowHeightPreset || "Standard");
-  try {
-    console.log("[HYDRATION TRACE] rowHeightPreset changed:", uiPreset, "cause:", String(rowHeightChangeCauseRef.current || ""));
-  } catch (e) {
-    // ignore
-  }
-  fireAndForget(
-    diagTraceRowHeight("dialog", "rowHeightPresetChange", `ui:${uiPreset} | cause:${String(rowHeightChangeCauseRef.current || "")}`),
-    "rowHeightPresetChange"
-  );
-  rowHeightChangeCauseRef.current = "state:update";
-}, [globalOptions?.rowHeightPreset]);
+  useEffect(() => {
+    try { diagRowHeight("uiStateChange", { uiRowHeightPreset: String(globalOptions?.rowHeightPreset || "") }); } catch (e) { /* ignore */ }
+  }, [globalOptions?.rowHeightPreset]);
+
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Loading…");
   const [isActivating, setIsActivating] = useState(false);
@@ -367,6 +358,18 @@ useEffect(() => {
       }
     };
 
+    const diagRowHeight = (event, data) => {
+      // Diagnostics only. Send to parent so it can be flushed to the settings sheet.
+      try { console.log("[JT_RH][dialog]", event, data || {}); } catch (e) { /* ignore */ }
+      if (!canMessageParent()) return;
+      try {
+        Office.context.ui.messageParent(
+          JSON.stringify({ type: "diagRowHeight", payload: { event: String(event || ""), ...(data || {}) } })
+        );
+      } catch (e) { /* ignore */ }
+    };
+
+
     const requestSheets = () => {
       // Only attempt to talk to the parent after Office is actually initialized.
       if (!canMessageParent()) {
@@ -422,21 +425,19 @@ useEffect(() => {
           }
 
           if (msg.type === "stateData") {
-            const state = msg.state || {};let __incomingPreset = "";
-let __currentPreset = "";
-try {
-  __incomingPreset = String((state && state.global && state.global.rowHeightPreset) ? state.global.rowHeightPreset : "");
-  __currentPreset = String(globalOptionsRef.current && globalOptionsRef.current.rowHeightPreset ? globalOptionsRef.current.rowHeightPreset : "Standard");
-  console.log("[HYDRATION TRACE] parent stateData globals rowHeightPreset:", __incomingPreset, "current:", __currentPreset);
-} catch (e) {
-  // ignore
-}
-rowHeightChangeCauseRef.current = "hydrate:stateData";
-fireAndForget(
-  diagTraceRowHeight("dialog", "hydrateGlobals", `incoming:${__incomingPreset} | current:${__currentPreset}`),
-  "hydrateGlobals"
-);
-const sheets = Array.isArray(state.sheets) ? state.sheets : [];
+            const state = msg.state || {};
+          try {
+            const incoming = (state.global && state.global.rowHeightPreset) ? String(state.global.rowHeightPreset) : "";
+            diagRowHeight("stateData", {
+              incomingRowHeightPreset: incoming,
+              uiRowHeightPresetBefore: String(globalOptions?.rowHeightPreset || ""),
+              incomingSettingsValid: !!state._incomingSettingsValid,
+              incomingFavoritesValid: !!state._incomingFavoritesValid,
+              prefsHydrated: !!state._prefsHydrated,
+            });
+          } catch (e) { /* ignore */ }
+
+            const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             setAllSheets(sheets);
             setFavorites((prev) => {
             const next = Array.isArray(state.favorites) ? state.favorites : [];
@@ -472,15 +473,13 @@ const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             }
                         if (hydratePrefs) {
             setGlobalOptions((prev) => {
+              try {
+                diagRowHeight("hydrateGlobals:enter", {
+                  uiRowHeightPresetPrev: String((prev && prev.rowHeightPreset) || ""),
+                  dirty: !!globalOptionsDirtyRef.current,
+                });
+              } catch (e) { /* ignore */ }
               const incoming = state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard" };
-try {
-  const prevPreset = String(prev && prev.rowHeightPreset ? prev.rowHeightPreset : "");
-  const incPreset = String(incoming && incoming.rowHeightPreset ? incoming.rowHeightPreset : "");
-  console.log("[HYDRATION TRACE] apply globals rowHeightPreset. prev:", prevPreset, "incoming:", incPreset);
-} catch (e) {
-  // ignore
-}
-
               // If the user has changed global options locally (e.g. clicked a checkbox) and we're still waiting
               // for parent persistence to catch up, don't let late-arriving stateData overwrite the user's intent.
                             if (globalOptionsDirtyRef.current) {
@@ -494,7 +493,12 @@ try {
                   globalOptionsDirtyRef.current = false;
                   globalOptionsDirtyDesiredRef.current = null;
                   rowHeightDirtyRef.current = false;
-                  return incoming;
+                  try {
+                diagRowHeight("hydrateGlobals:apply", {
+                  incomingRowHeightPreset: String(incoming.rowHeightPreset || ""),
+                });
+              } catch (e) { /* ignore */ }
+              return incoming;
                 }
                 // Ignore stale incoming globals while dirty.
                 return prev || incoming;
@@ -1740,7 +1744,6 @@ return (
                     checked={activePresetName === name}
                     onChange={() => {
                       const nextPreset = String(name);
-                      rowHeightChangeCauseRef.current = "user:rowHeightRadio";
                       rowHeightDirtyRef.current = true;
                       globalOptionsDirtyRef.current = true;
                       globalOptionsDirtyDesiredRef.current = {

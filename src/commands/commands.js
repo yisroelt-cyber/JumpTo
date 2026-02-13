@@ -138,25 +138,19 @@ try {
         __jtStorage.setItem = async function (key, value) {
           const k = String(key || "");
           const vs = value === null || value === undefined ? "" : String(value);
-          try { persistDiagAppendLine("STORAGE setItem", { key: k, value: vs }); } catch (e) {}
-          const __ret = await __origSet(key, value);
-try {
-  if (k === "JumpTo.Option.RowHeightPreset") {
-    let caller = "";
-    try {
-      const stack = new Error().stack || "";
-      const parts = String(stack).split("\n").map((s) => String(s).trim()).filter(Boolean);
-      const frame = parts.find((s) => !s.includes("commands.js") && !s.includes("OfficeRuntime.storage")) || parts[1] || "";
-      caller = frame ? String(frame) : "";
-    } catch (e) {
-      caller = "";
-    }
-    await diagTraceRowHeight("commands", "ORTS.setItem", `WRITE value:${vs}${caller ? " | caller:" + caller : ""}`);
-  }
-} catch (e) {
-  // ignore (diagnostics-only)
-}
-return __ret;
+                    try { persistDiagAppendLine("STORAGE setItem", { key: k, value: vs }); } catch (e) {}
+          if (k === "JumpTo.Option.RowHeightPreset") {
+            // Diagnostics only: trace writes to the RowHeightPreset key to catch silent overwrites.
+            let caller = "";
+            try {
+              const st = (new Error("JT_RH_WRITE")).stack || "";
+              const lines = String(st).split(/\r?\n/).map((s) => String(s).trim()).filter(Boolean);
+              caller = lines.length >= 3 ? lines[2] : (lines.length >= 2 ? lines[1] : "");
+            } catch (e) { /* ignore */ }
+            try { diagTraceRowHeight("WRITE", { key: k, value: vs, caller }); } catch (e) { /* ignore */ }
+          }
+
+          return __origSet(key, value);
         };
       }
 
@@ -574,6 +568,12 @@ while (pendingStateRequests.length) {
         if (msg.type === "ping") {
           reply({ type: "parentReady" });
           return;
+        if (msg.type === "diagRowHeight") {
+          // Diagnostics only: dialog-side rowHeight hydration logs routed to the same trace pipe.
+          try { diagTraceRowHeight("DIALOG", msg.payload || {}); } catch (e) { /* ignore */ }
+          return;
+        }
+
         }
 
         if (msg.type === "getSheets") {
