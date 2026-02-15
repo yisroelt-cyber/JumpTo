@@ -708,6 +708,14 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             setAllSheets(sheets);
             setFavorites((prev) => {
+            const incomingMetaLocal = state && typeof state === "object" ? state.__meta : null;
+            const incomingFavoritesValidLocal = !!incomingMetaLocal?.favoritesValid;
+            if (!incomingFavoritesValidLocal) {
+              const next = Array.isArray(state.favorites) ? state.favorites : [];
+              favDbgLog("hydrate:parentState:skippedInvalidMeta", prev, next);
+              return prev;
+            }
+
             const next = Array.isArray(state.favorites) ? state.favorites : [];
             if (favoritesDirtyRef.current && !sameFavoriteIds(prev, next)) {
               const ageMs = Date.now() - (lastUiFavMutationAtRef.current || 0);
@@ -726,52 +734,65 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             favDbgLog("hydrate:parentState", prev, next);
             return next;
           });
-            setRecents(Array.isArray(state.recents) ? state.recents : []);
+            setRecents((prev) => {
+            const next = Array.isArray(state.recents) ? state.recents : [];
+            const incomingMetaLocal = state && typeof state === "object" ? state.__meta : null;
+            const incomingRecentsValidLocal = !!incomingMetaLocal?.recentsValid;
+            if (!incomingRecentsValidLocal) return prev;
+            return next;
+          });
+
             const incomingMeta = state && typeof state === "object" ? state.__meta : null;
             const incomingSettingsValid = !!incomingMeta?.settingsValid;
             const incomingFavoritesValid = !!incomingMeta?.favoritesValid;
+            const hasIncomingGlobal = !!(state && typeof state === "object" && state.global && typeof state.global === "object");
 
-            const hydratePrefs =
-              (!prefsHydratedRef.current && (incomingSettingsValid || incomingFavoritesValid)) ||
-              (!prefsHydratedFromValidRef.current && incomingSettingsValid && !uiSettingsDirtyRef.current);
+            // Layered hydration:
+            // - Global options (ORTS-backed) are safe to hydrate independent of workbook meta validity.
+            // - Workbook/UI-dependent sections remain gated by meta validity.
+            const hydrateGlobal = !prefsHydratedRef.current && hasIncomingGlobal;
+            const hydrateUi = !prefsHydratedFromValidRef.current && incomingSettingsValid && !uiSettingsDirtyRef.current;
 
-            if (hydratePrefs) {
+            if (hydrateGlobal) {
               prefsHydratedRef.current = true;
-              if (incomingSettingsValid) prefsHydratedFromValidRef.current = true;
             }
-                        if (hydratePrefs) {            emitSettingsTrace("stateData", "beforeSetGlobalOptions", { hasIncomingGlobal: !!(state && state.global) });
-            emitSettingsTrace("stateData", "afterSetGlobalOptions", {});            emitSettingsTraceToOrts("stateData", "beforeSetGlobalOptions", { hasIncomingGlobal: !!(state && state.global) });
-            emitSettingsTraceToOrts("stateData", "afterSetGlobalOptions", {});
+            if (hydrateUi) {
+              prefsHydratedFromValidRef.current = true;
+            }
 
+            if (hydrateGlobal) {
+              emitSettingsTrace("stateData", "beforeSetGlobalOptions", { hasIncomingGlobal: !!(state && state.global) });
+              emitSettingsTrace("stateData", "afterSetGlobalOptions", {});
+              emitSettingsTraceToOrts("stateData", "beforeSetGlobalOptions", { hasIncomingGlobal: !!(state && state.global) });
+              emitSettingsTraceToOrts("stateData", "afterSetGlobalOptions", {});
 
-
-
-            setGlobalOptions((prev) => {
-              const incoming = state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard" };
-              // If the user has changed global options locally (e.g. clicked a checkbox) and we're still waiting
-              // for parent persistence to catch up, don't let late-arriving stateData overwrite the user's intent.
-                            if (globalOptionsDirtyRef.current) {
-                const desired = globalOptionsDirtyDesiredRef.current;
-                if (
-                  desired &&
-                  !!incoming.oneDigitActivationEnabled === !!desired.oneDigitActivationEnabled &&
-                  String(incoming.rowHeightPreset || "Standard") === String(desired.rowHeightPreset || "Standard")
-                ) {
-                  // Parent has caught up; accept incoming and clear dirty.
-                  globalOptionsDirtyRef.current = false;
-                  globalOptionsDirtyDesiredRef.current = null;
-                  rowHeightDirtyRef.current = false;
-                  return incoming;
+              setGlobalOptions((prev) => {
+                const incoming = state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard" };
+                // If the user has changed global options locally (e.g. clicked a checkbox) and we're still waiting
+                // for parent persistence to catch up, don't let late-arriving stateData overwrite the user's intent.
+                if (globalOptionsDirtyRef.current) {
+                  const desired = globalOptionsDirtyDesiredRef.current;
+                  if (
+                    desired &&
+                    !!incoming.oneDigitActivationEnabled === !!desired.oneDigitActivationEnabled &&
+                    String(incoming.rowHeightPreset || "Standard") === String(desired.rowHeightPreset || "Standard")
+                  ) {
+                    // Parent has caught up; accept incoming and clear dirty.
+                    globalOptionsDirtyRef.current = false;
+                    globalOptionsDirtyDesiredRef.current = null;
+                    rowHeightDirtyRef.current = false;
+                    return incoming;
+                  }
+                  // Ignore stale incoming globals while dirty.
+                  return prev || incoming;
                 }
-                // Ignore stale incoming globals while dirty.
-                return prev || incoming;
-              }
-              return incoming;
-            });
+                return incoming;
+              });
             }
 
             // UI settings (persisted per-user)
-            if (hydratePrefs) {
+
+            if (hydrateUi) {
             try {
               const ui = state.settings || {};              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 50;
               const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
