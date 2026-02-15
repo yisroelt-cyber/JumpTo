@@ -142,6 +142,7 @@ function DialogApp() {
 
   useEffect(() => {
     fireAndForget(diagTraceRowHeight("dialog", "DialogApp", "mount"), "DialogApp.mount");
+    emitSettingsTrace("DialogApp", "mount", { href: String(window.location && window.location.href ? window.location.href : "") });
     return () => {
       fireAndForget(diagFlushRowHeightTrace("dialog", "DialogApp", "unmount"), "DialogApp.unmount");
     };
@@ -154,7 +155,15 @@ function DialogApp() {
 
   const [recents, setRecents] = useState([]);
   const [globalOptions, setGlobalOptions] = useState({ oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true });
-  const [query, setQuery] = useState("");
+  
+
+  // =====================
+  // Settings trace (diagnostics-only)
+  // =====================
+  const JT_SETTINGS_TRACE = true;
+  const settingsTraceSeqRef = useRef(0);
+  const settingsTraceLastSentAtRef = useRef(0);
+const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Loading…");
   const [isActivating, setIsActivating] = useState(false);
   const [initError, setInitError] = useState("");
@@ -210,9 +219,22 @@ function DialogApp() {
   const rowHeightDirtyRef = useRef(false);
   const prefsHydratedRef = useRef(false);
   const prefsHydratedFromValidRef = useRef(false);
-  useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
+  
+  const refsForSettingsTrace = { globalOptionsDirtyRef, uiSettingsDirtyRef, rowHeightDirtyRef, prefsHydratedRef, prefsHydratedFromValidRef };
+useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
+
+  useEffect(() => {
+    if (!JT_SETTINGS_TRACE) return;
+    const now = Date.now();
+    const last = Number(settingsTraceLastSentAtRef.current || 0);
+    if (now - last < 250) return;
+    settingsTraceLastSentAtRef.current = now;
+    emitSettingsTrace("settings", "change", {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled, globalOptions?.baselineOrder, globalOptions?.frequentOnTop, uiFavPercentManual, uiRecentsDisplayCount]);
+
   useEffect(() => { sheetsLenRef.current = allSheets.length; }, [allSheets]);
 
   const requestSearchFocus = (reason = "") => {
@@ -376,6 +398,53 @@ const sendDiagRowHeight = (tag, data) => {
   }
 };
 
+const sendDiagSettings = (moduleName, funcName, tag, snapshot, note) => {
+  if (!canMessageParent()) return;
+  try {
+    Office.context.ui.messageParent(
+      JSON.stringify({
+        type: "diagSettings",
+        payload: {
+          module: String(moduleName || "dialog"),
+          func: String(funcName || ""),
+          tag: String(tag || ""),
+          snapshot: snapshot || {},
+          note: note || {},
+        },
+      })
+    );
+  } catch (e) {
+    // ignore
+  }
+};
+
+function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, refs) {
+  try {
+    return {
+      globalOptions: {
+        rowHeightPreset: globalOptions?.rowHeightPreset,
+        oneDigitActivationEnabled: globalOptions?.oneDigitActivationEnabled,
+        baselineOrder: globalOptions?.baselineOrder,
+        frequentOnTop: globalOptions?.frequentOnTop,
+      },
+      ui: {
+        favPercentManual: uiFavPercentManual,
+        recentsDisplayCount: uiRecentsDisplayCount,
+      },
+      flags: {
+        globalDirty: !!refs?.globalOptionsDirtyRef?.current,
+        uiDirty: !!refs?.uiSettingsDirtyRef?.current,
+        rowHeightDirty: !!refs?.rowHeightDirtyRef?.current,
+        prefsHydrated: !!refs?.prefsHydratedRef?.current,
+        prefsHydratedFromValid: !!refs?.prefsHydratedFromValidRef?.current,
+      },
+    };
+  } catch (e) {
+    return { error: "snapshotFailed" };
+  }
+}
+
+
     const sendPing = () => {
       if (!canMessageParent()) return;
       try {
@@ -414,6 +483,8 @@ const sendDiagRowHeight = (tag, data) => {
           }
 
           if (msg.type === "stateData") {
+            emitSettingsTrace("stateData", "enter", { meta: (msg.state && msg.state.__meta) ? msg.state.__meta : null });
+
         try { sendDiagRowHeight("stateData", { rowHeightPreset: msg.state && msg.state.globalOptions ? msg.state.globalOptions.rowHeightPreset : undefined }); } catch (e) {}
             const state = msg.state || {};
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
@@ -445,12 +516,16 @@ const sendDiagRowHeight = (tag, data) => {
             const hydratePrefs =
               (!prefsHydratedRef.current && (incomingSettingsValid || incomingFavoritesValid)) ||
               (!prefsHydratedFromValidRef.current && incomingSettingsValid && !uiSettingsDirtyRef.current);
+            emitSettingsTrace("stateData", "decideHydratePrefs", { hydratePrefs: !!hydratePrefs, incomingSettingsValid: !!incomingSettingsValid, incomingFavoritesValid: !!incomingFavoritesValid });
 
             if (hydratePrefs) {
               prefsHydratedRef.current = true;
               if (incomingSettingsValid) prefsHydratedFromValidRef.current = true;
             }
-                        if (hydratePrefs) {
+                        if (hydratePrefs) {            emitSettingsTrace("stateData", "beforeSetGlobalOptions", { hasIncomingGlobal: !!(state && state.global) });
+            emitSettingsTrace("stateData", "afterSetGlobalOptions", {});
+
+
             setGlobalOptions((prev) => {
               const incoming = state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard" };
               // If the user has changed global options locally (e.g. clicked a checkbox) and we're still waiting
@@ -475,7 +550,8 @@ const sendDiagRowHeight = (tag, data) => {
             });
             }
 
-            // UI settings (persisted per-user)
+                        emitSettingsTrace("stateData", "beforeApplyUiSettings", {});
+// UI settings (persisted per-user)
             if (hydratePrefs) {
             try {
               const ui = state.settings || {};              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 50;
@@ -510,7 +586,8 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
             }
             }
             uiSettingsReadyRef.current = prefsHydratedFromValidRef.current || uiSettingsDirtyRef.current;
-            setStatus(sheets.length ? "" : "No visible worksheets found.");
+                        emitSettingsTrace("stateData", "afterApplyUiSettings", {});
+setStatus(sheets.length ? "" : "No visible worksheets found.");
 
             // Re-assert focus after data arrives (this is the moment users start typing).
             if (activeTab === "Navigation" || activeTab === "Favorites") requestSearchFocus("sheetsData");
@@ -575,6 +652,19 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  function emitSettingsTrace(funcName, tag, note) {
+    if (!JT_SETTINGS_TRACE) return;
+    try {
+      settingsTraceSeqRef.current = (settingsTraceSeqRef.current || 0) + 1;
+      const snap = snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, refsForSettingsTrace);
+      const n = Object.assign({ seq: settingsTraceSeqRef.current }, note || {});
+      sendDiagSettings("dialog", String(funcName || ""), String(tag || ""), snap, n);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+
 
     const computeTier = (freq) => {
     const f = Number(freq || 0);
@@ -986,31 +1076,6 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     window.flushPersistGlobalOptionsNow = flushPersistGlobalOptionsNow;
     return () => { try { delete window.flushPersistGlobalOptionsNow; } catch (e) {} };
   }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled]);
-
-  // Flush debounced persistence on dialog teardown / host shutdown.
-  // Rationale: Excel restart can kill the webview before debounce timers fire, causing global/UI settings to revert.
-  useEffect(() => {
-    const flushAll = (reason) => {
-      try { flushPersistGlobalOptionsNow(String(reason || "teardown")); } catch (e) {}
-      try { flushPersistUiSettingsNow(String(reason || "teardown")); } catch (e) {}
-      try { if (typeof window.flushPersistFavoritesNow === "function") window.flushPersistFavoritesNow(String(reason || "teardown")); } catch (e) {}
-    };
-
-    const onBeforeUnload = () => flushAll("beforeunload");
-    const onPageHide = () => flushAll("pagehide");
-
-    try { window.addEventListener("beforeunload", onBeforeUnload); } catch (e) {}
-    try { window.addEventListener("pagehide", onPageHide); } catch (e) {}
-
-    return () => {
-      // Ensure a best-effort flush on React unmount as well.
-      flushAll("unmount");
-      try { window.removeEventListener("beforeunload", onBeforeUnload); } catch (e) {}
-      try { window.removeEventListener("pagehide", onPageHide); } catch (e) {}
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled, uiFavPercentManual, uiRecentsDisplayCount, globalOptions?.baselineOrder, globalOptions?.frequentOnTop]);
-
 
   // Favorites tab: when a new favorite is added, keep it selected and scroll it into view.
   useEffect(() => {

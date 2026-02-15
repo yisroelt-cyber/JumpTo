@@ -1,4 +1,32 @@
+
+
+function snapshotSettingsForTrace(state) {
+  try {
+    const g = (state && state.global) ? state.global : {};
+    const s = (state && state.settings) ? state.settings : {};
+    const meta = (state && state.__meta) ? state.__meta : {};
+    return {
+      global: {
+        rowHeightPreset: g.rowHeightPreset,
+        oneDigitActivationEnabled: g.oneDigitActivationEnabled,
+        baselineOrder: g.baselineOrder,
+        frequentOnTop: g.frequentOnTop,
+      },
+      settings: {
+        favPercentManual: s.favPercentManual,
+        recentsDisplayCount: s.recentsDisplayCount,
+      },
+      meta: {
+        settingsValid: meta.settingsValid,
+        favoritesValid: meta.favoritesValid,
+      },
+    };
+  } catch (e) {
+    return { error: "snapshotFailed" };
+  }
+}
 import { diagTraceRowHeight, diagFlushRowHeightTrace } from "../services/rowHeightTrace";
+import { settingsTraceAppend } from "../services/settingsTrace";
 
 // DEBUG: persistence diagnostics to existing settings sheet (temporary)
 const PERSIST_DIAG_SETTINGS_SHEET_MARK = true;
@@ -572,7 +600,21 @@ while (pendingStateRequests.length) {
             const tag = String(p.tag || "");
             const data = p.data || {};
             await diagTraceRowHeight("dialog", tag, JSON.stringify(data));
-          } catch (e) {
+          }
+
+          if (msg.type === "diagSettings") {
+            try {
+              const p = msg.payload || {};
+              const tag = p.tag || "";
+              const snap = p.snapshot || {};
+              const note = p.note || {};
+              await settingsTraceAppend(p.module || "dialog", p.func || "unknown", String(tag || ""), snap, note);
+            } catch (e) {
+              // ignore
+            }
+            return;
+          }
+ catch (e) {
             // no-op
           }
           return;
