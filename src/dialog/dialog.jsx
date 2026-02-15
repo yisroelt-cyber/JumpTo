@@ -141,6 +141,74 @@ function sameFavoriteIds(a, b) {
 
 function DialogApp() {
 
+  // =====================
+  // Settings trace probe (diagnostics-only, hard-guaranteed)
+  // Ensures we can verify dialog is able to write SettingsTraceLog in ORTS.
+  // =====================
+  function buildSettingsTraceSnapshot() {
+    try {
+      return {
+        globalOptions: {
+          rowHeightPreset: globalOptions?.rowHeightPreset,
+          oneDigitActivationEnabled: globalOptions?.oneDigitActivationEnabled,
+          baselineOrder: globalOptions?.baselineOrder,
+          frequentOnTop: globalOptions?.frequentOnTop,
+        },
+        ui: {
+          favPercentManual: uiFavPercentManual,
+          recentsDisplayCount: uiRecentsDisplayCount,
+        },
+        flags: {
+          globalDirty: !!globalOptionsDirtyRef?.current,
+          uiDirty: !!uiSettingsDirtyRef?.current,
+          rowHeightDirty: !!rowHeightDirtyRef?.current,
+          prefsHydrated: !!prefsHydratedRef?.current,
+          prefsHydratedFromValid: !!prefsHydratedFromValidRef?.current,
+        },
+      };
+    } catch (e) {
+      return { error: "snapshotFailed" };
+    }
+  }
+
+  useEffect(() => {
+    // Immediate probe entry
+    try {
+      fireAndForget(
+        settingsTraceAppend("dialog", "DialogApp", "probe:mount", buildSettingsTraceSnapshot(), { href: String(window.location && window.location.href ? window.location.href : "") }),
+        "settingsTraceAppend.probe.mount"
+      );
+    } catch (e) {
+      // ignore
+    }
+
+    // Second probe after a short delay (captures post-hydration effects, if any).
+    let t = null;
+    try {
+      t = window.setTimeout(() => {
+        try {
+          fireAndForget(
+            settingsTraceAppend("dialog", "DialogApp", "probe:post1s", buildSettingsTraceSnapshot(), {}),
+            "settingsTraceAppend.probe.post1s"
+          );
+        } catch (e) {
+          // ignore
+        }
+      }, 1000);
+    } catch (e) {
+      // ignore
+    }
+
+    return () => {
+      try {
+        if (t != null) window.clearTimeout(t);
+      } catch (e) {
+        // ignore
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Settings trace → ORTS (diagnostics-only). This does NOT rely on a devtools console.
   function emitSettingsTraceToOrts(funcName, tag, note) {
     try {
