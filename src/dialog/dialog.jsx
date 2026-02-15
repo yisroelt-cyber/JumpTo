@@ -4,6 +4,7 @@ import { MAX_RECENTS } from "../shared/constants";
 
 import { createRoot } from "react-dom/client";
 
+import { settingsTraceAppend } from "../services/settingsTrace";
 function fireAndForget(promise, tag) {
   try {
     if (promise && typeof promise.then === "function") {
@@ -140,6 +141,38 @@ function sameFavoriteIds(a, b) {
 
 function DialogApp() {
 
+  // Settings trace → ORTS (diagnostics-only). This does NOT rely on a devtools console.
+  function emitSettingsTraceToOrts(funcName, tag, note) {
+    try {
+      const snap = {
+        globalOptions: {
+          rowHeightPreset: globalOptions?.rowHeightPreset,
+          oneDigitActivationEnabled: globalOptions?.oneDigitActivationEnabled,
+          baselineOrder: globalOptions?.baselineOrder,
+          frequentOnTop: globalOptions?.frequentOnTop,
+        },
+        ui: {
+          favPercentManual: uiFavPercentManual,
+          recentsDisplayCount: uiRecentsDisplayCount,
+        },
+        flags: {
+          globalDirty: !!globalOptionsDirtyRef?.current,
+          uiDirty: !!uiSettingsDirtyRef?.current,
+          rowHeightDirty: !!rowHeightDirtyRef?.current,
+          prefsHydrated: !!prefsHydratedRef?.current,
+          prefsHydratedFromValid: !!prefsHydratedFromValidRef?.current,
+        },
+      };
+      fireAndForget(
+        settingsTraceAppend("dialog", String(funcName || ""), String(tag || ""), snap, note || {}),
+        "settingsTraceAppend"
+      );
+    } catch (e) {
+      // ignore
+    }
+  }
+
+
   // =====================
   // Settings trace (diagnostics-only)
   // =====================
@@ -176,6 +209,7 @@ function DialogApp() {
 
   useEffect(() => {
     fireAndForget(diagTraceRowHeight("dialog", "DialogApp", "mount"), "DialogApp.mount");
+    emitSettingsTraceToOrts("DialogApp", "mount", { href: String(window.location && window.location.href ? window.location.href : "") });
     emitSettingsTrace("DialogApp", "mount", { href: String(window.location && window.location.href ? window.location.href : "") });
     return () => {
       fireAndForget(diagFlushRowHeightTrace("dialog", "DialogApp", "unmount"), "DialogApp.unmount");
@@ -248,6 +282,13 @@ function DialogApp() {
   useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
+
+  // settings change watcher (throttled via Column C flush cadence; ORTS append is bounded)
+  useEffect(() => {
+    emitSettingsTraceToOrts("settings", "change", {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled, globalOptions?.baselineOrder, globalOptions?.frequentOnTop, uiFavPercentManual, uiRecentsDisplayCount]);
+
 
   // settings change watcher (throttled)
   useEffect(() => {
@@ -498,6 +539,8 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
           }
 
           if (msg.type === "stateData") {
+            emitSettingsTraceToOrts("stateData", "enter", { meta: (msg.state && msg.state.__meta) ? msg.state.__meta : null });
+
             emitSettingsTrace("stateData", "enter", { meta: (msg.state && msg.state.__meta) ? msg.state.__meta : null });
 
         try { sendDiagRowHeight("stateData", { rowHeightPreset: msg.state && msg.state.globalOptions ? msg.state.globalOptions.rowHeightPreset : undefined }); } catch (e) {}
@@ -537,7 +580,10 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
               if (incomingSettingsValid) prefsHydratedFromValidRef.current = true;
             }
                         if (hydratePrefs) {            emitSettingsTrace("stateData", "beforeSetGlobalOptions", { hasIncomingGlobal: !!(state && state.global) });
-            emitSettingsTrace("stateData", "afterSetGlobalOptions", {});
+            emitSettingsTrace("stateData", "afterSetGlobalOptions", {});            emitSettingsTraceToOrts("stateData", "beforeSetGlobalOptions", { hasIncomingGlobal: !!(state && state.global) });
+            emitSettingsTraceToOrts("stateData", "afterSetGlobalOptions", {});
+
+
 
 
             setGlobalOptions((prev) => {

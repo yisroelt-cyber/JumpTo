@@ -96,11 +96,13 @@ async function writeChunkToDiagSheet(chunk) {
 
 async function flushTraceLogInternal(reasonTag) {
   const existing = await ortsGet(TRACE_LOG_KEY);
-  if (!existing) return;
 
   const header = `${nowIso()} | FLUSH | ${String(reasonTag || "")}`;
-  const chunk = `${header}\n${existing}`;
+  const chunk = `${header}\n${existing ? existing : "(empty settings trace log)"}`;
+
   await writeChunkToDiagSheet(chunk);
+
+  // Always clear after a flush attempt so each run is isolated.
   await ortsSet(TRACE_LOG_KEY, "");
 }
 
@@ -136,3 +138,6 @@ export function diagFlushSettingsTrace(moduleName, functionName, reason) {
     await flushTraceLogInternal(tag);
   });
 }
+
+
+export function settingsTraceKey() { return TRACE_LOG_KEY; }
