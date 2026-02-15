@@ -8,6 +8,13 @@ function diagLogDialogMessageType(msgType, payload) {
     // ignore
   }
 }
+
+function delayMs(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 import { diagTraceRowHeight, diagFlushRowHeightTrace } from "../services/rowHeightTrace";
 import { settingsTraceAppend, diagFlushSettingsTrace } from "../services/settingsTrace";
 
@@ -624,6 +631,16 @@ while (pendingStateRequests.length) {
         if (msg.type === "dialogReady") {
           // Dialog has registered its parent-message handler; it's now safe to send stateData.
           await withLock(async () => {
+            // Try to refresh workbook-backed state BEFORE sending stateData.
+            // After cold start, workbook access can be transiently unavailable; retry once with a short delay.
+            let changedAny = false;
+            try {
+              const changed0 = await ensureFreshState();
+              changedAny = changedAny || !!changed0;
+            } catch (e) {
+              // ignore
+            }
+
             if (!cachedState) {
               try {
                 cachedState = await getJumpToState({ preferCache: true });
@@ -635,7 +652,26 @@ while (pendingStateRequests.length) {
               cachedState = await getJumpToState();
             }
 
-            const state = await buildDialogState(cachedState);
+            let state = await buildDialogState(cachedState);
+
+            // If we still look "invalid" (common right after Excel restart), retry once after a short delay.
+            if (state && state.__meta && state.__meta.dts === 0) {
+              try {
+                await delayMs(250);
+              } catch (e) {
+                // ignore
+              }
+              try {
+                const changed1 = await ensureFreshState();
+                changedAny = changedAny || !!changed1;
+              } catch (e) {
+                // ignore
+              }
+              if (cachedState) {
+                state = await buildDialogState(cachedState);
+              }
+            }
+
             try {
               await settingsTraceAppend(
                 "commands",
@@ -649,11 +685,14 @@ while (pendingStateRequests.length) {
             }
             reply({ type: "stateData", state });
 
-            // Also do the full refresh; if it changes anything, push an updated state.
-            const changed = await ensureFreshState();
-            if (changed && cachedState) {
-              const state2 = await buildDialogState(cachedState);
-              reply({ type: "stateData", state: state2 });
+            // If a refresh changed anything, push the updated state (best-effort).
+            if (changedAny && cachedState) {
+              try {
+                const state2 = await buildDialogState(cachedState);
+                reply({ type: "stateData", state: state2 });
+              } catch (e) {
+                // ignore
+              }
             }
           });
           return;
