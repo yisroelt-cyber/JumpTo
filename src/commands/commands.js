@@ -62,7 +62,9 @@ async function persistDiagAppendLine(tag, payload) {
   } catch (e) {
     try {
       console.error("[PersistDiag] FAILED to write to settings sheet", tag, e);
-    } catch (e) {}
+    } catch (e) {
+          // ignore
+        }
   }
 }
 
@@ -130,7 +132,9 @@ async function dbgSetPersistKey(key, value, src = "") {
 // DEBUG: persistence instrumentation (temporary)
 const DEBUG_PERSIST = true;
 
-try { persistDiagAppendLine("BOOT patchVersion", { value: "RH_TRACE_v4" }); } catch (e) {}
+try { persistDiagAppendLine("BOOT patchVersion", { value: "RH_TRACE_v4" }); } catch (e) {
+          // ignore
+        }
 
 // DEBUG: wrap OfficeRuntime.storage methods to trace real keys and detect unexpected clearing/removals.
 try {
@@ -154,7 +158,9 @@ try {
           }
           const vs = v === null || v === undefined ? "" : String(v);
           // Avoid huge payloads; log full value for our small keys.
-          try { persistDiagAppendLine("STORAGE getItem", { key: k, value: vs }); } catch (e) {}
+          try { persistDiagAppendLine("STORAGE getItem", { key: k, value: vs }); } catch (e) {
+          // ignore
+        }
           return v;
         };
       }
@@ -163,21 +169,27 @@ try {
         __jtStorage.setItem = async function (key, value) {
           const k = String(key || "");
           const vs = value === null || value === undefined ? "" : String(value);
-          try { persistDiagAppendLine("STORAGE setItem", { key: k, value: vs }); } catch (e) {}
+          try { persistDiagAppendLine("STORAGE setItem", { key: k, value: vs }); } catch (e) {
+          // ignore
+        }
           return __origSet(key, value);
         };
       }
 
       if (__origClear) {
         __jtStorage.clear = async function () {
-          try { persistDiagAppendLine("STORAGE clear()", {}); } catch (e) {}
+          try { persistDiagAppendLine("STORAGE clear()", {}); } catch (e) {
+          // ignore
+        }
           return __origClear();
         };
       }
 
       if (__origRemove) {
         __jtStorage.removeItem = async function (key) {
-          try { persistDiagAppendLine("STORAGE removeItem", { key: String(key || "") }); } catch (e) {}
+          try { persistDiagAppendLine("STORAGE removeItem", { key: String(key || "") }); } catch (e) {
+          // ignore
+        }
           return __origRemove(key);
         };
       }
@@ -185,8 +197,12 @@ try {
       __jtStorage.__jtWrapped = true;
     }
   }
-} catch (e) {}
-try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "tracekeys-v1" }); } catch (e) {}
+} catch (e) {
+          // ignore
+        }
+try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "tracekeys-v1" }); } catch (e) {
+          // ignore
+        }
 function dbgPersist(tag, payload) {
   if (!DEBUG_PERSIST) return;
   try {
@@ -349,12 +365,16 @@ try {
     persistDiagAppendLine("BOOT storageRowHeightPreset ERR", { msg: String((e && e.message) ? e.message : e) });
   } catch (e2) {}
 }
-} catch (e) {}
+} catch (e) {
+          // ignore
+        }
 
 function trace(tag, payload) {
   dbgPersist(tag, payload);
   sendPersistDiagToDialog(tag, payload);
-  try { persistDiagAppendLine(tag, payload); } catch (e) {}
+  try { persistDiagAppendLine(tag, payload); } catch (e) {
+          // ignore
+        }
 }
 
 async function dbgGet(key) {
@@ -533,7 +553,9 @@ function openJumpDialog(event) {
       const reply = (msg) => {
         try {
           dialog.messageChild(JSON.stringify(msg));
-        } catch (e) {}
+        } catch (e) {
+          // ignore
+        }
       };
 
       const flushStateQueue = async () => {
@@ -593,9 +615,50 @@ while (pendingStateRequests.length) {
           // ignore
         }
 
-if (msg.type === "ping") {
-      reply({ type: "parentReady" });
+        if (msg.type === "ping") {
+          // Dialog pings until it knows the parent is listening.
+          reply({ type: "parentReady" });
           return;
+        }
+
+        if (msg.type === "dialogReady") {
+          // Dialog has registered its parent-message handler; it's now safe to send stateData.
+          await withLock(async () => {
+            if (!cachedState) {
+              try {
+                cachedState = await getJumpToState({ preferCache: true });
+              } catch (e) {
+                // ignore
+              }
+            }
+            if (!cachedState) {
+              cachedState = await getJumpToState();
+            }
+
+            const state = await buildDialogState(cachedState);
+            try {
+              await settingsTraceAppend(
+                "commands",
+                "sendStateData",
+                "dialogReady",
+                { global: state && state.global ? state.global : {}, settings: state && state.settings ? state.settings : {}, meta: state && state.__meta ? state.__meta : {} },
+                {}
+              );
+            } catch (e) {
+              // ignore
+            }
+            reply({ type: "stateData", state });
+
+            // Also do the full refresh; if it changes anything, push an updated state.
+            const changed = await ensureFreshState();
+            if (changed && cachedState) {
+              const state2 = await buildDialogState(cachedState);
+              reply({ type: "stateData", state: state2 });
+            }
+          });
+          return;
+        }
+
         if (msg.type === "diagSettings") {
           try {
             const p = msg.payload || {};
@@ -610,12 +673,13 @@ if (msg.type === "ping") {
           }
           return;
         }
+
         if (msg.type === "diagHello") {
           try {
             const p = msg.payload || {};
             const snap = p.settingsSnap || {};
             const note = p.note || {};
-            await settingsTraceAppend("dialog", "diagHello", "mount", snap, note);
+            await settingsTraceAppend("dialog", "diagHello", "recv", snap, note);
           } catch (e) {
             // ignore
           }
@@ -624,8 +688,6 @@ if (msg.type === "ping") {
 
 
 
-
-        }
 
         if (msg.type === "setFavorites") {
           const ids = Array.isArray(msg.favorites) ? msg.favorites.filter(Boolean) : [];
@@ -667,7 +729,9 @@ if (msg.type === "setRowHeightPreset") {
         await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, `rowHeight:${msg.__src || ""}`);
         await diagTraceRowHeight("commands", "setRowHeightPreset", "after:" + String(msg.__src || ""));
       }
-    } catch (e) {}
+    } catch (e) {
+          // ignore
+        }
     cachedState = await getJumpToState();
     const state = await buildDialogState(cachedState);
     reply({ type: "stateData", state });
@@ -709,7 +773,9 @@ if (msg.type === "selectSheet") {
           // Close + complete immediately so the dialog feels instant.
           try {
             dialog.close();
-          } catch (e) {}
+          } catch (e) {
+          // ignore
+        }
           event.completed();
 
           // Continue work in the background so UI close is not blocked by Excel writes.
@@ -739,7 +805,9 @@ if (msg.type === "selectSheet") {
                     oneDigitActivationEnabled ? "true" : "false"
                   );
                 }
-              } catch (e) {}
+              } catch (e) {
+          // ignore
+        }
 
               if (uiSettings) {
                 await setUiSettingsInStorage(uiSettings);
@@ -777,7 +845,9 @@ if (msg.type === "selectSheet") {
 
           try {
             dialog.close();
-          } catch (e) {}
+          } catch (e) {
+          // ignore
+        }
           event.completed();
 
           (async () => {
@@ -797,7 +867,9 @@ if (msg.type === "selectSheet") {
                     oneDigitActivationEnabled ? "true" : "false"
                   );
                 }
-              } catch (e) {}
+              } catch (e) {
+          // ignore
+        }
 
               if (uiSettings) {
                 await setUiSettingsInStorage(uiSettings);

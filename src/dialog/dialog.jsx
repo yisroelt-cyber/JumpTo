@@ -825,6 +825,15 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
             setStatus(msg.message || "An error occurred.");
             return;
           }
+        },
+        () => {
+          try {
+            if (canMessageParent()) {
+              Office.context.ui.messageParent(JSON.stringify({ type: "dialogReady" }));
+            }
+          } catch (e) {
+            // ignore
+          }
         }
       );
 
