@@ -1,24 +1,51 @@
-// Settings trace (diagnostics-only): captures dialog + commands settings snapshots into ORTS,
-// and supports flushing to the diagnostics sheet (Column C) via the existing diag sheet pipeline.
-//
-// Design goals:
-// - behavior neutral (no settings mutations here)
-// - append-safe, bounded size
-// - low risk of breaking Office.js runtime (defensive try/catch)
-//
-// NOTE: This module writes to OfficeRuntime.storage. In the dialog, messages are sent to the parent,
-// and the parent writes entries so they can be flushed to the sheet.
+// src/services/settingsTrace.js
+/* global Excel, OfficeRuntime */
 
-const ORTS_KEY = "JumpTo.Diag.SettingsTraceLog";
-const MAX_CHARS = 45000; // bounded; keep last ~45k chars
+// Settings trace (diagnostics-only).
+// Appends snapshot entries into OfficeRuntime.storage and can flush to the
+// workbook diagnostics sheet (VeryHidden _JumpToAddinSettings, Column C).
+//
+// NOTE: Keep behavior-neutral: no settings mutations here.
+
+const TRACE_LOG_KEY = "JumpTo.Diag.SettingsTraceLog";
+
+// Markers chosen to be visually unique and searchable.
+const BEGIN_MARK = "<<<JT_ST_TRACE_BEGIN>>>";
+const END_MARK = "<<<JT_ST_TRACE_END>>>";
+
+// Diagnostics sheet target (existing VeryHidden sheet).
+const DIAG_SHEET_NAME = "_JumpToAddinSettings";
+const DIAG_COL_RANGE = "C1:C500";
+
+// Keep the in-ORTS log modest. If it grows past this, flush to sheet.
+const FLUSH_CHAR_THRESHOLD = 14000;
+
+// Serialize ORTS log mutations so we don't lose entries via interleaved
+// read-append-write sequences.
+let __appendChain = Promise.resolve();
+
+function enqueue(op) {
+  __appendChain = __appendChain.then(op, op);
+  return __appendChain;
+}
 
 function nowIso() {
-  try { return new Date().toISOString(); } catch (e) { return String(Date.now()); }
+  try {
+    return new Date().toISOString();
+  } catch (e) {
+    return String(Date.now());
+  }
 }
 
 function safeJson(obj) {
-  try { return JSON.stringify(obj); } catch (e) {
-    try { return String(obj); } catch (e2) { return "[unserializable]"; }
+  try {
+    return JSON.stringify(obj);
+  } catch (e) {
+    try {
+      return String(obj);
+    } catch (e2) {
+      return "[unserializable]";
+    }
   }
 }
 
@@ -27,38 +54,85 @@ async function ortsGet(key) {
     if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage) return "";
     const v = await OfficeRuntime.storage.getItem(key);
     return typeof v === "string" ? v : (v == null ? "" : String(v));
-  } catch (e) { return ""; }
+  } catch (e) {
+    return "";
+  }
 }
 
 async function ortsSet(key, value) {
   try {
     if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage) return;
     await OfficeRuntime.storage.setItem(key, String(value || ""));
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    // ignore
+  }
 }
 
-function trimToMax(s) {
-  const str = String(s || "");
-  if (str.length <= MAX_CHARS) return str;
-  return str.slice(str.length - MAX_CHARS);
-}
-
-function formatEntry(moduleName, funcName, tag, snapshot, note) {
-  const head = `${nowIso()} | ${String(moduleName || "unknown")} | ${String(funcName || "unknown")} | ${String(tag || "")}`;
-  const snap = snapshot ? safeJson(snapshot) : "{}";
-  const n = note ? safeJson(note) : "";
-  return `${head} | snap:${snap}${n ? " | note:" + n : ""}\n`;
-}
-
-export async function settingsTraceAppend(moduleName, funcName, tag, snapshot, note) {
-  const line = formatEntry(moduleName, funcName, tag, snapshot, note);
+async function writeChunkToDiagSheet(chunk) {
   try {
-    const prev = await ortsGet(ORTS_KEY);
-    const next = trimToMax(prev + line);
-    await ortsSet(ORTS_KEY, next);
-  } catch (e) { /* ignore */ }
+    if (typeof Excel === "undefined" || !Excel.run) return;
+
+    await Excel.run(async (context) => {
+      const ws = context.workbook.worksheets.getItem(DIAG_SHEET_NAME);
+      const range = ws.getRange(DIAG_COL_RANGE);
+      range.load("values");
+      await context.sync();
+
+      const values = Array.isArray(range.values) ? range.values : [];
+      const flat = values.map((r) => (Array.isArray(r) ? (r[0] == null ? "" : String(r[0])) : ""));
+
+      // Find first empty cell; if none, overwrite from top.
+      let idx = flat.findIndex((x) => !x);
+      if (idx < 0) idx = 0;
+
+      flat[idx] = String(chunk || "");
+      range.values = flat.map((x) => [x]);
+      await context.sync();
+    });
+  } catch (e) {
+    // ignore
+  }
 }
 
-export async function settingsTraceRead() { return await ortsGet(ORTS_KEY); }
-export async function settingsTraceClear() { await ortsSet(ORTS_KEY, ""); }
-export function settingsTraceKey() { return ORTS_KEY; }
+async function flushTraceLogInternal(reasonTag) {
+  const existing = await ortsGet(TRACE_LOG_KEY);
+  if (!existing) return;
+
+  const header = `${nowIso()} | FLUSH | ${String(reasonTag || "")}`;
+  const chunk = `${header}\n${existing}`;
+  await writeChunkToDiagSheet(chunk);
+  await ortsSet(TRACE_LOG_KEY, "");
+}
+
+/**
+ * Append a settings trace entry.
+ *
+ * @param {string} moduleName
+ * @param {string} functionName
+ * @param {string} tag
+ * @param {object} snapshot
+ * @param {object} note
+ */
+export function settingsTraceAppend(moduleName, functionName, tag, snapshot, note) {
+  return enqueue(async () => {
+    const entry = `${BEGIN_MARK}\n${nowIso()} | ${String(moduleName || "")} | ${String(functionName || "")} | ${String(tag || "")} | snap:${safeJson(snapshot || {})}${note ? ` | note:${safeJson(note)}` : ""}\n${END_MARK}`;
+
+    const existing = await ortsGet(TRACE_LOG_KEY);
+    const next = existing ? `${existing}\n${entry}` : entry;
+    await ortsSet(TRACE_LOG_KEY, next);
+
+    if (next.length >= FLUSH_CHAR_THRESHOLD) {
+      await flushTraceLogInternal("threshold");
+    }
+  });
+}
+
+/**
+ * Force-flush the accumulated settings trace log to the diagnostics sheet and clear ORTS log.
+ */
+export function diagFlushSettingsTrace(moduleName, functionName, reason) {
+  return enqueue(async () => {
+    const tag = `${String(moduleName || "")}::${String(functionName || "")}${reason ? `:${String(reason)}` : ""}`;
+    await flushTraceLogInternal(tag);
+  });
+}

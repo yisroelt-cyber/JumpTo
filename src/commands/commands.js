@@ -1,32 +1,5 @@
-
-
-function snapshotSettingsForTrace(state) {
-  try {
-    const g = (state && state.global) ? state.global : {};
-    const s = (state && state.settings) ? state.settings : {};
-    const meta = (state && state.__meta) ? state.__meta : {};
-    return {
-      global: {
-        rowHeightPreset: g.rowHeightPreset,
-        oneDigitActivationEnabled: g.oneDigitActivationEnabled,
-        baselineOrder: g.baselineOrder,
-        frequentOnTop: g.frequentOnTop,
-      },
-      settings: {
-        favPercentManual: s.favPercentManual,
-        recentsDisplayCount: s.recentsDisplayCount,
-      },
-      meta: {
-        settingsValid: meta.settingsValid,
-        favoritesValid: meta.favoritesValid,
-      },
-    };
-  } catch (e) {
-    return { error: "snapshotFailed" };
-  }
-}
 import { diagTraceRowHeight, diagFlushRowHeightTrace } from "../services/rowHeightTrace";
-import { settingsTraceAppend } from "../services/settingsTrace";
+import { settingsTraceAppend, diagFlushSettingsTrace } from "../services/settingsTrace";
 
 // DEBUG: persistence diagnostics to existing settings sheet (temporary)
 const PERSIST_DIAG_SETTINGS_SHEET_MARK = true;
@@ -600,21 +573,7 @@ while (pendingStateRequests.length) {
             const tag = String(p.tag || "");
             const data = p.data || {};
             await diagTraceRowHeight("dialog", tag, JSON.stringify(data));
-          }
-
-          if (msg.type === "diagSettings") {
-            try {
-              const p = msg.payload || {};
-              const tag = p.tag || "";
-              const snap = p.snapshot || {};
-              const note = p.note || {};
-              await settingsTraceAppend(p.module || "dialog", p.func || "unknown", String(tag || ""), snap, note);
-            } catch (e) {
-              // ignore
-            }
-            return;
-          }
- catch (e) {
+          } catch (e) {
             // no-op
           }
           return;
@@ -630,6 +589,22 @@ while (pendingStateRequests.length) {
             reply({ type: "stateData", state });
           });
           return;
+        if (msg.type === "diagSettings") {
+          try {
+            const p = msg.payload || {};
+            const moduleName = String(p.module || "dialog");
+            const funcName = String(p.func || "unknown");
+            const tag = String(p.tag || "");
+            const snap = p.snapshot || {};
+            const note = p.note || {};
+            await settingsTraceAppend(moduleName, funcName, tag, snap, note);
+          } catch (e) {
+            // ignore
+          }
+          return;
+        }
+
+
         }
 
         if (msg.type === "setFavorites") {
@@ -812,7 +787,20 @@ if (msg.type === "selectSheet") {
         }
       });
 
-      reply({ type: "parentReady" });
+      reply({ type: "parentReady" 
+    try {
+      window.flushSettingsTraceNow = async (reason) => {
+        try {
+          await diagFlushSettingsTrace("commands", "flushSettingsTraceNow", String(reason || "manual"));
+        } catch (e) {
+          // ignore
+        }
+      };
+    } catch (e) {
+      // ignore
+    }
+
+});
       event.completed();
     }
   );

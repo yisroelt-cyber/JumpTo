@@ -140,6 +140,40 @@ function sameFavoriteIds(a, b) {
 
 function DialogApp() {
 
+  // =====================
+  // Settings trace (diagnostics-only)
+  // =====================
+  const JT_SETTINGS_TRACE = true;
+  const settingsTraceSeqRef = useRef(0);
+  const settingsTraceLastSentAtRef = useRef(0);
+
+  function emitSettingsTrace(funcName, tag, note) {
+    if (!JT_SETTINGS_TRACE) return;
+    try {
+      const now = Date.now();
+      const last = Number(settingsTraceLastSentAtRef.current || 0);
+      if (now - last < 200 && tag === "change") return; // throttle noisy changes
+      settingsTraceLastSentAtRef.current = now;
+
+      settingsTraceSeqRef.current = (settingsTraceSeqRef.current || 0) + 1;
+
+      const flags = {
+        globalDirty: !!globalOptionsDirtyRef?.current,
+        uiDirty: !!uiSettingsDirtyRef?.current,
+        rowHeightDirty: !!rowHeightDirtyRef?.current,
+        prefsHydrated: !!prefsHydratedRef?.current,
+        prefsHydratedFromValid: !!prefsHydratedFromValidRef?.current,
+      };
+
+      const snap = snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, flags);
+      const n = Object.assign({ seq: settingsTraceSeqRef.current }, note || {});
+      sendDiagSettings("dialog", String(funcName || ""), String(tag || ""), snap, n);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+
   useEffect(() => {
     fireAndForget(diagTraceRowHeight("dialog", "DialogApp", "mount"), "DialogApp.mount");
     emitSettingsTrace("DialogApp", "mount", { href: String(window.location && window.location.href ? window.location.href : "") });
@@ -155,15 +189,7 @@ function DialogApp() {
 
   const [recents, setRecents] = useState([]);
   const [globalOptions, setGlobalOptions] = useState({ oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true });
-  
-
-  // =====================
-  // Settings trace (diagnostics-only)
-  // =====================
-  const JT_SETTINGS_TRACE = true;
-  const settingsTraceSeqRef = useRef(0);
-  const settingsTraceLastSentAtRef = useRef(0);
-const [query, setQuery] = useState("");
+  const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Loading…");
   const [isActivating, setIsActivating] = useState(false);
   const [initError, setInitError] = useState("");
@@ -219,18 +245,12 @@ const [query, setQuery] = useState("");
   const rowHeightDirtyRef = useRef(false);
   const prefsHydratedRef = useRef(false);
   const prefsHydratedFromValidRef = useRef(false);
-  
-  const refsForSettingsTrace = { globalOptionsDirtyRef, uiSettingsDirtyRef, rowHeightDirtyRef, prefsHydratedRef, prefsHydratedFromValidRef };
-useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
+  useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
 
+  // settings change watcher (throttled)
   useEffect(() => {
-    if (!JT_SETTINGS_TRACE) return;
-    const now = Date.now();
-    const last = Number(settingsTraceLastSentAtRef.current || 0);
-    if (now - last < 250) return;
-    settingsTraceLastSentAtRef.current = now;
     emitSettingsTrace("settings", "change", {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled, globalOptions?.baselineOrder, globalOptions?.frequentOnTop, uiFavPercentManual, uiRecentsDisplayCount]);
@@ -418,7 +438,7 @@ const sendDiagSettings = (moduleName, funcName, tag, snapshot, note) => {
   }
 };
 
-function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, refs) {
+function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, flags) {
   try {
     return {
       globalOptions: {
@@ -431,18 +451,13 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
         favPercentManual: uiFavPercentManual,
         recentsDisplayCount: uiRecentsDisplayCount,
       },
-      flags: {
-        globalDirty: !!refs?.globalOptionsDirtyRef?.current,
-        uiDirty: !!refs?.uiSettingsDirtyRef?.current,
-        rowHeightDirty: !!refs?.rowHeightDirtyRef?.current,
-        prefsHydrated: !!refs?.prefsHydratedRef?.current,
-        prefsHydratedFromValid: !!refs?.prefsHydratedFromValidRef?.current,
-      },
+      flags: flags || {},
     };
   } catch (e) {
     return { error: "snapshotFailed" };
   }
 }
+
 
 
     const sendPing = () => {
@@ -516,7 +531,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             const hydratePrefs =
               (!prefsHydratedRef.current && (incomingSettingsValid || incomingFavoritesValid)) ||
               (!prefsHydratedFromValidRef.current && incomingSettingsValid && !uiSettingsDirtyRef.current);
-            emitSettingsTrace("stateData", "decideHydratePrefs", { hydratePrefs: !!hydratePrefs, incomingSettingsValid: !!incomingSettingsValid, incomingFavoritesValid: !!incomingFavoritesValid });
 
             if (hydratePrefs) {
               prefsHydratedRef.current = true;
@@ -550,8 +564,7 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             });
             }
 
-                        emitSettingsTrace("stateData", "beforeApplyUiSettings", {});
-// UI settings (persisted per-user)
+            // UI settings (persisted per-user)
             if (hydratePrefs) {
             try {
               const ui = state.settings || {};              const favPct = Number.isFinite(Number(ui.favPercentManual)) ? Number(ui.favPercentManual) : 50;
@@ -586,8 +599,7 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
             }
             }
             uiSettingsReadyRef.current = prefsHydratedFromValidRef.current || uiSettingsDirtyRef.current;
-                        emitSettingsTrace("stateData", "afterApplyUiSettings", {});
-setStatus(sheets.length ? "" : "No visible worksheets found.");
+            setStatus(sheets.length ? "" : "No visible worksheets found.");
 
             // Re-assert focus after data arrives (this is the moment users start typing).
             if (activeTab === "Navigation" || activeTab === "Favorites") requestSearchFocus("sheetsData");
@@ -652,19 +664,6 @@ setStatus(sheets.length ? "" : "No visible worksheets found.");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  function emitSettingsTrace(funcName, tag, note) {
-    if (!JT_SETTINGS_TRACE) return;
-    try {
-      settingsTraceSeqRef.current = (settingsTraceSeqRef.current || 0) + 1;
-      const snap = snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, refsForSettingsTrace);
-      const n = Object.assign({ seq: settingsTraceSeqRef.current }, note || {});
-      sendDiagSettings("dialog", String(funcName || ""), String(tag || ""), snap, n);
-    } catch (e) {
-      // ignore
-    }
-  }
-
-
 
     const computeTier = (freq) => {
     const f = Number(freq || 0);
