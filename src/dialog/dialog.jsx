@@ -450,6 +450,7 @@ const sendDiagRowHeight = (tag, data) => {
               prefsHydratedRef.current = true;
               if (incomingSettingsValid) prefsHydratedFromValidRef.current = true;
             }
+                        if (hydratePrefs) {
             setGlobalOptions((prev) => {
               const incoming = state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard" };
               // If the user has changed global options locally (e.g. clicked a checkbox) and we're still waiting
@@ -472,6 +473,8 @@ const sendDiagRowHeight = (tag, data) => {
               }
               return incoming;
             });
+            }
+
             // UI settings (persisted per-user)
             if (hydratePrefs) {
             try {
@@ -479,6 +482,9 @@ const sendDiagRowHeight = (tag, data) => {
               const recCnt = Number.isFinite(Number(ui.recentsDisplayCount)) ? Number(ui.recentsDisplayCount) : 10;
               const incomingFav = Math.min(80, Math.max(20, Math.round(favPct)));
               const incomingCnt = Math.min(MAX_RECENTS, Math.max(1, Math.round(recCnt)));
+
+const incomingBaseOrder = (ui.baselineOrder === "alpha" ? "alpha" : "workbook");
+const incomingFrequentOnTop = !!ui.frequentOnTop;
 
               if (uiSettingsDirtyRef.current) {
                 const desired = uiSettingsDirtyDesiredRef.current;
@@ -491,6 +497,7 @@ const sendDiagRowHeight = (tag, data) => {
                   uiSettingsDirtyDesiredRef.current = null;
                   setUiFavPercentManual(incomingFav);
                   setUiRecentsDisplayCount(incomingCnt);
+                setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
                 } else {
                   // Ignore stale incoming UI settings while dirty.
                 }
@@ -979,6 +986,31 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     window.flushPersistGlobalOptionsNow = flushPersistGlobalOptionsNow;
     return () => { try { delete window.flushPersistGlobalOptionsNow; } catch (e) {} };
   }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled]);
+
+  // Flush debounced persistence on dialog teardown / host shutdown.
+  // Rationale: Excel restart can kill the webview before debounce timers fire, causing global/UI settings to revert.
+  useEffect(() => {
+    const flushAll = (reason) => {
+      try { flushPersistGlobalOptionsNow(String(reason || "teardown")); } catch (e) {}
+      try { flushPersistUiSettingsNow(String(reason || "teardown")); } catch (e) {}
+      try { if (typeof window.flushPersistFavoritesNow === "function") window.flushPersistFavoritesNow(String(reason || "teardown")); } catch (e) {}
+    };
+
+    const onBeforeUnload = () => flushAll("beforeunload");
+    const onPageHide = () => flushAll("pagehide");
+
+    try { window.addEventListener("beforeunload", onBeforeUnload); } catch (e) {}
+    try { window.addEventListener("pagehide", onPageHide); } catch (e) {}
+
+    return () => {
+      // Ensure a best-effort flush on React unmount as well.
+      flushAll("unmount");
+      try { window.removeEventListener("beforeunload", onBeforeUnload); } catch (e) {}
+      try { window.removeEventListener("pagehide", onPageHide); } catch (e) {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled, uiFavPercentManual, uiRecentsDisplayCount, globalOptions?.baselineOrder, globalOptions?.frequentOnTop]);
+
 
   // Favorites tab: when a new favorite is added, keep it selected and scroll it into view.
   useEffect(() => {
