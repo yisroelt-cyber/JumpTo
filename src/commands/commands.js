@@ -586,6 +586,19 @@ while (pendingStateRequests.length) {
           }
           return;
         }
+        if (msg.type === "diagHello") {
+          try {
+            const p = msg.payload || {};
+            const snap = p.settingsSnap || {};
+            const note = p.note || {};
+            await settingsTraceAppend("dialog", "diagHello", "mount", snap, note);
+          } catch (e) {
+            // ignore
+          }
+          return;
+        }
+
+
 
 
         }
@@ -723,6 +736,15 @@ if (msg.type === "selectSheet") {
         }
 
         if (msg.type === "cancel") {
+          try {
+            const p = msg.payload || {};
+            if (p && p.settingsSnap) {
+              await settingsTraceAppend("dialog", "cancelMsg", "cancel", p.settingsSnap, p.note || {});
+            }
+          } catch (e) {
+            // ignore
+          }
+
           const snapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;

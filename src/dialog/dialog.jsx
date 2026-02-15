@@ -5,6 +5,42 @@ import { MAX_RECENTS } from "../shared/constants";
 import { createRoot } from "react-dom/client";
 
 import { settingsTraceAppend } from "../services/settingsTrace";
+
+function canMessageParentLocal() {
+  try {
+    return !!(Office && Office.context && Office.context.ui && Office.context.ui.messageParent);
+  } catch (e) {
+    return false;
+  }
+}
+
+function buildSettingsSnapForParent(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, refs) {
+  try {
+    return {
+      globalOptions: {
+        rowHeightPreset: globalOptions?.rowHeightPreset,
+        oneDigitActivationEnabled: globalOptions?.oneDigitActivationEnabled,
+        baselineOrder: globalOptions?.baselineOrder,
+        frequentOnTop: globalOptions?.frequentOnTop,
+      },
+      ui: {
+        favPercentManual: uiFavPercentManual,
+        recentsDisplayCount: uiRecentsDisplayCount,
+      },
+      flags: {
+        globalDirty: !!refs?.globalOptionsDirtyRef?.current,
+        uiDirty: !!refs?.uiSettingsDirtyRef?.current,
+        rowHeightDirty: !!refs?.rowHeightDirtyRef?.current,
+        prefsHydrated: !!refs?.prefsHydratedRef?.current,
+        prefsHydratedFromValid: !!refs?.prefsHydratedFromValidRef?.current,
+      },
+    };
+  } catch (e) {
+    return { error: "snapshotFailed" };
+  }
+}
+
+
 function fireAndForget(promise, tag) {
   try {
     if (promise && typeof promise.then === "function") {
@@ -140,6 +176,26 @@ function sameFavoriteIds(a, b) {
 }
 
 function DialogApp() {
+
+  useEffect(() => {
+    if (!canMessageParentLocal()) return;
+    try {
+      const snap = buildSettingsSnapForParent(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, refsForParentSnap);
+      Office.context.ui.messageParent(
+        JSON.stringify({
+          type: "diagHello",
+          payload: {
+            settingsSnap: snap,
+            note: { href: String(window.location && window.location.href ? window.location.href : "") },
+          },
+        })
+      );
+    } catch (e) {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
 
   // =====================
   // Settings trace probe (diagnostics-only, hard-guaranteed)
@@ -347,7 +403,9 @@ function DialogApp() {
   const rowHeightDirtyRef = useRef(false);
   const prefsHydratedRef = useRef(false);
   const prefsHydratedFromValidRef = useRef(false);
-  useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
+  
+  const refsForParentSnap = { globalOptionsDirtyRef, uiSettingsDirtyRef, rowHeightDirtyRef, prefsHydratedRef, prefsHydratedFromValidRef };
+useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   useEffect(() => { statusRef.current = status; }, [status]);
 
@@ -1326,7 +1384,7 @@ const onToggleFavorite = (sheetId) => {
 const onCancel = () => {
   try {
     const snapshot = buildPersistSnapshot();
-    Office.context.ui.messageParent(JSON.stringify({ type: "cancel", snapshot }));
+    Office.context.ui.messageParent(JSON.stringify({ type: "cancel", snapshot, payload: { settingsSnap: buildSettingsSnapForParent(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, refsForParentSnap), note: {} } }));
   } catch (e) {
     // ignore
   }
