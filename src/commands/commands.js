@@ -1,3 +1,13 @@
+
+
+function diagLogDialogMessageType(msgType, payload) {
+  try {
+    const snap = { msgType: String(msgType || ""), hasPayload: !!payload };
+    fireAndForget(settingsTraceAppend("commands", "dialogMessage", "recv", snap, {}), "settingsTraceAppend.recv");
+  } catch (e) {
+    // ignore
+  }
+}
 import { diagTraceRowHeight, diagFlushRowHeightTrace } from "../services/rowHeightTrace";
 import { settingsTraceAppend, diagFlushSettingsTrace } from "../services/settingsTrace";
 
@@ -452,7 +462,7 @@ async function dbgGet(key) {
           String(baseState.settings.recentsDisplayCount)
         );
     }
-  } catch {
+  } catch (e) {
     // ignore
   }
 
@@ -537,7 +547,12 @@ function openJumpDialog(event) {
       persistDiagAppendLine("globals", await persistDiagSnapshot());
 while (pendingStateRequests.length) {
             pendingStateRequests.pop();
-            reply({ type: "stateData", state });
+            try {
+          await settingsTraceAppend("commands", "sendStateData", "reply", { global: (state && state.global) ? state.global : {}, settings: (state && state.settings) ? state.settings : {}, meta: (state && state.__meta) ? state.__meta : {} }, {});
+        } catch (e) {
+          // ignore
+        }
+        reply({ type: "stateData", state });
           }
         } else {
           try {
@@ -549,7 +564,7 @@ while (pendingStateRequests.length) {
                 reply({ type: "stateData", state });
               }
             }
-          } catch {
+          } catch (e) {
             // ignore; fall through to full refresh
           }
         }
@@ -565,11 +580,20 @@ while (pendingStateRequests.length) {
         let msg;
         try {
           msg = JSON.parse(arg.message);
-        } catch {
+        } catch (e) {
           return;
         }
 
-        if (msg.type === "ping") {
+        
+        try {
+          if (msg && msg.type && String(msg.type).startsWith("diag")) {
+            diagLogDialogMessageType(msg.type, msg.payload);
+          }
+        } catch (e) {
+          // ignore
+        }
+
+if (msg.type === "ping") {
       reply({ type: "parentReady" });
           return;
         if (msg.type === "diagSettings") {

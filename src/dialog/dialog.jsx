@@ -47,13 +47,17 @@ function fireAndForget(promise, tag) {
       promise.catch((e) => {
         try {
           console.error('[RowHeightTrace] dialog fireAndForget error', tag || '', e);
-        } catch (e2) {}
+        } catch (e2) {
+      // ignore
+    }
       });
     }
   } catch (e) {
     try {
       console.error('[RowHeightTrace] dialog fireAndForget failure', tag || '', e);
-    } catch (e2) {}
+    } catch (e2) {
+      // ignore
+    }
   }
 }
 
@@ -176,6 +180,7 @@ function sameFavoriteIds(a, b) {
 }
 
 function DialogApp() {
+  const receivedStateDataRef = useRef(false);
 
   useEffect(() => {
     if (!canMessageParentLocal()) return;
@@ -519,12 +524,16 @@ useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
         ro = new ResizeObserver(() => compute());
         if (bodyRef.current) ro.observe(bodyRef.current);
       }
-    } catch (e) {}
+    } catch (e) {
+      // ignore
+    }
     return () => {
       window.removeEventListener("resize", onResize);
       try {
         if (ro) ro.disconnect();
-      } catch (e) {}
+      } catch (e) {
+      // ignore
+    }
     };
   }, []);
 
@@ -665,11 +674,36 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
           }
 
           if (msg.type === "stateData") {
+            try {
+              receivedStateDataRef.current = true;
+              if (canMessageParentLocal()) {
+                Office.context.ui.messageParent(
+                  JSON.stringify({
+                    type: "diagHello",
+                    payload: {
+                      settingsSnap: {
+                        incoming: {
+                          global: (msg.state && msg.state.global) ? msg.state.global : null,
+                          settings: (msg.state && msg.state.settings) ? msg.state.settings : null,
+                          meta: (msg.state && msg.state.__meta) ? msg.state.__meta : null,
+                        },
+                      },
+                      note: { tag: "stateDataReceived" },
+                    },
+                  })
+                );
+              }
+            } catch (e) {
+              // ignore
+            }
+
             emitSettingsTraceToOrts("stateData", "enter", { meta: (msg.state && msg.state.__meta) ? msg.state.__meta : null });
 
             emitSettingsTrace("stateData", "enter", { meta: (msg.state && msg.state.__meta) ? msg.state.__meta : null });
 
-        try { sendDiagRowHeight("stateData", { rowHeightPreset: msg.state && msg.state.globalOptions ? msg.state.globalOptions.rowHeightPreset : undefined }); } catch (e) {}
+        try { sendDiagRowHeight("stateData", { rowHeightPreset: msg.state && msg.state.globalOptions ? msg.state.globalOptions.rowHeightPreset : undefined }); } catch (e) {
+      // ignore
+    }
             const state = msg.state || {};
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             setAllSheets(sheets);
@@ -826,7 +860,9 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
       // Office.js may not be loaded yet in some dialog webviews (race with script loading).
       // We'll retry initialization shortly rather than rendering a broken UI.
       window.setTimeout(() => {
-        try { requestSheets(); } catch (e) {}
+        try { requestSheets(); } catch (e) {
+      // ignore
+    }
       }, 100);
     }
 
@@ -1240,12 +1276,16 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   // Expose flush for Save & Close
   useEffect(() => {
     window.flushPersistUiSettingsNow = flushPersistUiSettingsNow;
-    return () => { try { delete window.flushPersistUiSettingsNow; } catch (e) {} };
+    return () => { try { delete window.flushPersistUiSettingsNow; } catch (e) {
+      // ignore
+    } };
   }, [uiFavPercentManual, uiRecentsDisplayCount, globalOptions?.baselineOrder, globalOptions?.frequentOnTop]);
 
   useEffect(() => {
     window.flushPersistGlobalOptionsNow = flushPersistGlobalOptionsNow;
-    return () => { try { delete window.flushPersistGlobalOptionsNow; } catch (e) {} };
+    return () => { try { delete window.flushPersistGlobalOptionsNow; } catch (e) {
+      // ignore
+    } };
   }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled]);
 
   // Favorites tab: when a new favorite is added, keep it selected and scroll it into view.
@@ -1384,7 +1424,7 @@ const onToggleFavorite = (sheetId) => {
 const onCancel = () => {
   try {
     const snapshot = buildPersistSnapshot();
-    Office.context.ui.messageParent(JSON.stringify({ type: "cancel", snapshot, payload: { settingsSnap: buildSettingsSnapForParent(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, refsForParentSnap), note: {} } }));
+    Office.context.ui.messageParent(JSON.stringify({ type: "cancel", snapshot, payload: { settingsSnap: (() => { const s = buildSettingsSnapForParent(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, refsForParentSnap); try { s.flags = s.flags || {}; s.flags.receivedStateData = !!receivedStateDataRef.current; } catch (e) { /* ignore */ } return s; })(), note: { receivedStateData: !!receivedStateDataRef.current } } }));
   } catch (e) {
     // ignore
   }
@@ -1589,8 +1629,12 @@ return (
                     <div
                       key={s.id || s.name}
                       ref={(el) => { listRowRefs.current[i] = el; }}
-                      onMouseEnter={() => { try { setHighlightIndex(i); } catch (e) {} }}
-                      onClick={() => { if (!isActivating) { try { setHighlightIndex(i); } catch (e) {} onSelect(s); } }}
+                      onMouseEnter={() => { try { setHighlightIndex(i); } catch (e) {
+      // ignore
+    } }}
+                      onClick={() => { if (!isActivating) { try { setHighlightIndex(i); } catch (e) {
+      // ignore
+    } onSelect(s); } }}
                       style={{
                         ...rowStyle,
                         background: i === highlightIndex ? "rgba(0,120,212,0.12)" : "transparent",
