@@ -1,6 +1,19 @@
 import { diagTraceRowHeight, diagFlushRowHeightTrace } from "../services/rowHeightTrace";
 import { settingsTraceAppend, diagFlushSettingsTrace } from "../services/settingsTrace";
 
+try {
+  window.flushSettingsTraceNow = async (reason) => {
+    try {
+      await diagFlushSettingsTrace("commands", "flushSettingsTraceNow", String(reason || "manual"));
+    } catch (e) {
+      console.error("flushSettingsTraceNow failed:", e);
+    }
+  };
+} catch (e) {
+  console.error("Failed to attach flushSettingsTraceNow:", e);
+}
+
+
 // DEBUG: persistence diagnostics to existing settings sheet (temporary)
 const PERSIST_DIAG_SETTINGS_SHEET_MARK = true;
 const PERSIST_DIAG_TARGET_SHEET = "_JumpToAddinSettings"; // already exists (veryHidden)
@@ -557,37 +570,7 @@ while (pendingStateRequests.length) {
         }
 
         if (msg.type === "ping") {
-          reply({ type: "parentReady" });
-          return;
-        }
-
-        if (msg.type === "getSheets") {
-          pendingStateRequests.push(true);
-          await withLock(flushStateQueue);
-          return;
-        }
-
-        if (msg.type === "diagRowHeight") {
-          try {
-            const p = msg.payload || {};
-            const tag = String(p.tag || "");
-            const data = p.data || {};
-            await diagTraceRowHeight("dialog", tag, JSON.stringify(data));
-          } catch (e) {
-            // no-op
-          }
-          return;
-        }
-
-
-        if (msg.type === "toggleFavorite") {
-          await withLock(async () => {
-    await diagTraceRowHeight("commands", "setRowHeightPreset", "before:" + String(msg.__src || ""));
-            await toggleFavoriteInStorage(msg.sheetId);
-            cachedState = await getJumpToState();
-            const state = await buildDialogState(cachedState);
-            reply({ type: "stateData", state });
-          });
+      reply({ type: "parentReady" });
           return;
         if (msg.type === "diagSettings") {
           try {
@@ -780,27 +763,24 @@ if (msg.type === "selectSheet") {
 
               cachedState = await getJumpToState();
             });
-          
+
+            try {
               await diagFlushRowHeightTrace("commands", "cancel", "end");
-})().catch((err) => console.error("cancel background handler failed:", err));
+            } catch (e) {
+              console.error("diagFlushRowHeightTrace failed:", e);
+            }
+
+            try {
+              await diagFlushSettingsTrace("commands", "cancel", "end");
+            } catch (e) {
+              console.error("diagFlushSettingsTrace failed:", e);
+            }
+          })().catch((err) => console.error("cancel background handler failed:", err));
           return;
         }
       });
 
-      reply({ type: "parentReady" 
-    try {
-      window.flushSettingsTraceNow = async (reason) => {
-        try {
-          await diagFlushSettingsTrace("commands", "flushSettingsTraceNow", String(reason || "manual"));
-        } catch (e) {
-          // ignore
-        }
-      };
-    } catch (e) {
-      // ignore
-    }
-
-});
+      reply({ type: "parentReady" });
       event.completed();
     }
   );
