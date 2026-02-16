@@ -457,8 +457,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
               // ignore
             }
 
-      // ignore
-    }
             const state = msg.state || {};
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             setAllSheets(sheets);
