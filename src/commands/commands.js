@@ -1,235 +1,7 @@
-
-
-function diagLogDialogMessageType(msgType, payload) {
-  try {
-    const snap = { msgType: String(msgType || ""), hasPayload: !!payload };
-    fireAndForget(settingsTraceAppend("commands", "dialogMessage", "recv", snap, {}), "settingsTraceAppend.recv");
-  } catch (e) {
-    // ignore
-  }
-}
-
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-}
-
-import { diagTraceRowHeight, diagFlushRowHeightTrace } from "../services/rowHeightTrace";
-import { settingsTraceAppend, diagFlushSettingsTrace } from "../services/settingsTrace";
-
-try {
-  window.flushSettingsTraceNow = async (reason) => {
-    try {
-      await diagFlushSettingsTrace("commands", "flushSettingsTraceNow", String(reason || "manual"));
-    } catch (e) {
-      console.error("flushSettingsTraceNow failed:", e);
-    }
-  };
-} catch (e) {
-  console.error("Failed to attach flushSettingsTraceNow:", e);
-}
-
-
-// DEBUG: persistence diagnostics to existing settings sheet (temporary)
-const PERSIST_DIAG_SETTINGS_SHEET_MARK = true;
-const PERSIST_DIAG_TARGET_SHEET = "_JumpToAddinSettings"; // already exists (veryHidden)
-const PERSIST_DIAG_RANGE = "C1:C500"; // use column C for diag lines
-
-async function persistDiagAppendLine(tag, payload) {
-  const now = new Date().toISOString();
-  let line = "";
-  try {
-    line = `${now} | ${tag} | ${JSON.stringify(payload)}`;
-  } catch (e) {
-    line = `${now} | ${tag} | [payload stringify failed: ${String(e)}]`;
-  }
-
-  try {
-    await Excel.run(async (context) => {
-      const sheets = context.workbook.worksheets;
-      const sh = sheets.getItem(PERSIST_DIAG_TARGET_SHEET);
-      sh.load("name");
-      const col = sh.getRange(PERSIST_DIAG_RANGE);
-      col.load("values");
-      await context.sync();
-
-      const values = col.values || [];
-      let row = 0;
-      for (let i = 0; i < values.length; i++) {
-        const v = values[i] && values[i][0];
-        if (v === "" || v == null) { row = i; break; }
-        row = i + 1;
-      }
-      if (row >= values.length) row = values.length - 1;
-
-      sh.getRange(`C${row + 1}`).values = [[line]];
-      await context.sync();
-    });
-  } catch (e) {
-    try {
-      console.error("[PersistDiag] FAILED to write to settings sheet", tag, e);
-    } catch (e) {
-          // ignore
-        }
-  }
-}
-
-function fireAndForget(promise, tag) {
-  try {
-    if (promise && typeof promise.then === "function") {
-      promise.catch((e) => {
-        try {
-          console.error("[RowHeightTrace] fireAndForget error", tag || "", e);
-        } catch (e2) {}
-      });
-    }
-  } catch (e) {
-    try {
-      console.error("[RowHeightTrace] fireAndForget failure", tag || "", e);
-    } catch (e2) {}
-  }
-}
-
-
-async function persistDiagSnapshot() {
-  const keys = [
-    "JumpTo.Option.RowHeightPreset",
-    "JumpTo.Option.FavPercentManual",
-    "JumpTo.Option.RecentsDisplayCount",
-    "JumpTo.Option.BaselineOrder",
-    "JumpTo.Option.FrequentOnTop",
-  ];
-  const out = {};
-  for (const k of keys) {
-    try {
-      out[k] = await OfficeRuntime.storage.getItem(k);
-    } catch (e) {
-      out[k] = `ERROR: ${String(e)}`;
-    }
-  }
-  return out;
-}
-
-
-async function dbgSetPersistKey(key, value, src = "") {
-  // Diagnostic line (best-effort), plus real persistence.
-  try {
-    persistDiagAppendLine(`setItem ${key}`, { value, src: String(src || "") });
-  } catch (e) {
-    try {
-      persistDiagAppendLine("setItem DIAG ERR", { key: String(key || ""), msg: String(e && e.message ? e.message : e) });
-    } catch (e2) {
-      // last-resort: do nothing
-    }
-  }
-
-  try {
-    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-      await OfficeRuntime.storage.setItem(String(key || ""), String(value ?? ""));
-    }
-  } catch (e) {
-    try {
-      persistDiagAppendLine("setItem ORTS ERR", { key: String(key || ""), msg: String(e && e.message ? e.message : e) });
-    } catch (e2) {
-      // last-resort: do nothing
-    }
-  }
-}
-// DEBUG: persistence instrumentation (temporary)
-const DEBUG_PERSIST = true;
-
-try { persistDiagAppendLine("BOOT patchVersion", { value: "RH_TRACE_v4" }); } catch (e) {
-          // ignore
-        }
-
-// DEBUG: wrap OfficeRuntime.storage methods to trace real keys and detect unexpected clearing/removals.
-try {
-  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage) {
-    const __jtStorage = OfficeRuntime.storage;
-    if (__jtStorage && !__jtStorage.__jtWrapped) {
-      const __origGet = __jtStorage.getItem ? __jtStorage.getItem.bind(__jtStorage) : null;
-      const __origSet = __jtStorage.setItem ? __jtStorage.setItem.bind(__jtStorage) : null;
-      const __origClear = __jtStorage.clear ? __jtStorage.clear.bind(__jtStorage) : null;
-      const __origRemove = __jtStorage.removeItem ? __jtStorage.removeItem.bind(__jtStorage) : null;
-
-      if (__origGet) {
-        __jtStorage.getItem = async function (key) {
-          const k = String(key || "");
-          let v;
-          try {
-            v = await __origGet(key);
-          } catch (e) {
-            try { persistDiagAppendLine("STORAGE getItem ERR", { key: k, msg: String(e && e.message ? e.message : e) }); } catch (e2) {}
-            throw e;
-          }
-          const vs = v === null || v === undefined ? "" : String(v);
-          // Avoid huge payloads; log full value for our small keys.
-          try { persistDiagAppendLine("STORAGE getItem", { key: k, value: vs }); } catch (e) {
-          // ignore
-        }
-          return v;
-        };
-      }
-
-      if (__origSet) {
-        __jtStorage.setItem = async function (key, value) {
-          const k = String(key || "");
-          const vs = value === null || value === undefined ? "" : String(value);
-          try { persistDiagAppendLine("STORAGE setItem", { key: k, value: vs }); } catch (e) {
-          // ignore
-        }
-          return __origSet(key, value);
-        };
-      }
-
-      if (__origClear) {
-        __jtStorage.clear = async function () {
-          try { persistDiagAppendLine("STORAGE clear()", {}); } catch (e) {
-          // ignore
-        }
-          return __origClear();
-        };
-      }
-
-      if (__origRemove) {
-        __jtStorage.removeItem = async function (key) {
-          try { persistDiagAppendLine("STORAGE removeItem", { key: String(key || "") }); } catch (e) {
-          // ignore
-        }
-          return __origRemove(key);
-        };
-      }
-
-      __jtStorage.__jtWrapped = true;
-    }
-  }
-} catch (e) {
-          // ignore
-        }
-try { persistDiagAppendLine("SCRIPT_LOADED commands.js", { marker: "tracekeys-v1" }); } catch (e) {
-          // ignore
-        }
-function dbgPersist(tag, payload) {
-  if (!DEBUG_PERSIST) return;
-  try {
-    console.groupCollapsed(`[JumpTo Persist DEBUG] ${tag}`);
-    console.log(payload);
-    console.groupEnd();
-  } catch (e) {
-    // no-op
-  }
-}
-
-function sendPersistDiagToDialog(tag, payload) {
-  if (!DEBUG_PERSIST) return;
-  try {
-    if (typeof Office !== "undefined" && Office.context && Office.context.ui && Office.context.ui.messageParent) {
-      Office.context.ui.messageParent(JSON.stringify({ type: "persistDiag", tag, payload }));
-    }
-  } catch (e) {
-    // no-op
-  }
 }
 
 /*
@@ -322,8 +94,6 @@ async function getActiveWorksheetId() {
 }
 
 async function buildDialogState(baseState) {
-  await diagTraceRowHeight("commands", "buildDialogState", "entry");
-
 // --- Persist debug: environment + tracing (Excel restart diagnosis) ---
 const PERSIST_TRACE_MARK = true;
 const PERSIST_READ_KEYS = {
@@ -342,11 +112,9 @@ const env = {
 };
 dbgPersist("env", env);
 sendPersistDiagToDialog("env", env);
-try { persistDiagAppendLine("BOOT buildDialogState", env); 
 try {
   if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
     const bootRH = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
-    persistDiagAppendLine("BOOT storageRowHeightPreset", { value: String(bootRH || "") });
   
         // Storage sentinel: verifies whether OfficeRuntime.storage survives a full Excel restart.
         try {
@@ -354,23 +122,15 @@ try {
             const SENTINEL_KEY = "JumpTo.Diag.Sentinel";
             const sentinel = await OfficeRuntime.storage.getItem(SENTINEL_KEY);
             const sentinelStr = sentinel === null || sentinel === undefined ? "" : String(sentinel);
-            persistDiagAppendLine("BOOT storageSentinel", { value: sentinelStr });
             if (!sentinelStr) {
               const newVal = "sent-" + String(Date.now()) + "-" + String(Math.floor(Math.random() * 1000000));
               await OfficeRuntime.storage.setItem(SENTINEL_KEY, newVal);
-              persistDiagAppendLine("BOOT storageSentinel set", { value: newVal });
             }
           } else {
-            persistDiagAppendLine("BOOT storageSentinel", { value: "", note: "no OfficeRuntime.storage getItem/setItem" });
           }
-        } catch (e) { try { persistDiagAppendLine("BOOT storageSentinel ERR", { msg: String(e && e.message ? e.message : e) }); } catch (e2) {} }
 } else {
-    persistDiagAppendLine("BOOT storageRowHeightPreset", { value: "", note: "no OfficeRuntime.storage.getItem" });
   }
 } catch (e) {
-  try {
-    persistDiagAppendLine("BOOT storageRowHeightPreset ERR", { msg: String((e && e.message) ? e.message : e) });
-  } catch (e2) {}
 }
 } catch (e) {
           // ignore
@@ -379,7 +139,6 @@ try {
 function trace(tag, payload) {
   dbgPersist(tag, payload);
   sendPersistDiagToDialog(tag, payload);
-  try { persistDiagAppendLine(tag, payload); } catch (e) {
           // ignore
         }
 }
@@ -516,7 +275,6 @@ async function dbgGet(key) {
 }
 
 
-
 async function setGlobalUiSettings(patch) {
   const p = patch && typeof patch === "object" ? patch : {};
   if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage?.setItem) return;
@@ -543,7 +301,6 @@ async function activateSheetById(sheetId) {
 }
 
 function openJumpDialog(event) {
-  fireAndForget(diagTraceRowHeight("commands", "openJumpDialog", "entry"), "commands.openJumpDialog");
   const dialogUrl = new URL("./dialog.html", window.location.href).toString();
 
   Office.context.ui.displayDialogAsync(
@@ -572,16 +329,9 @@ function openJumpDialog(event) {
           const state = await buildDialogState(cachedState);
           
       // DEBUG: dump persistence diagnostics to settings sheet
-      persistDiagAppendLine("env", { href: (typeof window!=="undefined"&&window.location)?window.location.href:null, origin: (typeof window!=="undefined"&&window.location)?window.location.origin:null, hasOfficeRuntime: typeof OfficeRuntime!=="undefined", hasOfficeRuntimeStorage: (typeof OfficeRuntime!=="undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem) });
-      persistDiagAppendLine("globals", await persistDiagSnapshot());
 while (pendingStateRequests.length) {
             pendingStateRequests.pop();
-            try {
-          await settingsTraceAppend("commands", "sendStateData", "reply", { global: (state && state.global) ? state.global : {}, settings: (state && state.settings) ? state.settings : {}, meta: (state && state.__meta) ? state.__meta : {} }, {});
-        } catch (e) {
-          // ignore
-        }
-        reply({ type: "stateData", state });
+                    reply({ type: "stateData", state });
           }
         } else {
           try {
@@ -616,7 +366,6 @@ while (pendingStateRequests.length) {
         
         try {
           if (msg && msg.type && String(msg.type).startsWith("diag")) {
-            diagLogDialogMessageType(msg.type, msg.payload);
           }
         } catch (e) {
           // ignore
@@ -673,13 +422,6 @@ while (pendingStateRequests.length) {
             }
 
             try {
-              await settingsTraceAppend(
-                "commands",
-                "sendStateData",
-                "dialogReady",
-                { global: state && state.global ? state.global : {}, settings: state && state.settings ? state.settings : {}, meta: state && state.__meta ? state.__meta : {} },
-                {}
-              );
             } catch (e) {
               // ignore
             }
@@ -706,26 +448,13 @@ while (pendingStateRequests.length) {
             const tag = String(p.tag || "");
             const snap = p.snapshot || {};
             const note = p.note || {};
-            await settingsTraceAppend(moduleName, funcName, tag, snap, note);
           } catch (e) {
             // ignore
           }
           return;
         }
-
-        if (msg.type === "diagHello") {
-          try {
-            const p = msg.payload || {};
-            const snap = p.settingsSnap || {};
-            const note = p.note || {};
-            await settingsTraceAppend("dialog", "diagHello", "recv", snap, note);
-          } catch (e) {
-            // ignore
-          }
           return;
         }
-
-
 
 
         if (msg.type === "setFavorites") {
@@ -766,7 +495,6 @@ if (msg.type === "setRowHeightPreset") {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
         await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", preset, `rowHeight:${msg.__src || ""}`);
-        await diagTraceRowHeight("commands", "setRowHeightPreset", "after:" + String(msg.__src || ""));
       }
     } catch (e) {
           // ignore
@@ -829,10 +557,8 @@ if (msg.type === "selectSheet") {
               // Only persist RowHeightPreset from the snapshot if the user actually changed it
               // during this dialog session. Otherwise, a default UI value could overwrite the
               // existing global value (e.g., when the dialog closes quickly).
-              await diagTraceRowHeight("commands", "snapshotSelect", "beforePersist");
               if (rowHeightDirty && rowHeightPreset) {
                 await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "snapshot:select");
-                await diagTraceRowHeight("commands", "snapshotSelect", "afterPersist");
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
@@ -859,8 +585,6 @@ if (msg.type === "selectSheet") {
               // Keep cache coherent for the next dialog open.
               cachedState = await getJumpToState();
             });
-          
-              await diagFlushRowHeightTrace("commands", "selectSheet", "end");
 })().catch((err) => console.error("selectSheet background handler failed:", err));
 
           return;
@@ -870,7 +594,6 @@ if (msg.type === "selectSheet") {
           try {
             const p = msg.payload || {};
             if (p && p.settingsSnap) {
-              await settingsTraceAppend("dialog", "cancelMsg", "cancel", p.settingsSnap, p.note || {});
             }
           } catch (e) {
             // ignore
@@ -891,10 +614,8 @@ if (msg.type === "selectSheet") {
 
           (async () => {
             await withLock(async () => {
-              await diagTraceRowHeight("commands", "snapshotCancel", "beforePersist");
               if (rowHeightDirty && rowHeightPreset) {
                 await dbgSetPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "snapshot:cancel");
-                await diagTraceRowHeight("commands", "snapshotCancel", "afterPersist");
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
@@ -921,16 +642,8 @@ if (msg.type === "selectSheet") {
               cachedState = await getJumpToState();
             });
 
-            try {
-              await diagFlushRowHeightTrace("commands", "cancel", "end");
+                        try {
             } catch (e) {
-              console.error("diagFlushRowHeightTrace failed:", e);
-            }
-
-            try {
-              await diagFlushSettingsTrace("commands", "cancel", "end");
-            } catch (e) {
-              console.error("diagFlushSettingsTrace failed:", e);
             }
           })().catch((err) => console.error("cancel background handler failed:", err));
           return;

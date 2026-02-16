@@ -1,10 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { diagTraceRowHeight, diagFlushRowHeightTrace } from "../services/rowHeightTrace";
 import { MAX_RECENTS } from "../shared/constants";
 
 import { createRoot } from "react-dom/client";
-
-import { settingsTraceAppend } from "../services/settingsTrace";
 
 function canMessageParentLocal() {
   try {
@@ -165,7 +162,6 @@ function favDbgLog(source, prev, next) {
 }
 
 
-
 function sameFavoriteIds(a, b) {
   if (a === b) return true;
   const aa = Array.isArray(a) ? a : [];
@@ -184,20 +180,6 @@ function DialogApp() {
 
   useEffect(() => {
     if (!canMessageParentLocal()) return;
-    try {
-      const snap = buildSettingsSnapForParent(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, refsForParentSnap);
-      Office.context.ui.messageParent(
-        JSON.stringify({
-          type: "diagHello",
-          payload: {
-            settingsSnap: snap,
-            note: { href: String(window.location && window.location.href ? window.location.href : "") },
-          },
-        })
-      );
-    } catch (e) {
-      // ignore
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -231,119 +213,6 @@ function DialogApp() {
       return { error: "snapshotFailed" };
     }
   }
-
-  useEffect(() => {
-    // Immediate probe entry
-    try {
-      fireAndForget(
-        settingsTraceAppend("dialog", "DialogApp", "probe:mount", buildSettingsTraceSnapshot(), { href: String(window.location && window.location.href ? window.location.href : "") }),
-        "settingsTraceAppend.probe.mount"
-      );
-    } catch (e) {
-      // ignore
-    }
-
-    // Second probe after a short delay (captures post-hydration effects, if any).
-    let t = null;
-    try {
-      t = window.setTimeout(() => {
-        try {
-          fireAndForget(
-            settingsTraceAppend("dialog", "DialogApp", "probe:post1s", buildSettingsTraceSnapshot(), {}),
-            "settingsTraceAppend.probe.post1s"
-          );
-        } catch (e) {
-          // ignore
-        }
-      }, 1000);
-    } catch (e) {
-      // ignore
-    }
-
-    return () => {
-      try {
-        if (t != null) window.clearTimeout(t);
-      } catch (e) {
-        // ignore
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Settings trace → ORTS (diagnostics-only). This does NOT rely on a devtools console.
-  function emitSettingsTraceToOrts(funcName, tag, note) {
-    try {
-      const snap = {
-        globalOptions: {
-          rowHeightPreset: globalOptions?.rowHeightPreset,
-          oneDigitActivationEnabled: globalOptions?.oneDigitActivationEnabled,
-          baselineOrder: globalOptions?.baselineOrder,
-          frequentOnTop: globalOptions?.frequentOnTop,
-        },
-        ui: {
-          favPercentManual: uiFavPercentManual,
-          recentsDisplayCount: uiRecentsDisplayCount,
-        },
-        flags: {
-          globalDirty: !!globalOptionsDirtyRef?.current,
-          uiDirty: !!uiSettingsDirtyRef?.current,
-          rowHeightDirty: !!rowHeightDirtyRef?.current,
-          prefsHydrated: !!prefsHydratedRef?.current,
-          prefsHydratedFromValid: !!prefsHydratedFromValidRef?.current,
-        },
-      };
-      fireAndForget(
-        settingsTraceAppend("dialog", String(funcName || ""), String(tag || ""), snap, note || {}),
-        "settingsTraceAppend"
-      );
-    } catch (e) {
-      // ignore
-    }
-  }
-
-
-  // =====================
-  // Settings trace (diagnostics-only)
-  // =====================
-  const JT_SETTINGS_TRACE = true;
-  const settingsTraceSeqRef = useRef(0);
-  const settingsTraceLastSentAtRef = useRef(0);
-
-  function emitSettingsTrace(funcName, tag, note) {
-    if (!JT_SETTINGS_TRACE) return;
-    try {
-      const now = Date.now();
-      const last = Number(settingsTraceLastSentAtRef.current || 0);
-      if (now - last < 200 && tag === "change") return; // throttle noisy changes
-      settingsTraceLastSentAtRef.current = now;
-
-      settingsTraceSeqRef.current = (settingsTraceSeqRef.current || 0) + 1;
-
-      const flags = {
-        globalDirty: !!globalOptionsDirtyRef?.current,
-        uiDirty: !!uiSettingsDirtyRef?.current,
-        rowHeightDirty: !!rowHeightDirtyRef?.current,
-        prefsHydrated: !!prefsHydratedRef?.current,
-        prefsHydratedFromValid: !!prefsHydratedFromValidRef?.current,
-      };
-
-      const snap = snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, flags);
-      const n = Object.assign({ seq: settingsTraceSeqRef.current }, note || {});
-      sendDiagSettings("dialog", String(funcName || ""), String(tag || ""), snap, n);
-    } catch (e) {
-      // ignore
-    }
-  }
-
-
-  useEffect(() => {
-    fireAndForget(diagTraceRowHeight("dialog", "DialogApp", "mount"), "DialogApp.mount");
-    emitSettingsTraceToOrts("DialogApp", "mount", { href: String(window.location && window.location.href ? window.location.href : "") });
-    emitSettingsTrace("DialogApp", "mount", { href: String(window.location && window.location.href ? window.location.href : "") });
-    return () => {
-      fireAndForget(diagFlushRowHeightTrace("dialog", "DialogApp", "unmount"), "DialogApp.unmount");
-    };
-  }, []);
   const [allSheets, setAllSheets] = useState([]);
   const [favorites, setFavorites] = useState([]);
   // Favorites bounce fix: prevent stale parent-state hydration from overwriting recent UI edits.
@@ -586,36 +455,6 @@ useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
       }
     };
 
-const sendDiagRowHeight = (tag, data) => {
-  if (!canMessageParent()) return;
-  try {
-    Office.context.ui.messageParent(
-      JSON.stringify({ type: "diagRowHeight", payload: { tag: String(tag || ""), data: data || {} } })
-    );
-  } catch (e) {
-    // ignore
-  }
-};
-
-const sendDiagSettings = (moduleName, funcName, tag, snapshot, note) => {
-  if (!canMessageParent()) return;
-  try {
-    Office.context.ui.messageParent(
-      JSON.stringify({
-        type: "diagSettings",
-        payload: {
-          module: String(moduleName || "dialog"),
-          func: String(funcName || ""),
-          tag: String(tag || ""),
-          snapshot: snapshot || {},
-          note: note || {},
-        },
-      })
-    );
-  } catch (e) {
-    // ignore
-  }
-};
 
 function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisplayCount, flags) {
   try {
@@ -638,7 +477,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
 }
 
 
-
     const sendPing = () => {
       if (!canMessageParent()) return;
       try {
@@ -650,7 +488,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
 
     if (window.Office && typeof Office.onReady === "function") {
       Office.onReady(() => {
-        sendDiagRowHeight("mount", { href: String(window.location && window.location.href ? window.location.href : "") });
       try {
         console.log(`[JT][build 37] dialog ready`, window.location.href);
       } catch (e) { /* ignore */ }
@@ -679,23 +516,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
           if (msg.type === "stateData") {
             try {
               receivedStateDataRef.current = true;
-              if (canMessageParentLocal()) {
-                Office.context.ui.messageParent(
-                  JSON.stringify({
-                    type: "diagHello",
-                    payload: {
-                      settingsSnap: {
-                        incoming: {
-                          global: (msg.state && msg.state.global) ? msg.state.global : null,
-                          settings: (msg.state && msg.state.settings) ? msg.state.settings : null,
-                          meta: (msg.state && msg.state.__meta) ? msg.state.__meta : null,
-                        },
-                      },
-                      note: { tag: "stateDataReceived" },
-                    },
-                  })
-                );
-              }
             } catch (e) {
               // ignore
             }
@@ -704,7 +524,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
 
             emitSettingsTrace("stateData", "enter", { meta: (msg.state && msg.state.__meta) ? msg.state.__meta : null });
 
-        try { sendDiagRowHeight("stateData", { rowHeightPreset: msg.state && msg.state.globalOptions ? msg.state.globalOptions.rowHeightPreset : undefined }); } catch (e) {
       // ignore
     }
             const state = msg.state || {};
@@ -753,8 +572,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             if (hydrateGlobal) {            emitSettingsTrace("stateData", "beforeSetGlobalOptions", { hasIncomingGlobal: !!(state && state.global) });
             emitSettingsTrace("stateData", "afterSetGlobalOptions", {});            emitSettingsTraceToOrts("stateData", "beforeSetGlobalOptions", { hasIncomingGlobal: !!(state && state.global) });
             emitSettingsTraceToOrts("stateData", "afterSetGlobalOptions", {});
-
-
 
 
             setGlobalOptions((prev) => {
@@ -810,7 +627,6 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
                   uiSettingsDirtyDesiredRef.current = null;
                   setUiFavPercentManual(incomingFav);
                   setUiRecentsDisplayCount(incomingCnt);
-                setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: incomingBaseOrder, frequentOnTop: incomingFrequentOnTop }));
                 } else {
                   // Ignore stale incoming UI settings while dirty.
                 }
@@ -818,10 +634,16 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
                 setUiFavPercentManual(incomingFav);
                 setUiRecentsDisplayCount(incomingCnt);
               }
+
+              setGlobalOptions((prev) => ({
+                ...(prev || {}),
+                baselineOrder: incomingBaseOrder,
+                frequentOnTop: incomingFrequentOnTop,
+              }));
             } catch (e) {
               // ignore
             }
-            }
+
             uiSettingsReadyRef.current = uiPrefsHydratedRef.current || prefsHydratedFromValidRef.current || uiSettingsDirtyRef.current;
             setStatus(sheets.length ? "" : "No visible worksheets found.");
 
@@ -1077,8 +899,6 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   }
 
 
-
-
   const isFavorite = (sheetId) => favoriteIds.has(sheetId);
 
   const addFavoriteLocal = (sheetId) => {
@@ -1219,10 +1039,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
         try {
 
           if (Office?.context?.ui?.messageParent) {
-
-            fireAndForget(diagTraceRowHeight("dialog", "scheduleGlobalPersist", "beforeSend:" + String(reason || "")), "scheduleGlobalPersist.beforeSend");
             Office.context.ui.messageParent(JSON.stringify({ type: "setRowHeightPreset", preset, __src: "dialog:schedule:" + String(reason || "") }));
-            fireAndForget(diagTraceRowHeight("dialog", "scheduleGlobalPersist", "afterSend:" + String(reason || "")), "scheduleGlobalPersist.afterSend");
             Office.context.ui.messageParent(JSON.stringify({ type: "setOneDigitActivation", enabled: !!(globalOptions?.oneDigitActivationEnabled) }));
 
           }
@@ -1351,7 +1168,6 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
   }, [activeTab, favorites]);
 
 
-
   const schedulePersistFavorites = (reason) => {
     favDirtyRef.current = true;
     if (favPersistTimerRef.current) {
@@ -1393,7 +1209,6 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     userSelect: "none",
     opacity: isActivating ? 0.65 : 1,
   };
-
 
 
   
@@ -1783,7 +1598,6 @@ return (
           </div>
         </>
       )}
-
 
 
       {activeTab === "Favorites" && (
@@ -2241,10 +2055,6 @@ try {
     Office.context.ui.addHandlerAsync(Office.EventType.DialogParentMessageReceived, function (arg) {
       try {
         const msg = JSON.parse(arg.message);
-        if (msg && msg.type === "persistDiag") {
-          console.log(`[PersistDiag] ${msg.tag}`);
-          console.log(msg.payload);
-        }
       } catch (e) {
         // ignore non-JSON
       }
