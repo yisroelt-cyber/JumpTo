@@ -260,39 +260,37 @@ function openJumpDialog(event) {
       };
 
       const flushStateQueue = async () => {
-        // Phase 4: fast-first render. If we have an in-memory cache, use it immediately.
-        // Otherwise, try a perf-cache-backed state (preferCache) before doing the full refresh.
-        if (cachedState) {
-          const state = await buildDialogState(cachedState);
-          
-      // DEBUG: dump persistence diagnostics to settings sheet
-while (pendingStateRequests.length) {
-            pendingStateRequests.pop();
-                    reply({ type: "stateData", state });
-          }
-        } else {
-          try {
-            cachedState = await getJumpToState({ preferCache: true });
-            if (cachedState) {
-              const state = await buildDialogState(cachedState);
-              while (pendingStateRequests.length) {
-                pendingStateRequests.pop();
-                reply({ type: "stateData", state });
-              }
-            }
-          } catch (e) {
-            // ignore; fall through to full refresh
-          }
-        }
-
-        const changed = await ensureFreshState();
-        if (changed && cachedState) {
-          const state = await buildDialogState(cachedState);
+  // Phase 4: fast-first render. If we have an in-memory cache, use it immediately.
+  // Otherwise, try a perf-cache-backed state (preferCache) before doing the full refresh.
+  if (cachedState) {
+    const state = await buildDialogState(cachedState);
+    while (pendingStateRequests.length) {
+      pendingStateRequests.pop();
+      reply({ type: "stateData", state });
+    }
+  } else {
+    try {
+      cachedState = await getJumpToState({ preferCache: true });
+      if (cachedState) {
+        const state = await buildDialogState(cachedState);
+        while (pendingStateRequests.length) {
+          pendingStateRequests.pop();
           reply({ type: "stateData", state });
         }
-      };
+      }
+    } catch (e) {
+      // ignore; fall through to full refresh
+    }
+  }
 
-      dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
+  const changed = await ensureFreshState();
+  if (changed && cachedState) {
+    const state = await buildDialogState(cachedState);
+    reply({ type: "stateData", state });
+  }
+};
+
+dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
         let msg;
         try {
           msg = JSON.parse(arg.message);
@@ -376,23 +374,6 @@ while (pendingStateRequests.length) {
           });
           return;
         }
-
-        if (msg.type === "diagSettings") {
-          try {
-            const p = msg.payload || {};
-            const moduleName = String(p.module || "dialog");
-            const funcName = String(p.func || "unknown");
-            const tag = String(p.tag || "");
-            const snap = p.snapshot || {};
-            const note = p.note || {};
-          } catch (e) {
-            // ignore
-          }
-          return;
-        }
-          return;
-        }
-
 
         if (msg.type === "setFavorites") {
           const ids = Array.isArray(msg.favorites) ? msg.favorites.filter(Boolean) : [];
