@@ -94,70 +94,7 @@ async function getActiveWorksheetId() {
 }
 
 async function buildDialogState(baseState) {
-// --- Persist debug: environment + tracing (Excel restart diagnosis) ---
-const PERSIST_TRACE_MARK = true;
-const PERSIST_READ_KEYS = {
-  rowHeight: "JumpTo.Option.RowHeightPreset",
-  favPercent: "JumpTo.Option.FavPercentManual",
-  recentsCount: "JumpTo.Option.RecentsDisplayCount",
-  baselineOrder: "JumpTo.Option.BaselineOrder",
-  frequentOnTop: "JumpTo.Option.FrequentOnTop",
-};
-
-const env = {
-  href: (typeof window !== "undefined" && window.location) ? window.location.href : null,
-  origin: (typeof window !== "undefined" && window.location) ? window.location.origin : null,
-  hasOfficeRuntime: typeof OfficeRuntime !== "undefined",
-  hasOfficeRuntimeStorage: (typeof OfficeRuntime !== "undefined") && !!(OfficeRuntime.storage && OfficeRuntime.storage.getItem),
-};
-dbgPersist("env", env);
-sendPersistDiagToDialog("env", env);
-try {
-  if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
-    const bootRH = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
-  
-        // Storage sentinel: verifies whether OfficeRuntime.storage survives a full Excel restart.
-        try {
-          if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem && OfficeRuntime.storage?.setItem) {
-            const SENTINEL_KEY = "JumpTo.Diag.Sentinel";
-            const sentinel = await OfficeRuntime.storage.getItem(SENTINEL_KEY);
-            const sentinelStr = sentinel === null || sentinel === undefined ? "" : String(sentinel);
-            if (!sentinelStr) {
-              const newVal = "sent-" + String(Date.now()) + "-" + String(Math.floor(Math.random() * 1000000));
-              await OfficeRuntime.storage.setItem(SENTINEL_KEY, newVal);
-            }
-          } else {
-          }
-} else {
-  }
-} catch (e) {
-}
-} catch (e) {
-          // ignore
-        }
-
-function trace(tag, payload) {
-  dbgPersist(tag, payload);
-  sendPersistDiagToDialog(tag, payload);
-          // ignore
-        }
-}
-
-async function dbgGet(key) {
-  try {
-    const v = await OfficeRuntime.storage.getItem(key);
-    trace(`getItem ${key}`, { value: v });
-    return v;
-  } catch (e) {
-    trace(`getItem ERROR ${key}`, { error: String(e) });
-    throw e;
-  }
-}
-
-  if (!baseState) {
-  trace("earlyReturn baseState", { baseState });
-  return baseState;
-}
+  if (!baseState) return baseState;
 
   const activeId = await getActiveWorksheetId();
 
