@@ -26,11 +26,9 @@ function pickWbSettings(obj) {
 
 const IDENTITY_LOG_PREFIX = "[JumpTo][Identity]";
 
-function identityLog(message, data) {
-  try {
-    if (data !== undefined) console.log(`${IDENTITY_LOG_PREFIX} ${message}`, data);
-    else console.log(`${IDENTITY_LOG_PREFIX} ${message}`);
-  } catch {}
+// Diagnostics cleanup: identity logging is disabled in production.
+function identityLog(_message, _data) {
+  // no-op
 }
 
 

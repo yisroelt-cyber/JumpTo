@@ -127,41 +127,6 @@ function clampNumber(n, min, max) {
   return Math.min(max, Math.max(min, v));
 }
 
-// =====================
-// Favorites bounce diagnostics (logging-only)
-// =====================
-// IMPORTANT: keep this behavior-neutral:
-// - no new hooks
-// - no new async/hydration paths
-// Toggle off when done.
-const DEBUG_FAV_BOUNCE = true;
-let __favDbgLast = null;
-
-function favDbgLog(source, prev, next) {
-  if (!DEBUG_FAV_BOUNCE) return;
-  try {
-    const before = Array.isArray(prev) ? prev.map((x) => x?.id).filter(Boolean) : [];
-    const after = Array.isArray(next) ? next.map((x) => x?.id).filter(Boolean) : [];
-    const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-    const dt = __favDbgLast ? Math.round(now - __favDbgLast.ts) : null;
-
-    console.log("[FavDbg]", {
-      source,
-      beforeCount: before.length,
-      afterCount: after.length,
-      delta: after.length - before.length,
-      dtMs: dt,
-      beforeIds: before.slice(0, 25),
-      afterIds: after.slice(0, 25),
-    });
-
-    __favDbgLast = { source, ts: now };
-  } catch (e) {
-    console.log("[FavDbg] log failed:", e);
-  }
-}
-
-
 function sameFavoriteIds(a, b) {
   if (a === b) return true;
   const aa = Array.isArray(a) ? a : [];
@@ -188,31 +153,6 @@ function DialogApp() {
   // Settings trace probe (diagnostics-only, hard-guaranteed)
   // Ensures we can verify dialog is able to write SettingsTraceLog in ORTS.
   // =====================
-  function buildSettingsTraceSnapshot() {
-    try {
-      return {
-        globalOptions: {
-          rowHeightPreset: globalOptions?.rowHeightPreset,
-          oneDigitActivationEnabled: globalOptions?.oneDigitActivationEnabled,
-          baselineOrder: globalOptions?.baselineOrder,
-          frequentOnTop: globalOptions?.frequentOnTop,
-        },
-        ui: {
-          favPercentManual: uiFavPercentManual,
-          recentsDisplayCount: uiRecentsDisplayCount,
-        },
-        flags: {
-          globalDirty: !!globalOptionsDirtyRef?.current,
-          uiDirty: !!uiSettingsDirtyRef?.current,
-          rowHeightDirty: !!rowHeightDirtyRef?.current,
-          prefsHydrated: !!prefsHydratedRef?.current,
-          prefsHydratedFromValid: !!prefsHydratedFromValidRef?.current,
-        },
-      };
-    } catch (e) {
-      return { error: "snapshotFailed" };
-    }
-  }
   const [allSheets, setAllSheets] = useState([]);
   const [favorites, setFavorites] = useState([]);
   // Favorites bounce fix: prevent stale parent-state hydration from overwriting recent UI edits.
@@ -288,14 +228,12 @@ useEffect(() => { favoritesRef.current = favorites; }, [favorites]);
 
   // settings change watcher (throttled via Column C flush cadence; ORTS append is bounded)
   useEffect(() => {
-    emitSettingsTraceToOrts("settings", "change", {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled, globalOptions?.baselineOrder, globalOptions?.frequentOnTop, uiFavPercentManual, uiRecentsDisplayCount]);
 
 
   // settings change watcher (throttled)
   useEffect(() => {
-    emitSettingsTrace("settings", "change", {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [globalOptions?.rowHeightPreset, globalOptions?.oneDigitActivationEnabled, globalOptions?.baselineOrder, globalOptions?.frequentOnTop, uiFavPercentManual, uiRecentsDisplayCount]);
 
@@ -489,7 +427,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
     if (window.Office && typeof Office.onReady === "function") {
       Office.onReady(() => {
       try {
-        console.log(`[JT][build 37] dialog ready`, window.location.href);
       } catch (e) { /* ignore */ }
       if (disposed) return;
 
@@ -519,10 +456,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             } catch (e) {
               // ignore
             }
-
-            emitSettingsTraceToOrts("stateData", "enter", { meta: (msg.state && msg.state.__meta) ? msg.state.__meta : null });
-
-            emitSettingsTrace("stateData", "enter", { meta: (msg.state && msg.state.__meta) ? msg.state.__meta : null });
 
       // ignore
     }
@@ -568,10 +501,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             if (hydrateWorkbookSections && incomingSettingsValid) {
               prefsHydratedFromValidRef.current = true;
             }
-
-            if (hydrateGlobal) {            emitSettingsTrace("stateData", "beforeSetGlobalOptions", { hasIncomingGlobal: !!(state && state.global) });
-            emitSettingsTrace("stateData", "afterSetGlobalOptions", {});            emitSettingsTraceToOrts("stateData", "beforeSetGlobalOptions", { hasIncomingGlobal: !!(state && state.global) });
-            emitSettingsTraceToOrts("stateData", "afterSetGlobalOptions", {});
 
 
             setGlobalOptions((prev) => {

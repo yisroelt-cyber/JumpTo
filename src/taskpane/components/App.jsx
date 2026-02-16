@@ -33,8 +33,6 @@ import { MAX_RECENTS } from "../../shared/constants";
    Constants
 ========================= */
 
-console.log("### JUMPTO APP VERSION: 2026-01-08 A ###");
-
 const SETTINGS_SHEET_NAME = "_JumpToAddinSettings";
 const USER_KEY_STORAGE_KEY = "JumpTo.UserKey";
 const USER_COL_START = 4; // column D = 4 (1-based)
@@ -202,7 +200,6 @@ async function hideTaskpaneSafely() {
     // Newer API (some hosts)
     if (globalThis.Office?.addin?.hide) {
       await Office.addin.hide();
-      console.log("hideTaskpaneSafely: Office.addin.hide() succeeded");
       return true;
     }
   } catch (e) {
@@ -213,7 +210,6 @@ async function hideTaskpaneSafely() {
     // Excel taskpane close API (commonly supported)
     if (globalThis.Office?.context?.ui?.closeContainer) {
       Office.context.ui.closeContainer();
-      console.log("hideTaskpaneSafely: Office.context.ui.closeContainer() called");
       return true;
     }
   } catch (e) {
@@ -236,33 +232,13 @@ async function installSharedRuntimeProbeOnce() {
   await Office.onReady();
 
   const req = Office.context.requirements;
-  const diag = Office.context.diagnostics;
-
-  console.group("JTS SharedRuntime probe");
-  console.log("host:", Office.context.host);
-  console.log("platform:", Office.context.platform);
-  console.log("Office build (diagnostics.version):", diag?.version);
-  console.log(
-    "SharedRuntime 1.1 supported?:",
-    req?.isSetSupported?.("SharedRuntime", "1.1")
-  );
-  console.log("typeof Office.addin:", typeof Office.addin);
-  console.log("typeof Office.addin.hide:", typeof Office.addin?.hide);
-  console.log(
-    "typeof Office.addin.onVisibilityModeChanged:",
-    typeof Office.addin?.onVisibilityModeChanged
-  );
-  console.log("Office.VisibilityMode:", Office.VisibilityMode);
-  console.groupEnd();
 
   // Visibility event probe (best-effort).
   try {
     const unsubscribe = await Office.addin.onVisibilityModeChanged((msg) => {
-      console.log("JTS VisibilityModeChanged:", msg?.visibilityMode, msg);
     });
     // Expose unsubscribe for manual cleanup in devtools if you want it:
     window.__JTS_unsubVisibility = unsubscribe;
-    console.log("JTS: onVisibilityModeChanged handler attached.");
   } catch (e) {
     console.error("JTS: onVisibilityModeChanged attach failed:", e);
   }
@@ -296,11 +272,8 @@ async function officeReady() {
 
 const IDENTITY_LOG_PREFIX = "[JumpTo][Identity]";
 
-function identityLog(message, data) {
-  try {
-    if (data !== undefined) console.log(`${IDENTITY_LOG_PREFIX} ${message}`, data);
-    else console.log(`${IDENTITY_LOG_PREFIX} ${message}`);
-  } catch {}
+function identityLog(_message, _data) {
+  // diagnostics cleanup: no-op
 }
 
 function newUuid() {
