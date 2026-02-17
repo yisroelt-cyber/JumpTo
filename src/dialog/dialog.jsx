@@ -127,6 +127,9 @@ function clampNumber(n, min, max) {
   return Math.min(max, Math.max(min, v));
 }
 
+// Favorites bounce diagnostics removed; keep no-op logger to avoid runtime crashes.
+function favDbgLog() { /* no-op */ }
+
 function sameFavoriteIds(a, b) {
   if (a === b) return true;
   const aa = Array.isArray(a) ? a : [];
