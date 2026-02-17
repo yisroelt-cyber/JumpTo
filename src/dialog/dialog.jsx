@@ -526,7 +526,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
               }
               return incoming;
             });
-            }
 
             // ORTS-backed per-user UI preferences (fav slider + recents count)
             // These are safe to apply even when workbook meta validity is false.
