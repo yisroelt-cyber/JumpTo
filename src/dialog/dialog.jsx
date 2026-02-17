@@ -574,6 +574,7 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
               // ignore
             }
 
+            }
             uiSettingsReadyRef.current = uiPrefsHydratedRef.current || prefsHydratedFromValidRef.current || uiSettingsDirtyRef.current;
             setStatus(sheets.length ? "" : "No visible worksheets found.");
 
