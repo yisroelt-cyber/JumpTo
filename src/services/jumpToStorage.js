@@ -26,9 +26,14 @@ function pickWbSettings(obj) {
 
 const IDENTITY_LOG_PREFIX = "[JumpTo][Identity]";
 
-// Diagnostics cleanup: identity logging is disabled in production.
-function identityLog(_message, _data) {
-  // no-op
+// Diagnostics: identity logging enabled. Remove before release.
+function identityLog(message, data) {
+  try {
+    const payload = data !== undefined ? data : "";
+    console.log(`${IDENTITY_LOG_PREFIX} ${message}`, payload);
+  } catch {
+    // ignore
+  }
 }
 
 
@@ -309,64 +314,92 @@ async function getOrCreateUserKey() {
   // or not persisting across sessions in this host.
   let existing = null;
 
+  // Diagnostic: log entry point so we can see how often this is called per session.
+  identityLog("getOrCreateUserKey() called", { ts: Date.now() });
+
   // 1) OfficeRuntime.storage (Shared Runtime)
+  const ortsAvailable = typeof OfficeRuntime !== "undefined" && !!OfficeRuntime.storage?.getItem;
+  identityLog("ORTS available?", ortsAvailable);
   try {
-    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
+    if (ortsAvailable) {
       existing = await OfficeRuntime.storage.getItem(USERKEY_STORAGE_KEY);
+      identityLog("ORTS.getItem result", { found: !!existing, value: existing });
       if (existing) {
-      identityLog("loaded from OfficeRuntime.storage", existing);
-      return existing;
+        identityLog("LOADED from OfficeRuntime.storage", existing);
+        return existing;
+      }
     }
-    }
-  } catch {}
+  } catch (e) {
+    identityLog("ORTS.getItem threw", String(e));
+  }
 
   // 2) Roaming settings (per-user, persists across sessions)
+  const rsAvailable = !!(Office?.context?.roamingSettings?.get);
+  identityLog("roamingSettings available?", rsAvailable);
   try {
     const rs = Office?.context?.roamingSettings;
     if (rs?.get) {
       existing = rs.get(USERKEY_STORAGE_KEY);
+      identityLog("roamingSettings.get result", { found: !!existing, value: existing });
       if (existing) {
-      identityLog("loaded from roamingSettings", existing);
-      return existing;
+        identityLog("LOADED from roamingSettings", existing);
+        return existing;
+      }
     }
-    }
-  } catch {}
+  } catch (e) {
+    identityLog("roamingSettings.get threw", String(e));
+  }
 
   // 3) localStorage (last resort; persists per-browser)
+  const lsAvailable = typeof globalThis?.localStorage?.getItem === "function";
+  identityLog("localStorage available?", lsAvailable);
   try {
     existing = globalThis?.localStorage?.getItem?.(USERKEY_STORAGE_KEY);
+    identityLog("localStorage.getItem result", { found: !!existing, value: existing });
     if (existing) {
-    identityLog("loaded from localStorage", existing);
-    return existing;
+      identityLog("LOADED from localStorage", existing);
+      return existing;
+    }
+  } catch (e) {
+    identityLog("localStorage.getItem threw", String(e));
   }
-  } catch {}
 
-  // Create new key
+  // No key found in any storage — create a new one.
   const key =
     (globalThis.crypto?.randomUUID?.() ||
       `u_${Date.now()}_${Math.random().toString(16).slice(2)}`);
 
-  
+  identityLog("*** CREATED NEW userKey ***", { key, ortsAvailable, rsAvailable, lsAvailable });
 
-  identityLog("CREATED NEW userKey", key);
-// Persist to all backends that are available.
+  // Persist to all backends that are available.
   try {
-    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+    if (ortsAvailable) {
       await OfficeRuntime.storage.setItem(USERKEY_STORAGE_KEY, key);
+      // Verify the write round-trips correctly.
+      const verify = await OfficeRuntime.storage.getItem(USERKEY_STORAGE_KEY);
+      identityLog("ORTS write verify", { wrote: key, readBack: verify, match: verify === key });
     }
-  } catch {}
+  } catch (e) {
+    identityLog("ORTS.setItem threw", String(e));
+  }
 
   try {
     const rs = Office?.context?.roamingSettings;
     if (rs?.set && rs?.saveAsync) {
       rs.set(USERKEY_STORAGE_KEY, key);
       await new Promise((resolve) => rs.saveAsync(() => resolve()));
+      identityLog("roamingSettings write complete");
     }
-  } catch {}
+  } catch (e) {
+    identityLog("roamingSettings.setItem threw", String(e));
+  }
 
   try {
     globalThis?.localStorage?.setItem?.(USERKEY_STORAGE_KEY, key);
-  } catch {}
+    identityLog("localStorage write complete");
+  } catch (e) {
+    identityLog("localStorage.setItem threw", String(e));
+  }
 
   return key;
 }
