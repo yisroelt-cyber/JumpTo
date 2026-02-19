@@ -228,6 +228,51 @@ function safeJsonStringify(obj) {
 }
 
 
+// --- Frequency decay ---
+// Storage format: JSON string { freq: <float>, dts: <ms timestamp> }
+// Half-life: 30 days. Decay is applied on both write and read so that
+// sheets not activated recently fade out naturally.
+
+const FREQ_HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+
+function decayFreq(freq, dts, nowMs) {
+  const f = typeof freq === "number" && isFinite(freq) ? freq : 0;
+  const d = typeof dts === "number" && isFinite(dts) && dts > 0 ? dts : null;
+  if (!d || f <= 0) return f;
+  const elapsed = Math.max(0, nowMs - d);
+  return f * Math.pow(0.5, elapsed / FREQ_HALF_LIFE_MS);
+}
+
+function parseFreqCell(raw) {
+  // Accept new format: JSON string { freq, dts }
+  // Gracefully handle legacy plain numbers: treat as { freq: 0, dts: 0 }
+  // so old test records decay to nothing immediately.
+  try {
+    if (raw === null || raw === undefined || raw === "") return { freq: 0, dts: 0 };
+    if (typeof raw === "number") return { freq: 0, dts: 0 };
+    if (typeof raw === "string") {
+      const s = raw.trim();
+      if (!s) return { freq: 0, dts: 0 };
+      // Plain numeric string = legacy
+      if (/^-?\d+(\.\d+)?$/.test(s)) return { freq: 0, dts: 0 };
+      const v = JSON.parse(s);
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        const freq = typeof v.freq === "number" && isFinite(v.freq) ? v.freq : 0;
+        const dts = typeof v.dts === "number" && isFinite(v.dts) ? v.dts : 0;
+        return { freq, dts };
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { freq: 0, dts: 0 };
+}
+
+function stringifyFreqCell(freq, dts) {
+  return JSON.stringify({ freq, dts });
+}
+
+
 function parseFavoritesCell(raw) {
   // Accept either legacy array format: ["sheetId", ...]
   // or wrapped format: { dts: <ms>, favorites: ["sheetId", ...] }
@@ -583,13 +628,16 @@ async function loadInventory(context, sheet, userColLetter) {
 
   const inv = invRange.values || [];
   const freq = freqRange.values || [];
+  const nowMs = Date.now();
   const rows = [];
   for (let i = 0; i < inv.length; i++) {
     const rowNum = INV_START_ROW + i;
     const id = inv[i]?.[0] ?? "";
     const name = inv[i]?.[1] ?? "";
-    const f = freq[i]?.[0];
-    rows.push({ rowNum, id: String(id || ""), name: String(name || ""), freq: typeof f === "number" ? f : Number(f || 0) });
+    const raw = freq[i]?.[0];
+    const { freq: storedFreq, dts } = parseFreqCell(raw);
+    const decayedFreq = decayFreq(storedFreq, dts, nowMs);
+    rows.push({ rowNum, id: String(id || ""), name: String(name || ""), freq: decayedFreq, storedFreq, dts });
   }
   return rows;
 }
@@ -641,9 +689,9 @@ async function syncInventoryWithVisibleSheets(context, sheet, userColLetter, vis
     const nameCell = sheet.getRange(`B${lastUsedRow}`);
     idCell.values = [[sid]];
     nameCell.values = [[sname]];
-    // initialize freq to 0
+    // initialize freq to { freq: 0, dts: 0 }
     const fCell = sheet.getRange(`${userColLetter}${lastUsedRow}`);
-    fCell.values = [[0]];
+    fCell.values = [[stringifyFreqCell(0, 0)]];
     matchedRows.add(lastUsedRow);
   }
 
@@ -667,9 +715,13 @@ async function incrementFrequency(context, sheet, userColLetter, sheetId) {
   cell.load("values");
   await context.sync();
 
-  const cur = Number(cell.values?.[0]?.[0] || 0);
-  const next = cur + 1;
-  cell.values = [[next]];
+  // Decay the existing stored value forward to now, then add 1.
+  // This keeps the stored freq meaningful as "decayed count as of dts".
+  const nowMs = Date.now();
+  const { freq: storedFreq, dts } = parseFreqCell(cell.values?.[0]?.[0]);
+  const decayed = decayFreq(storedFreq, dts, nowMs);
+  const next = decayed + 1;
+  cell.values = [[stringifyFreqCell(next, nowMs)]];
   await context.sync();
   return next;
 }
