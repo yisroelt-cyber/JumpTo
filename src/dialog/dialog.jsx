@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { MAX_RECENTS } from "../shared/constants";
+import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 
 import { createRoot } from "react-dom/client";
 
@@ -674,9 +674,9 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
       items.sort((a, b) => Number(a?.orderIndex || 0) - Number(b?.orderIndex || 0));
     }
 
-    // Apply "frequent bump" ONLY when search is active AND the list is narrowed.
+    // Apply "frequent bump" ONLY when search is active, the list is narrowed, AND premium is enabled.
     const allCount = Array.isArray(allSheets) ? allSheets.length : 0;
-    if (q && items.length < allCount && !!(globalOptions?.frequentOnTop)) {
+    if (q && items.length < allCount && PREMIUM_FREQ_BUMP) {
       const N = items.length;
       const k = Math.min(Math.max(Math.ceil(0.1 * N), 1), 5); // candidates considered; does not force a bump
 
@@ -724,7 +724,7 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
     }
 
     return items;
-  }, [allSheets, query, globalOptions?.baselineOrder, globalOptions?.frequentOnTop]);
+  }, [allSheets, query, globalOptions?.baselineOrder]);
 
   const favoriteIds = useMemo(() => new Set((favorites || []).map((f) => f?.id).filter(Boolean)), [favorites]);
 
@@ -1833,19 +1833,18 @@ return (
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, opacity: 0.95 }}>
               <div>
-                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-                  <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
-                    <input
-                      type="radio"
-                      name="baselineOrder"
-                      checked={String(globalOptions?.baselineOrder || "workbook") !== "alpha"}
-                      onChange={() => {
-                        setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: "workbook" }));
-                        schedulePersistUiSettings("baselineOrder");
-                      }}
-                    />
-                    Workbook order
-                  </label>
+                <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+                  <input
+                    type="radio"
+                    name="baselineOrder"
+                    checked={String(globalOptions?.baselineOrder || "workbook") !== "alpha"}
+                    onChange={() => {
+                      setGlobalOptions((prev) => ({ ...(prev || {}), baselineOrder: "workbook" }));
+                      schedulePersistUiSettings("baselineOrder");
+                    }}
+                  />
+                  Workbook order
+                </label>
 
                   <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
                     <input
@@ -1859,22 +1858,6 @@ return (
                     />
                     Alphabetical
                   </label>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={!!(globalOptions?.frequentOnTop)}
-                    onChange={(e) => {
-                      const next = !!e.target.checked;
-                      setGlobalOptions((prev) => ({ ...(prev || {}), frequentOnTop: next }));
-                      schedulePersistUiSettings("frequentOnTop");
-                    }}
-                  />
-                  Show highly used sheets at the top of search results
-                </label>
               </div>
             </div>
           </div>
