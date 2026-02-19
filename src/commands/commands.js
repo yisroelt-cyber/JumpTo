@@ -467,7 +467,26 @@ if (msg.type === "selectSheet") {
           (async () => {
             await withLock(async () => {
               if (sheetId) {
+                // Capture the origin sheet (currently active) before jumping away.
+                let originSheetId = null;
+                try {
+                  originSheetId = await Excel.run(async (context) => {
+                    const ws = context.workbook.worksheets.getActiveWorksheet();
+                    ws.load("id");
+                    await context.sync();
+                    return ws.id;
+                  });
+                } catch (e) {
+                  // ignore — origin capture is best-effort
+                }
+
                 await activateSheetById(sheetId);
+
+                // Record origin first, then destination — so destination lands at position 0
+                // (most recent), origin at position 1. Skip origin if same as destination.
+                if (originSheetId && originSheetId !== sheetId) {
+                  await recordActivation(originSheetId);
+                }
                 await recordActivation(sheetId);
               }
 
