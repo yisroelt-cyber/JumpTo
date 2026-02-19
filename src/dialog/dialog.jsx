@@ -204,7 +204,23 @@ function DialogApp() {
   const favDirtyRef = useRef(false);
   const favoritesRef = useRef([]);
 
-  const [highlightIndex, setHighlightIndex] = useState(0);
+  // Faux-focus: keyboard focus stays on search box at all times, but a virtual
+  // focus cycles between the three Navigation tab lists via Tab.
+  // "all" = All Sheets, "favorites" = Favorites, "recents" = Recents
+  const [fauxFocus, setFauxFocus] = useState("all");
+  // Independent highlight indices — each section remembers its position independently.
+  const [highlightAll, setHighlightAll] = useState(0);
+  const [highlightFav, setHighlightFav] = useState(0);
+  const [highlightRec, setHighlightRec] = useState(0);
+  // Legacy alias kept for Favorites tab (unchanged).
+  const highlightIndex = highlightAll;
+  const setHighlightIndex = setHighlightAll;
+  // Scroll container refs for right-column lists (used for scrollIntoView on arrow nav).
+  const navFavListRef = useRef(null);
+  const navRecListRef = useRef(null);
+  // Row element refs for right-column lists.
+  const navFavRowRefs = useRef([]);
+  const navRecRowRefs = useRef([]);
   const requestedRef = useRef(false);
   const timeoutIdRef = useRef(null);
   const statusRef = useRef("Loading…");
@@ -1205,27 +1221,62 @@ const onCancel = () => {
   }
 };
 
-  // Listbox-like navigation: default highlight is first row after load/filter.
+  // When faux-focus moves to a section, clamp that section's index to valid bounds.
+  useEffect(() => {
+    if (activeTab !== "Navigation") return;
+    if (fauxFocus === "favorites") {
+      const max = Math.max(0, (Array.isArray(favorites) ? favorites : []).length - 1);
+      setHighlightFav((prev) => Math.min(prev, max));
+    } else if (fauxFocus === "recents") {
+      const max = Math.max(0, (Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount).length - 1);
+      setHighlightRec((prev) => Math.min(prev, max));
+    } else if (fauxFocus === "all") {
+      const max = Math.max(0, (filtered?.length || 0) - 1);
+      setHighlightAll((prev) => Math.min(prev, max));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fauxFocus, activeTab]);
+
+  // Reset faux-focus to All Sheets when switching to Navigation tab.
+  useEffect(() => {
+    if (activeTab === "Navigation") setFauxFocus("all");
+  }, [activeTab]);
+
+  // Reset All Sheets highlight to top when the filtered list changes (query changed).
+  // Favorites and Recents positions are intentionally left alone.
 useEffect(() => {
   if (activeTab !== "Navigation") return;
-  setHighlightIndex(0);
-  // Do NOT re-select the search text on every keystroke; that would cause each new character to replace the previous.
+  setHighlightAll(0);
   requestSearchFocus("resetHighlight");
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [filtered.length, activeTab]);
 
-// Keep the highlighted row visible when navigating with arrow keys.
+// Scroll the highlighted All Sheets row into view on arrow nav.
 useEffect(() => {
-  if (activeTab !== "Navigation") return;
-  const el = listRowRefs.current?.[highlightIndex];
+  if (activeTab !== "Navigation" || fauxFocus !== "all") return;
+  const el = listRowRefs.current?.[highlightAll];
   if (el && typeof el.scrollIntoView === "function") {
-    try {
-      el.scrollIntoView({ block: "nearest" });
-    } catch (e) {
-      // ignore
-    }
+    try { el.scrollIntoView({ block: "nearest" }); } catch (e) { /* ignore */ }
   }
-}, [highlightIndex, activeTab]);
+}, [highlightAll, activeTab, fauxFocus]);
+
+// Scroll highlighted Favorites row into view on arrow nav.
+useEffect(() => {
+  if (activeTab !== "Navigation" || fauxFocus !== "favorites") return;
+  const el = navFavRowRefs.current?.[highlightFav];
+  if (el && typeof el.scrollIntoView === "function") {
+    try { el.scrollIntoView({ block: "nearest" }); } catch (e) { /* ignore */ }
+  }
+}, [highlightFav, activeTab, fauxFocus]);
+
+// Scroll highlighted Recents row into view on arrow nav.
+useEffect(() => {
+  if (activeTab !== "Navigation" || fauxFocus !== "recents") return;
+  const el = navRecRowRefs.current?.[highlightRec];
+  if (el && typeof el.scrollIntoView === "function") {
+    try { el.scrollIntoView({ block: "nearest" }); } catch (e) { /* ignore */ }
+  }
+}, [highlightRec, activeTab, fauxFocus]);
 
 return (
     <div ref={rootRef} style={{ fontFamily: "Segoe UI, Arial, sans-serif", padding: 14, height: "100vh", boxSizing: "border-box", overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -1289,43 +1340,86 @@ return (
                   autoFocus
                   ref={searchInputRef}
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    // Typing always snaps faux-focus back to All Sheets.
+                    setFauxFocus("all");
+                  }}
                   onBlur={() => requestSearchFocus("fav-search-blur")}
                   onKeyDown={(e) => {
                     try {
                       const key = e.key;
-                      // Keep focus in search box; allow navigation + activation like a VBA listbox.
+                      const hasFavs = (Array.isArray(favorites) ? favorites : []).length > 0;
+                      const recentsVisible = (Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount);
+                      const hasRecs = recentsVisible.length > 0;
+
+                      // Tab cycles faux-focus: all -> favorites (if any) -> recents (if any) -> all
                       if (key === "Tab") {
                         e.preventDefault();
+                        setFauxFocus((prev) => {
+                          if (prev === "all") {
+                            if (hasFavs) return "favorites";
+                            if (hasRecs) return "recents";
+                            return "all";
+                          }
+                          if (prev === "favorites") {
+                            if (hasRecs) return "recents";
+                            return "all";
+                          }
+                          // recents -> all
+                          return "all";
+                        });
                         requestSearchFocus("tab");
                         return;
                       }
+
                       if (key === "ArrowDown") {
                         e.preventDefault();
-                        setHighlightIndex((prev) => {
-                          const max = Math.max(0, (filtered?.length || 0) - 1);
-                          return Math.min(max, prev + 1);
-                        });
+                        if (fauxFocus === "all") {
+                          setHighlightAll((prev) => Math.min(Math.max(0, (filtered?.length || 0) - 1), prev + 1));
+                        } else if (fauxFocus === "favorites") {
+                          setHighlightFav((prev) => Math.min(Math.max(0, (Array.isArray(favorites) ? favorites : []).length - 1), prev + 1));
+                        } else if (fauxFocus === "recents") {
+                          setHighlightRec((prev) => Math.min(Math.max(0, recentsVisible.length - 1), prev + 1));
+                        }
                         return;
                       }
+
                       if (key === "ArrowUp") {
                         e.preventDefault();
-                        setHighlightIndex((prev) => Math.max(0, prev - 1));
+                        if (fauxFocus === "all") {
+                          setHighlightAll((prev) => Math.max(0, prev - 1));
+                        } else if (fauxFocus === "favorites") {
+                          setHighlightFav((prev) => Math.max(0, prev - 1));
+                        } else if (fauxFocus === "recents") {
+                          setHighlightRec((prev) => Math.max(0, prev - 1));
+                        }
                         return;
                       }
+
                       if (key === "Enter") {
                         e.preventDefault();
-                        const idx = Math.max(0, Math.min((filtered?.length || 1) - 1, highlightIndex));
-                        const s = filtered?.[idx];
-                        if (s) onSelect(s);
+                        if (fauxFocus === "all") {
+                          const idx = Math.max(0, Math.min((filtered?.length || 1) - 1, highlightAll));
+                          const s = filtered?.[idx];
+                          if (s) onSelect(s);
+                        } else if (fauxFocus === "favorites") {
+                          const favList = Array.isArray(favorites) ? favorites : [];
+                          const f = favList[Math.max(0, Math.min(favList.length - 1, highlightFav))];
+                          if (f?.id) onSelect(f);
+                        } else if (fauxFocus === "recents") {
+                          const r = recentsVisible[Math.max(0, Math.min(recentsVisible.length - 1, highlightRec))];
+                          if (r?.id) onSelect(r);
+                        }
                         return;
                       }
+
                       const mods = e.altKey || e.ctrlKey || e.metaKey;
                       const oneDigit = globalOptions?.oneDigitActivationEnabled;
                       const q = query || "";
                       const leadingSpace = q.startsWith(" ");
 
-                      // One-digit activation: only when search box is empty, no modifiers, and no leading space.
+                      // One-digit activation: always available regardless of faux-focus.
                       if (oneDigit && !mods && !leadingSpace && q === "" && key >= "0" && key <= "9") {
                         const idx = key === "0" ? 9 : (Number(key) - 1);
                         const fav = favorites?.[idx];
@@ -1390,31 +1484,26 @@ return (
               ) : (
                 <div
                   style={{
-
                     flex: "1 1 auto",
                     minHeight: 0,
                     overflowY: "auto",
                     overflowX: "hidden",
                     overscrollBehavior: "contain",
-                    border: "1px solid rgba(0,0,0,0.1)",
+                    border: fauxFocus === "all" ? "1px solid rgba(0,120,212,0.55)" : "1px solid rgba(0,0,0,0.1)",
                     borderRadius: 6,
+                    boxShadow: fauxFocus === "all" ? "0 0 0 2px rgba(0,120,212,0.12)" : "none",
                   }}
                 >
                   {filtered.map((s, i) => (
                     <div
                       key={s.id || s.name}
                       ref={(el) => { listRowRefs.current[i] = el; }}
-                      onMouseEnter={() => { try { setHighlightIndex(i); } catch (e) {
-      // ignore
-    } }}
-                      onClick={() => { if (!isActivating) { try { setHighlightIndex(i); } catch (e) {
-      // ignore
-    } onSelect(s); } }}
+                      onMouseEnter={() => { try { setFauxFocus("all"); setHighlightAll(i); } catch (e) { /* ignore */ } }}
+                      onClick={() => { if (!isActivating) { try { setFauxFocus("all"); setHighlightAll(i); } catch (e) { /* ignore */ } onSelect(s); } }}
                       style={{
                         ...rowStyle,
-                        background: i === highlightIndex ? "rgba(0,120,212,0.12)" : "transparent",
+                        background: fauxFocus === "all" && i === highlightAll ? "rgba(0,120,212,0.12)" : "transparent",
                       }}
-
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
@@ -1442,6 +1531,7 @@ return (
 
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, opacity: 0.85 }}>Favorites</div>
               <div
+                ref={navFavListRef}
                 style={{
                   flex: "0 1 auto",
                   height: navTabFavListHeight,
@@ -1451,21 +1541,24 @@ return (
                   overflowY: "auto",
                   overflowX: "hidden",
                   boxSizing: "border-box",
-                  border: "1px solid rgba(0,0,0,0.1)",
+                  border: fauxFocus === "favorites" ? "1px solid rgba(0,120,212,0.55)" : "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
                   marginBottom: 6,
+                  boxShadow: fauxFocus === "favorites" ? "0 0 0 2px rgba(0,120,212,0.12)" : "none",
                 }}>
                 {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
                   const slot = i < 9 ? String(i + 1) : i === 9 ? "0" : "-";
                   const name = f?.name || "";
                   const id = f?.id;
+                  const isFauxHighlighted = fauxFocus === "favorites" && i === highlightFav;
                   return (
                     <div
                       key={id || `${name}_${i}`}
-                      onClick={() => !isActivating && id && onSelect({ id })}
-                      onMouseEnter={() => setHoverNavFavoriteId(id)}
+                      ref={(el) => { navFavRowRefs.current[i] = el; }}
+                      onClick={() => { if (!isActivating && id) { setFauxFocus("favorites"); setHighlightFav(i); onSelect({ id }); } }}
+                      onMouseEnter={() => { setFauxFocus("favorites"); setHighlightFav(i); setHoverNavFavoriteId(id); }}
                       onMouseLeave={() => setHoverNavFavoriteId(null)}
-                      style={{ ...rowStyle, background: (hoverNavFavoriteId === id ? "rgba(0,120,212,0.10)" : "transparent") }}
+                      style={{ ...rowStyle, background: isFauxHighlighted ? "rgba(0,120,212,0.12)" : (hoverNavFavoriteId === id && fauxFocus !== "favorites" ? "rgba(0,120,212,0.07)" : "transparent") }}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
@@ -1491,6 +1584,7 @@ return (
                 <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>Recents</div>
               </div>
               <div
+                ref={navRecListRef}
                 style={{
                   flex: "0 1 auto",
                   height: navTabRecListHeight,
@@ -1500,21 +1594,23 @@ return (
                   overflowY: "auto",
                   overflowX: "hidden",
                   boxSizing: "border-box",
-                  border: "1px solid rgba(0,0,0,0.1)",
+                  border: fauxFocus === "recents" ? "1px solid rgba(0,120,212,0.55)" : "1px solid rgba(0,0,0,0.1)",
                   borderRadius: 6,
+                  boxShadow: fauxFocus === "recents" ? "0 0 0 2px rgba(0,120,212,0.12)" : "none",
                 }}
               >
                 {(Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount).map((r, i) => {
                   const name = r?.name || "";
                   const id = r?.id;
-                  const fav = isFavorite(id);
+                  const isFauxHighlighted = fauxFocus === "recents" && i === highlightRec;
                   return (
                     <div
                       key={id || `${name}_${i}`}
-                      onClick={() => !isActivating && id && onSelect({ id })}
-                      onMouseEnter={() => setHoverNavRecentId(id)}
+                      ref={(el) => { navRecRowRefs.current[i] = el; }}
+                      onClick={() => { if (!isActivating && id) { setFauxFocus("recents"); setHighlightRec(i); onSelect({ id }); } }}
+                      onMouseEnter={() => { setFauxFocus("recents"); setHighlightRec(i); setHoverNavRecentId(id); }}
                       onMouseLeave={() => setHoverNavRecentId(null)}
-                      style={{ ...rowStyle, background: (hoverNavRecentId === id ? "rgba(0,120,212,0.10)" : "transparent") }}
+                      style={{ ...rowStyle, background: isFauxHighlighted ? "rgba(0,120,212,0.12)" : (hoverNavRecentId === id && fauxFocus !== "recents" ? "rgba(0,120,212,0.07)" : "transparent") }}
                       role="button"
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
