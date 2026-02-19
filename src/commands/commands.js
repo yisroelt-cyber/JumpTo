@@ -412,7 +412,7 @@ if (msg.type === "setRowHeightPreset") {
   await withLock(async () => {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await setPersistKey("JumpTo.Option.RowHeightPreset", preset, `rowHeight:${msg.__src || ""}`);
+        await OfficeRuntime.storage.setItem(OPT_ROW_HEIGHT, preset);
       }
     } catch (e) {
           // ignore
@@ -476,7 +476,9 @@ if (msg.type === "selectSheet") {
               // during this dialog session. Otherwise, a default UI value could overwrite the
               // existing global value (e.g., when the dialog closes quickly).
               if (rowHeightDirty && rowHeightPreset) {
-                await setPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "snapshot:select");
+                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                  await OfficeRuntime.storage.setItem(OPT_ROW_HEIGHT, rowHeightPreset);
+                }
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
@@ -533,7 +535,9 @@ if (msg.type === "selectSheet") {
           (async () => {
             await withLock(async () => {
               if (rowHeightDirty && rowHeightPreset) {
-                await setPersistKey("JumpTo.Option.RowHeightPreset", rowHeightPreset, "snapshot:cancel");
+                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                  await OfficeRuntime.storage.setItem(OPT_ROW_HEIGHT, rowHeightPreset);
+                }
               }
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
