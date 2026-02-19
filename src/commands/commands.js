@@ -206,7 +206,7 @@ async function buildDialogState(baseState) {
     ...baseState,
     // Keep workbook settings minimal; dialog UI can still display global values (provided via `global`).
     settings: { favPercentManual, recentsDisplayCount },
-    global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop },
+    global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop, devPremium: !!(baseState.global?.devPremium) },
     recents: filtered.map((id) => ({ id, name: idToName.get(id) || "" })),
   };
 }

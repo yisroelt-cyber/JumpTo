@@ -11,6 +11,10 @@ const ROW_FAVORITES = 2;
 const ROW_RECENTS = 3;
 const ROW_SETTINGS = 4;
 
+// Dev premium flag cell: write "DEV_PREMIUM" here to enable frequency bump for testing.
+const DEV_FLAG_CELL = "A10";
+const DEV_FLAG_VALUE = "DEV_PREMIUM";
+
 // Workbook-scoped user settings persisted in the workbook Settings sheet blob.
 const WB_SETTINGS_KEYS = ["oneDigitActivationEnabled"];
 
@@ -619,12 +623,17 @@ async function writeUserCells(context, sheet, colLetter, { favorites, recents, s
 async function loadInventory(context, sheet, userColLetter) {
   // Load A52:C2000 and user's frequency column range for same rows.
   // Column A = id, B = name, C reserved (blank). User col stores frequency.
+  // Also load the dev premium flag cell (A10) in the same batch — zero added latency.
   const endRow = 2000;
   const invRange = sheet.getRange(`A${INV_START_ROW}:C${endRow}`);
   const freqRange = sheet.getRange(`${userColLetter}${INV_START_ROW}:${userColLetter}${endRow}`);
+  const devFlagCell = sheet.getRange(DEV_FLAG_CELL);
   invRange.load("values");
   freqRange.load("values");
+  devFlagCell.load("values");
   await context.sync();
+
+  const devPremium = String(devFlagCell.values?.[0]?.[0] ?? "").trim() === DEV_FLAG_VALUE;
 
   const inv = invRange.values || [];
   const freq = freqRange.values || [];
@@ -639,12 +648,12 @@ async function loadInventory(context, sheet, userColLetter) {
     const decayedFreq = decayFreq(storedFreq, dts, nowMs);
     rows.push({ rowNum, id: String(id || ""), name: String(name || ""), freq: decayedFreq, storedFreq, dts });
   }
-  return rows;
+  return { rows, devPremium };
 }
 
 async function syncInventoryWithVisibleSheets(context, sheet, userColLetter, visibleSheets) {
   // visibleSheets: [{id,name,orderIndex?}]
-  const rows = await loadInventory(context, sheet, userColLetter);
+  const { rows } = await loadInventory(context, sheet, userColLetter);
 
   // Build maps of existing rows
   const idToRow = new Map();
@@ -707,7 +716,7 @@ async function syncInventoryWithVisibleSheets(context, sheet, userColLetter, vis
 }
 
 async function incrementFrequency(context, sheet, userColLetter, sheetId) {
-  const rows = await loadInventory(context, sheet, userColLetter);
+  const { rows } = await loadInventory(context, sheet, userColLetter);
   const target = rows.find(r => r.id === sheetId) || null;
   if (!target) return 0;
 
@@ -772,7 +781,10 @@ export async function getJumpToState(options = {}) {
           recents: recIds.map((id) => ({ id, name: idToName.get(id) || "" })),
           settings: mini.settings,
           __meta: mini.__meta,
-          global: { freqById: (perf.freqById && typeof perf.freqById === "object") ? perf.freqById : {} }
+          global: {
+            freqById: (perf.freqById && typeof perf.freqById === "object") ? perf.freqById : {},
+            devPremium: !!(perf.devPremium)
+          }
         };
       }
     }
@@ -801,8 +813,8 @@ export async function getJumpToState(options = {}) {
     const favObjs = (Array.isArray(favorites) ? favorites : []).map(id => ({ id, name: idToName.get(id) || "" }));
     const recObjs = (Array.isArray(recents) ? recents : []).map(id => ({ id, name: idToName.get(id) || "" }));
 
-    // Load frequency values for visible sheets (for ordering)
-    const invRows = await loadInventory(context, settingsSheet, colLetter);
+    // Load frequency values and dev flag for visible sheets (single batch, no extra sync).
+    const { rows: invRows, devPremium } = await loadInventory(context, settingsSheet, colLetter);
     const freqById = {};
     for (const r of invRows) {
       if (r.id) freqById[r.id] = Number(r.freq || 0);
@@ -816,7 +828,7 @@ export async function getJumpToState(options = {}) {
       recents: recObjs,
       settings: (settings && typeof settings === "object") ? settings : {},
       __meta,
-      global: { freqById }
+      global: { freqById, devPremium }
     };
   });
 
@@ -896,7 +908,8 @@ export async function getJumpToState(options = {}) {
         dts: Date.now(),
         sheets,
         recents: recIds,
-        freqById: final?.global?.freqById || {}
+        freqById: final?.global?.freqById || {},
+        devPremium: !!(final?.global?.devPremium)
       });
     } catch {
       // ignore
@@ -1111,4 +1124,3 @@ export async function recordActivation(sheetId) {
 
   return { recents: out?.recents, freq: out?.freq };
 }
-

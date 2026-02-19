@@ -145,6 +145,7 @@ function sameFavoriteIds(a, b) {
 
 function DialogApp() {
   const receivedStateDataRef = useRef(false);
+  const devPremiumRef = useRef(false);
 
   useEffect(() => {
     if (!canMessageParentLocal()) return;
@@ -456,6 +457,7 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
           if (msg.type === "stateData") {
             try {
               receivedStateDataRef.current = true;
+              devPremiumRef.current = !!(msg.state?.global?.devPremium);
             } catch (e) {
               // ignore
             }
@@ -675,8 +677,9 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
     }
 
     // Apply "frequent bump" ONLY when search is active, the list is narrowed, AND premium is enabled.
+    // Premium is active if the compile-time constant is set OR the dev magic cell (A10 = "DEV_PREMIUM") is present.
     const allCount = Array.isArray(allSheets) ? allSheets.length : 0;
-    if (q && items.length < allCount && PREMIUM_FREQ_BUMP) {
+    if (q && items.length < allCount && (PREMIUM_FREQ_BUMP || devPremiumRef.current)) {
       const N = items.length;
       const k = Math.min(Math.max(Math.ceil(0.1 * N), 1), 5); // candidates considered; does not force a bump
 
