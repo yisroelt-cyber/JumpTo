@@ -40,7 +40,6 @@ async function identityLog(message, data) {
       ws.load("name");
       await context.sync();
       if (ws.isNullObject) return;
-      // Find next empty row in column C (rows 1-50)
       const colC = ws.getRange("C1:C50");
       colC.load("values");
       await context.sync();
@@ -51,12 +50,34 @@ async function identityLog(message, data) {
           nextRow = i + 2;
         }
       }
-      if (nextRow > 50) nextRow = 50; // cap at row 50
+      if (nextRow > 50) nextRow = 50;
       ws.getRange(`C${nextRow}`).values = [[line]];
       await context.sync();
     });
   } catch {
     // ignore — diagnostics must never break the add-in
+  }
+}
+
+// Dump every key currently stored in ORTS, so we can see if JumpTo.UserKey
+// is present under a different name or not present at all.
+async function ortsKeyDump() {
+  try {
+    if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage?.getKeys) {
+      await identityLog("ORTS.getKeys not available");
+      return;
+    }
+    const keys = await OfficeRuntime.storage.getKeys();
+    await identityLog("ORTS all keys", keys);
+    // For any key that looks like it might be the UserKey, log its value too
+    for (const k of keys) {
+      if (k.toLowerCase().includes("user") || k.toLowerCase().includes("jumpto.user")) {
+        const v = await OfficeRuntime.storage.getItem(k);
+        await identityLog(`ORTS key detail: ${k}`, v);
+      }
+    }
+  } catch (e) {
+    await identityLog("ORTS.getKeys threw", String(e));
   }
 }
 
@@ -344,7 +365,11 @@ async function getOrCreateUserKey() {
   try {
     if (ortsAvailable) {
       existing = await OfficeRuntime.storage.getItem(USERKEY_STORAGE_KEY);
-      await identityLog("ORTS.getItem result", { found: !!existing, value: existing });
+      await identityLog("ORTS.getItem result", { key: USERKEY_STORAGE_KEY, found: !!existing, value: existing });
+      if (!existing) {
+        // Key not found — dump all ORTS keys to see what's actually there
+        await ortsKeyDump();
+      }
       if (existing) {
         await identityLog("LOADED from ORTS", existing);
         return existing;
@@ -379,6 +404,16 @@ async function getOrCreateUserKey() {
     await identityLog("localStorage.getItem result", { found: !!existing, value: existing });
     if (existing) {
       await identityLog("LOADED from localStorage", existing);
+      // Also write to ORTS now so future sessions can find it there
+      try {
+        if (ortsAvailable) {
+          await OfficeRuntime.storage.setItem(USERKEY_STORAGE_KEY, existing);
+          const verify = await OfficeRuntime.storage.getItem(USERKEY_STORAGE_KEY);
+          await identityLog("ORTS backfill verify", { wrote: existing, readBack: verify, match: verify === existing });
+        }
+      } catch (e) {
+        await identityLog("ORTS backfill threw", String(e));
+      }
       return existing;
     }
   } catch (e) {
@@ -392,7 +427,6 @@ async function getOrCreateUserKey() {
 
   await identityLog("*** CREATED NEW userKey ***", { key, ortsAvailable, rsAvailable, lsAvailable });
 
-  // Persist to all available backends
   try {
     if (ortsAvailable) {
       await OfficeRuntime.storage.setItem(USERKEY_STORAGE_KEY, key);
