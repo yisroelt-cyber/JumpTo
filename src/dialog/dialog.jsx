@@ -1899,7 +1899,7 @@ return (
                 style={{ marginTop: 2 }}
               />
               <div>
-                <div style={{ fontWeight: 600 }}>Enable one-digit activation</div>
+                <div style={{ fontWeight: 600 }}>Enable one-digit activation for this workbook</div>
                 <div style={{ marginTop: 4, opacity: 0.85 }}>Jump instantly to a Favorite by typing a single digit (1–9, 0).</div>
                 <div style={{ marginTop: 4, opacity: 0.85 }}>Tip: To search for numbers (e.g. 2024), start the search with a space.</div>
               </div>
