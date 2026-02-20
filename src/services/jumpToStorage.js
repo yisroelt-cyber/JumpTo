@@ -450,32 +450,28 @@ function colIndexToLetter(idx1) {
 // Call once at startup; cache result in commands.js.
 
 export async function detectWorkbookReadOnly() {
-  // Fast path: Office document mode.
-  // The value is the string "readOnly", not an integer.
+  // Primary: load the workbook's readOnly property directly from Excel.
+  // This is the Office JS equivalent of VBA's Workbook.ReadOnly.
+  try {
+    const result = await Excel.run(async (context) => {
+      context.workbook.load("readOnly");
+      await context.sync();
+      return context.workbook.readOnly;
+    });
+    if (result === true) return true;
+  } catch {
+    // ignore — fall through to document.mode check
+  }
+
+  // Fallback: Office document mode string check.
   try {
     const mode = Office?.context?.document?.mode;
     if (mode === "readOnly" || mode === Office?.DocumentMode?.ReadOnly) return true;
   } catch {
-    // ignore — fall through to probe write
+    // ignore
   }
 
-  // Probe write: attempt a benign write to the workbook.
-  // We write to a named scratch cell in a try/catch. If it throws, we're read-only.
-  // We use a CustomProperty as the probe target since it doesn't affect sheet content
-  // and is less intrusive than writing to a cell.
-  try {
-    await Excel.run(async (context) => {
-      context.workbook.properties.custom.add("_JT_RO_PROBE_", "1");
-      await context.sync();
-      // Clean up immediately
-      const probe = context.workbook.properties.custom.getItemOrNullObject("_JT_RO_PROBE_");
-      probe.delete();
-      await context.sync();
-    });
-    return false; // Write succeeded — workbook is writable
-  } catch {
-    return true; // Write failed — workbook is read-only
-  }
+  return false;
 }
 
 
