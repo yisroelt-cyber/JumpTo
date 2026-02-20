@@ -84,6 +84,30 @@ async function computeSheetSignature() {
   });
 }
 
+// Single Excel.run that fetches everything needed at dialog-open time:
+// workbook read-only status, active sheet id, and visible sheet signature.
+// Replaces three previously separate Excel.run calls (detectWorkbookReadOnly,
+// computeSheetSignature, getActiveWorksheetId) with one round-trip.
+async function getWorkbookSnapshot() {
+  return Excel.run(async (context) => {
+    context.workbook.load("readOnly");
+    const activeSheet = context.workbook.worksheets.getActiveWorksheet();
+    activeSheet.load("id");
+    const sheets = context.workbook.worksheets;
+    sheets.load("items/id,name,visibility");
+    await context.sync();
+
+    const visibleItems = sheets.items.filter((s) => s.visibility === "visible");
+    const signature = visibleItems.map((s) => `${s.id}:${s.name}`).join("|");
+
+    return {
+      isReadOnly: !!context.workbook.readOnly,
+      activeSheetId: activeSheet.id,
+      signature,
+    };
+  });
+}
+
 async function ensureFreshState() {
   const now = Date.now();
   if (now - lastCheckTs < CHECK_TTL_MS) return false;
@@ -107,10 +131,12 @@ async function getActiveWorksheetId() {
   });
 }
 
-async function buildDialogState(baseState) {
+async function buildDialogState(baseState, activeSheetId = null) {
   if (!baseState) return baseState;
 
-  const activeId = await getActiveWorksheetId();
+  // Use provided activeSheetId (from getWorkbookSnapshot) to avoid an extra
+  // Excel.run. Fall back to a direct lookup only when not supplied.
+  const activeId = activeSheetId !== null ? activeSheetId : await getActiveWorksheetId();
 
   const sheetsArr = Array.isArray(baseState.sheets) ? baseState.sheets : [];
   const visibleIds = new Set(sheetsArr.map((s) => s.id));
@@ -324,25 +350,46 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
         if (msg.type === "dialogReady") {
           // Dialog has registered its parent-message handler; it's now safe to send stateData.
           await withLock(async () => {
-            // Detect read-only once per dialog session (fast sync check + probe).
-            // Cache result so all subsequent getJumpToState calls use it.
-            if (isReadOnlyCached === null) {
-              try {
-                isReadOnlyCached = await detectWorkbookReadOnly();
-              } catch {
-                isReadOnlyCached = false;
+            // Single Excel.run fetches read-only status, active sheet id, and sheet
+            // signature — replacing three previously separate round-trips.
+            let activeSheetId = null;
+            let snapshot = null;
+            try {
+              snapshot = await getWorkbookSnapshot();
+              isReadOnlyCached = snapshot.isReadOnly;
+              activeSheetId = snapshot.activeSheetId;
+            } catch {
+              // Fallback: individual checks if combined snapshot fails.
+              if (isReadOnlyCached === null) {
+                try {
+                  isReadOnlyCached = await detectWorkbookReadOnly();
+                } catch {
+                  isReadOnlyCached = false;
+                }
               }
             }
             const readOnly = !!isReadOnlyCached;
 
-            // Try to refresh workbook-backed state BEFORE sending stateData.
-            // After cold start, workbook access can be transiently unavailable; retry once with a short delay.
+            // Use snapshot signature to decide whether a full state refresh is needed.
             let changedAny = false;
-            try {
-              const changed0 = await ensureFreshState();
-              changedAny = changedAny || !!changed0;
-            } catch (e) {
-              // ignore
+            if (snapshot) {
+              const now = Date.now();
+              if (now - lastCheckTs >= CHECK_TTL_MS) {
+                lastCheckTs = now;
+                if (snapshot.signature !== cachedSignature || !cachedState) {
+                  cachedState = await getJumpToState({ isReadOnly: readOnly });
+                  cachedSignature = snapshot.signature;
+                  changedAny = true;
+                }
+              }
+            } else {
+              // Snapshot failed — fall back to original ensureFreshState path.
+              try {
+                const changed0 = await ensureFreshState();
+                changedAny = changedAny || !!changed0;
+              } catch (e) {
+                // ignore
+              }
             }
 
             if (!cachedState) {
@@ -356,7 +403,7 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
               cachedState = await getJumpToState({ isReadOnly: readOnly });
             }
 
-            let state = await buildDialogState(cachedState);
+            let state = await buildDialogState(cachedState, activeSheetId);
 
             // If we still look "invalid" (common right after Excel restart), retry once after a short delay.
             if (state && state.__meta && state.__meta.dts === 0) {
@@ -372,20 +419,16 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
                 // ignore
               }
               if (cachedState) {
-                state = await buildDialogState(cachedState);
+                state = await buildDialogState(cachedState, activeSheetId);
               }
             }
 
-            try {
-            } catch (e) {
-              // ignore
-            }
             reply({ type: "stateData", state });
 
             // If a refresh changed anything, push the updated state (best-effort).
             if (changedAny && cachedState) {
               try {
-                const state2 = await buildDialogState(cachedState);
+                const state2 = await buildDialogState(cachedState, activeSheetId);
                 reply({ type: "stateData", state: state2 });
               } catch (e) {
                 // ignore
