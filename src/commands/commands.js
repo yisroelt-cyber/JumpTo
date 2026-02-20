@@ -39,6 +39,16 @@ const OPT_RECENTS_DISPLAY_COUNT = "JumpTo.Option.RecentsDisplayCount";
 // Legacy key (previously global) for one-digit activation; now workbook-scoped.
 const OPT_ONE_DIGIT_LEGACY = "JumpTo.Option.OneDigitActivation";
 
+// Module-level cache for global ORTS settings.
+// Populated on first dialog open, reused for all subsequent opens in the same
+// shared-runtime session. Invalidated whenever the user changes a setting.
+// Keyed values mirror the OPT_* constants above.
+let ortsSettingsCache = null;
+
+function invalidateOrtsSettingsCache() {
+  ortsSettingsCache = null;
+}
+
 
 function withLock(fn) {
   return new Promise((resolve, reject) => {
@@ -132,65 +142,45 @@ async function buildDialogState(baseState) {
     : 20;
 
   try {
-    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
-      const v = await OfficeRuntime.storage.getItem(OPT_ROW_HEIGHT);
-      if (v) rowHeightPreset = String(v);
+    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItems) {
+      // Use cached values if available (populated on first open, lives for the
+      // shared-runtime session, invalidated on any setting change).
+      if (!ortsSettingsCache) {
+        const keys = [
+          OPT_ROW_HEIGHT,
+          OPT_BASELINE_ORDER,
+          OPT_FREQUENT_ON_TOP,
+          OPT_FAV_PERCENT,
+          OPT_RECENTS_DISPLAY_COUNT,
+          OPT_ONE_DIGIT_LEGACY,
+        ];
+        // getItems returns { [key]: value } for all requested keys in one call.
+        ortsSettingsCache = await OfficeRuntime.storage.getItems(keys);
+      }
 
-      const bo = await OfficeRuntime.storage.getItem(OPT_BASELINE_ORDER);
+      const v   = ortsSettingsCache[OPT_ROW_HEIGHT];
+      const bo  = ortsSettingsCache[OPT_BASELINE_ORDER];
+      const fot = ortsSettingsCache[OPT_FREQUENT_ON_TOP];
+      const fp  = ortsSettingsCache[OPT_FAV_PERCENT];
+      const rc  = ortsSettingsCache[OPT_RECENTS_DISPLAY_COUNT];
+      const od  = ortsSettingsCache[OPT_ONE_DIGIT_LEGACY];
+
+      if (v)  rowHeightPreset = String(v);
       if (bo) baselineOrder = String(bo);
-
-      const fot = await OfficeRuntime.storage.getItem(OPT_FREQUENT_ON_TOP);
       if (fot === "false") frequentOnTop = false;
       else if (fot === "true") frequentOnTop = true;
-
-      const fp = await OfficeRuntime.storage.getItem(OPT_FAV_PERCENT);
       if (fp !== null && fp !== undefined && fp !== "") favPercentManual = Number(fp);
-
-      const rc = await OfficeRuntime.storage.getItem(OPT_RECENTS_DISPLAY_COUNT);
       if (rc !== null && rc !== undefined && rc !== "") recentsDisplayCount = Number(rc);
 
-      // Legacy one-digit activation was global; if workbook doesn't yet have an override, seed from legacy value.
+      // Legacy one-digit activation: seed from global key only if workbook has no override.
       if (baseState.settings?.oneDigitActivationEnabled === undefined) {
-        const od = await OfficeRuntime.storage.getItem(OPT_ONE_DIGIT_LEGACY);
         if (od === "false") oneDigitActivationEnabled = false;
         else if (od === "true") oneDigitActivationEnabled = true;
       }
-
-      // Best-effort migration: promote legacy workbook-stored globals into global storage if missing.
-      if (!bo && baseState.settings?.baselineOrder)
-        await OfficeRuntime.storage.setItem(
-          OPT_BASELINE_ORDER,
-          String(baseState.settings.baselineOrder)
-        );
-
-      if (fot === null || fot === undefined) {
-        if (baseState.settings?.frequentOnTop !== undefined)
-          await OfficeRuntime.storage.setItem(
-            OPT_FREQUENT_ON_TOP,
-            baseState.settings.frequentOnTop ? "true" : "false"
-          );
-      }
-
-      if (
-        (fp === null || fp === undefined || fp === "") &&
-        baseState.settings?.favPercentManual !== undefined
-      )
-        await OfficeRuntime.storage.setItem(
-          OPT_FAV_PERCENT,
-          String(baseState.settings.favPercentManual)
-        );
-
-      if (
-        (rc === null || rc === undefined || rc === "") &&
-        baseState.settings?.recentsDisplayCount !== undefined
-      )
-        await OfficeRuntime.storage.setItem(
-          OPT_RECENTS_DISPLAY_COUNT,
-          String(baseState.settings.recentsDisplayCount)
-        );
     }
   } catch (e) {
-    // ignore
+    // If batched getItems fails, clear cache so next open retries.
+    ortsSettingsCache = null;
   }
 
   // Clamp recentsDisplayCount for use in filtered Recents list.
@@ -230,6 +220,7 @@ async function buildDialogState(baseState) {
 async function setGlobalUiSettings(patch) {
   const p = patch && typeof patch === "object" ? patch : {};
   if (typeof OfficeRuntime === "undefined" || !OfficeRuntime.storage?.setItem) return;
+  invalidateOrtsSettingsCache();
 
   // Only persist recognized global-scoped keys.
   const writes = [];
@@ -445,6 +436,7 @@ if (msg.type === "setRowHeightPreset") {
     try {
       if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
         await OfficeRuntime.storage.setItem(OPT_ROW_HEIGHT, preset);
+        invalidateOrtsSettingsCache();
       }
     } catch (e) {
           // ignore
@@ -534,6 +526,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightDirty && rowHeightPreset) {
                 if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
                   await OfficeRuntime.storage.setItem(OPT_ROW_HEIGHT, rowHeightPreset);
+                  invalidateOrtsSettingsCache();
                 }
               }
 
@@ -545,6 +538,7 @@ if (msg.type === "selectSheet") {
                     "JumpTo.Option.OneDigitActivation",
                     oneDigitActivationEnabled ? "true" : "false"
                   );
+                  invalidateOrtsSettingsCache();
                 }
               } catch (e) {
           // ignore
@@ -593,6 +587,7 @@ if (msg.type === "selectSheet") {
               if (rowHeightDirty && rowHeightPreset) {
                 if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
                   await OfficeRuntime.storage.setItem(OPT_ROW_HEIGHT, rowHeightPreset);
+                  invalidateOrtsSettingsCache();
                 }
               }
 
@@ -604,6 +599,7 @@ if (msg.type === "selectSheet") {
                     "JumpTo.Option.OneDigitActivation",
                     oneDigitActivationEnabled ? "true" : "false"
                   );
+                  invalidateOrtsSettingsCache();
                 }
               } catch (e) {
           // ignore
