@@ -833,16 +833,17 @@ export async function getJumpToState(options = {}) {
     try {
       const wbData = await Excel.run(async (context) => {
         const settingsSheet = await getSettingsSheetIfExists(context);
-        if (!settingsSheet) return null;
 
-        const identity = await readWorkbookIdentity(context, settingsSheet);
-
-        // Read visible sheets
+        // Always read visible sheets — regardless of whether the settings sheet exists.
         const wsItems = context.workbook.worksheets;
         wsItems.load("items/id,name,visibility");
         await context.sync();
         const visible = wsItems.items.filter(ws => ws.visibility === Excel.SheetVisibility.visible);
         const visibleSheets = visible.map((ws, idx) => ({ id: ws.id, name: ws.name, orderIndex: idx }));
+
+        if (!settingsSheet) return { identity: { workbookGuid: null, filenameFingerprint: null }, visibleSheets, userCells: null, invRows: [], devPremium: false };
+
+        const identity = await readWorkbookIdentity(context, settingsSheet);
 
         // Only attempt to read user cells if we have a valid GUID (so we can find the user column)
         let userCells = null;
