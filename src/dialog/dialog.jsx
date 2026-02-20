@@ -174,6 +174,7 @@ function DialogApp() {
   const [initError, setInitError] = useState("");
   const [activeTab, setActiveTab] = useState("Navigation");
   const [isReadOnly, setIsReadOnly] = useState(false);
+  const [readOnlyBannerDismissed, setReadOnlyBannerDismissed] = useState(false);
   
   // Favorites tab UI state (remember selection across tab switches)
   const [favTabSelectedAvailableId, setFavTabSelectedAvailableId] = useState(null);
@@ -1319,6 +1320,46 @@ return (
         </div>
       )}
 
+      {isReadOnly && !readOnlyBannerDismissed && (
+        <div
+          style={{
+            marginBottom: 10,
+            padding: "8px 10px",
+            borderRadius: 6,
+            border: "1px solid rgba(180, 130, 0, 0.35)",
+            background: "rgba(255, 200, 0, 0.08)",
+            fontSize: 12,
+            lineHeight: 1.45,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 8,
+          }}
+        >
+          <div style={{ flex: "1 1 auto" }}>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>This workbook is read-only</div>
+            <div style={{ opacity: 0.85 }}>JumpTo is running in degraded mode. Navigation works normally, but favorites/recents and some settings cannot be changed.</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReadOnlyBannerDismissed(true)}
+            title="Dismiss"
+            style={{
+              flexShrink: 0,
+              fontSize: 14,
+              lineHeight: 1,
+              padding: "2px 4px",
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              color: "rgba(0,0,0,0.45)",
+              marginTop: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <div ref={tabsRef}
         style={{
           display: "flex",
@@ -1339,26 +1380,6 @@ return (
           disabledTitle="Favorites cannot be edited in a read-only workbook"
         />
         <TabButton label="Settings" active={activeTab === "Settings"} onClick={() => setActiveTab("Settings")} />
-        {isReadOnly && (
-          <div
-            title="This workbook is read-only. Navigation still works, but changes cannot be saved."
-            style={{
-              marginLeft: "auto",
-              marginRight: 2,
-              padding: "2px 8px",
-              borderRadius: 10,
-              background: "rgba(0,0,0,0.07)",
-              border: "1px solid rgba(0,0,0,0.13)",
-              fontSize: 11,
-              color: "rgba(0,0,0,0.5)",
-              fontWeight: 500,
-              userSelect: "none",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Read-only
-          </div>
-        )}
       </div>
 
       <div ref={bodyRef} style={{ flex: "1 1 auto", overflow: "hidden" }}>
