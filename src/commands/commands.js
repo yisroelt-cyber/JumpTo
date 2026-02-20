@@ -206,8 +206,18 @@ async function buildDialogState(baseState) {
     if (filtered.length >= n) break;
   }
 
+  // Merge frequency data into sheet objects so dialog.jsx can use s.freq directly.
+  const freqById = (baseState.global?.freqById && typeof baseState.global.freqById === "object")
+    ? baseState.global.freqById
+    : {};
+  const sheetsWithFreq = sheetsArr.map((s) => ({
+    ...s,
+    freq: Number(freqById[s.id] || 0),
+  }));
+
   return {
     ...baseState,
+    sheets: sheetsWithFreq,
     // Keep workbook settings minimal; dialog UI can still display global values (provided via `global`).
     settings: { favPercentManual, recentsDisplayCount },
     global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop, devPremium: !!(baseState.global?.devPremium) },
