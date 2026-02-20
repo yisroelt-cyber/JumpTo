@@ -440,36 +440,42 @@ function colIndexToLetter(idx1) {
 // --- Read-only detection ---
 //
 // Combined approach:
-//   1. Fast synchronous check via Office.context.document.mode (1 = read-only).
-//   2. If that reports writable, we still catch write errors on first attempt as a fallback
-//      (handles Protected View, co-auth without edit rights, etc.).
+//   1. Fast synchronous check via Office.context.document.mode.
+//      Office.DocumentMode.ReadOnly = "readOnly" (string, not integer).
+//   2. Probe write: attempt to write a value to an existing named item or
+//      a scratch cell, catch the error. This catches Protected View, co-auth
+//      without edit rights, and any case document.mode misses.
 //
-// detectWorkbookReadOnly() performs a minimal probe write and returns true if the workbook
-// is not writable. Call once at startup; cache result in commands.js.
+// detectWorkbookReadOnly() returns true if the workbook is not writable.
+// Call once at startup; cache result in commands.js.
 
 export async function detectWorkbookReadOnly() {
-  // Fast path: Office document mode. Mode 1 = ReadOnly in the Office JS API.
+  // Fast path: Office document mode.
+  // The value is the string "readOnly", not an integer.
   try {
     const mode = Office?.context?.document?.mode;
-    if (mode === 1) return true; // Office.DocumentMode.ReadOnly
+    if (mode === "readOnly" || mode === Office?.DocumentMode?.ReadOnly) return true;
   } catch {
     // ignore — fall through to probe write
   }
 
-  // Probe write: attempt a no-op range read on a guaranteed-present sheet.
-  // If even reading fails (Protected View), treat as read-only.
-  // We do NOT attempt a write probe — reads are always safe; we rely on the
-  // write-error fallback in getJumpToState for any edge cases document.mode misses.
+  // Probe write: attempt a benign write to the workbook.
+  // We write to a named scratch cell in a try/catch. If it throws, we're read-only.
+  // We use a CustomProperty as the probe target since it doesn't affect sheet content
+  // and is less intrusive than writing to a cell.
   try {
     await Excel.run(async (context) => {
-      context.workbook.worksheets.load("count");
+      context.workbook.properties.custom.add("_JT_RO_PROBE_", "1");
+      await context.sync();
+      // Clean up immediately
+      const probe = context.workbook.properties.custom.getItemOrNullObject("_JT_RO_PROBE_");
+      probe.delete();
       await context.sync();
     });
+    return false; // Write succeeded — workbook is writable
   } catch {
-    return true; // Can't even read — treat as read-only
+    return true; // Write failed — workbook is read-only
   }
-
-  return false;
 }
 
 
@@ -1113,6 +1119,9 @@ export async function getJumpToState(options = {}) {
 
   return { ...final, isReadOnly: false };
 }
+
+
+export async function toggleFavorite(sheetId) {
   const userKey = await getOrCreateUserKey();
   if (!userKey) return null;
 
