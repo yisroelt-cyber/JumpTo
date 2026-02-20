@@ -97,23 +97,26 @@ function safeJsonParse(str) {
   }
 }
 
-function TabButton({ label, active, onClick }) {
+function TabButton({ label, active, onClick, disabled, disabledTitle }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      title={disabled ? disabledTitle : undefined}
+      disabled={disabled}
       style={{
         appearance: "none",
         background: "transparent",
         border: "none",
         padding: "8px 12px",
         margin: 0,
-        cursor: "pointer",
+        cursor: disabled ? "default" : "pointer",
         fontFamily: "Segoe UI, Arial, sans-serif",
         fontSize: 13,
         fontWeight: active ? 600 : 400,
-        color: "#111",
+        color: disabled ? "rgba(0,0,0,0.35)" : "#111",
         borderBottom: active ? "2px solid #0078d4" : "2px solid transparent",
+        opacity: disabled ? 0.5 : 1,
       }}
     >
       {label}
@@ -170,6 +173,7 @@ function DialogApp() {
   const [isActivating, setIsActivating] = useState(false);
   const [initError, setInitError] = useState("");
   const [activeTab, setActiveTab] = useState("Navigation");
+  const [isReadOnly, setIsReadOnly] = useState(false);
   
   // Favorites tab UI state (remember selection across tab switches)
   const [favTabSelectedAvailableId, setFavTabSelectedAvailableId] = useState(null);
@@ -479,6 +483,8 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             }
 
             const state = msg.state || {};
+            // Update read-only flag whenever parent sends state.
+            if (typeof state.isReadOnly === "boolean") setIsReadOnly(state.isReadOnly);
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             setAllSheets(sheets);
             setFavorites((prev) => {
@@ -1316,6 +1322,7 @@ return (
       <div ref={tabsRef}
         style={{
           display: "flex",
+          alignItems: "center",
           borderBottom: "1px solid rgba(0,0,0,0.15)",
           marginBottom: 10,
           marginTop: 2,
@@ -1324,8 +1331,34 @@ return (
         aria-label="JumpTo tabs"
       >
         <TabButton label="Navigation" active={activeTab === "Navigation"} onClick={() => setActiveTab("Navigation")} />
-        <TabButton label="Favorites" active={activeTab === "Favorites"} onClick={() => setActiveTab("Favorites")} />
+        <TabButton
+          label="Favorites"
+          active={activeTab === "Favorites"}
+          onClick={() => setActiveTab("Favorites")}
+          disabled={isReadOnly}
+          disabledTitle="Favorites cannot be edited in a read-only workbook"
+        />
         <TabButton label="Settings" active={activeTab === "Settings"} onClick={() => setActiveTab("Settings")} />
+        {isReadOnly && (
+          <div
+            title="This workbook is read-only. Navigation still works, but changes cannot be saved."
+            style={{
+              marginLeft: "auto",
+              marginRight: 2,
+              padding: "2px 8px",
+              borderRadius: 10,
+              background: "rgba(0,0,0,0.07)",
+              border: "1px solid rgba(0,0,0,0.13)",
+              fontSize: 11,
+              color: "rgba(0,0,0,0.5)",
+              fontWeight: 500,
+              userSelect: "none",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Read-only
+          </div>
+        )}
       </div>
 
       <div ref={bodyRef} style={{ flex: "1 1 auto", overflow: "hidden" }}>
@@ -1964,11 +1997,13 @@ return (
 <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Keyboard</div>
 
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: 0.95, userSelect: "none" }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: isReadOnly ? 0.45 : 0.95, userSelect: "none", cursor: isReadOnly ? "default" : "pointer" }}>
               <input
                 type="checkbox"
                 checked={!!(globalOptions?.oneDigitActivationEnabled)}
+                disabled={isReadOnly}
                 onChange={(e) => {
+                  if (isReadOnly) return;
                   const nextEnabled = !!e.target.checked;
                   globalOptionsDirtyRef.current = true;
                   // Capture desired globals so we can ignore stale stateData until parent echoes the same values back.
@@ -1984,6 +2019,9 @@ return (
                 <div style={{ fontWeight: 600 }}>Enable one-digit activation for this workbook</div>
                 <div style={{ marginTop: 4, opacity: 0.85 }}>Jump instantly to a Favorite by typing a single digit (1–9, 0).</div>
                 <div style={{ marginTop: 4, opacity: 0.85 }}>Tip: To search for numbers (e.g. 2024), start the search with a space.</div>
+                {isReadOnly && (
+                  <div style={{ marginTop: 4, color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>Not available in read-only workbooks.</div>
+                )}
               </div>
             </label>
           </div>

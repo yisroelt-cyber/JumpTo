@@ -437,6 +437,42 @@ function colIndexToLetter(idx1) {
   return s;
 }
 
+// --- Read-only detection ---
+//
+// Combined approach:
+//   1. Fast synchronous check via Office.context.document.mode (1 = read-only).
+//   2. If that reports writable, we still catch write errors on first attempt as a fallback
+//      (handles Protected View, co-auth without edit rights, etc.).
+//
+// detectWorkbookReadOnly() performs a minimal probe write and returns true if the workbook
+// is not writable. Call once at startup; cache result in commands.js.
+
+export async function detectWorkbookReadOnly() {
+  // Fast path: Office document mode. Mode 1 = ReadOnly in the Office JS API.
+  try {
+    const mode = Office?.context?.document?.mode;
+    if (mode === 1) return true; // Office.DocumentMode.ReadOnly
+  } catch {
+    // ignore — fall through to probe write
+  }
+
+  // Probe write: attempt a no-op range read on a guaranteed-present sheet.
+  // If even reading fails (Protected View), treat as read-only.
+  // We do NOT attempt a write probe — reads are always safe; we rely on the
+  // write-error fallback in getJumpToState for any edge cases document.mode misses.
+  try {
+    await Excel.run(async (context) => {
+      context.workbook.worksheets.load("count");
+      await context.sync();
+    });
+  } catch {
+    return true; // Can't even read — treat as read-only
+  }
+
+  return false;
+}
+
+
 async function ensureSettingsSheet(context) {
   const ws = context.workbook.worksheets.getItemOrNullObject(SETTINGS_SHEET_NAME);
   ws.load("name,visibility");
@@ -456,6 +492,16 @@ async function ensureSettingsSheet(context) {
   created.load("name");
   await context.sync();
   return created;
+}
+
+// Read-only variant: returns the settings sheet if it exists, null if it doesn't.
+// Never creates the sheet, never modifies visibility.
+async function getSettingsSheetIfExists(context) {
+  const ws = context.workbook.worksheets.getItemOrNullObject(SETTINGS_SHEET_NAME);
+  ws.load("name,visibility");
+  await context.sync();
+  if (ws.isNullObject) return null;
+  return ws;
 }
 
 // --- Workbook identity (Phase 1 groundwork) ---
@@ -521,10 +567,35 @@ async function ensureWorkbookIdentity(context, settingsSheet) {
   return { workbookGuid: guid, filenameFingerprint };
 }
 
+// Read-only variant: reads identity from the sheet without writing anything.
+// Returns { workbookGuid, filenameFingerprint } with nulls if missing/invalid.
+async function readWorkbookIdentity(context, settingsSheet) {
+  const range = settingsSheet.getRange(WB_ID_RANGE_ADDRESS);
+  range.load("values");
+  await context.sync();
+
+  const values = range.values || [["", ""], ["", ""]];
+  const b1 = (values[0]?.[1] || "").toString();
+  const b2 = (values[1]?.[1] || "").toString();
+
+  const guid = isValidGuid(b1) ? b1.trim() : null;
+  const filenameFingerprint = b2 || null;
+
+  return { workbookGuid: guid, filenameFingerprint };
+}
+
 export async function getWorkbookIdentity() {
   return Excel.run(async (context) => {
     const settingsSheet = await ensureSettingsSheet(context);
     return ensureWorkbookIdentity(context, settingsSheet);
+  });
+}
+
+export async function getWorkbookIdentityReadOnly() {
+  return Excel.run(async (context) => {
+    const settingsSheet = await getSettingsSheetIfExists(context);
+    if (!settingsSheet) return { workbookGuid: null, filenameFingerprint: null };
+    return readWorkbookIdentity(context, settingsSheet);
   });
 }
 
@@ -737,10 +808,134 @@ async function incrementFrequency(context, sheet, userColLetter, sheetId) {
 
 export async function getJumpToState(options = {}) {
   const preferCache = !!options?.preferCache;
+  const isReadOnly = !!options?.isReadOnly;
   const userKey = await getOrCreateUserKey();
   if (!userKey) {
-    return { userKey: null, sheets: [], favorites: [], recents: [], settings: {}, global: {} };
+    return { userKey: null, sheets: [], favorites: [], recents: [], settings: {}, global: {}, isReadOnly };
   }
+
+  // --- Read-only path ---
+  // Never writes to the workbook. Attempts to read from the settings sheet if it exists,
+  // falls back to RT caches (RT10 for favorites/settings, RT3 for sheets/recents/freq).
+  if (isReadOnly) {
+    let wbId = { workbookGuid: null, filenameFingerprint: null };
+    let favorites = [];
+    let recents = [];
+    let settings = {};
+    let sheets = [];
+    let freqById = {};
+    let devPremium = false;
+    let __meta = { favoritesValid: false, settingsValid: false, recentsValid: false, dts: 0 };
+
+    // Try to read from the settings sheet if it exists
+    try {
+      const wbData = await Excel.run(async (context) => {
+        const settingsSheet = await getSettingsSheetIfExists(context);
+        if (!settingsSheet) return null;
+
+        const identity = await readWorkbookIdentity(context, settingsSheet);
+
+        // Read visible sheets
+        const wsItems = context.workbook.worksheets;
+        wsItems.load("items/id,name,visibility");
+        await context.sync();
+        const visible = wsItems.items.filter(ws => ws.visibility === Excel.SheetVisibility.visible);
+        const visibleSheets = visible.map((ws, idx) => ({ id: ws.id, name: ws.name, orderIndex: idx }));
+
+        // Only attempt to read user cells if we have a valid GUID (so we can find the user column)
+        let userCells = null;
+        let invRows = [];
+        let dp = false;
+        if (identity.workbookGuid) {
+          try {
+            // getUserColumn in read-only: find existing column but don't create one if absent
+            const headerRange = settingsSheet.getRange("D1:ZZ1");
+            headerRange.load("values");
+            await context.sync();
+            const headerVals = headerRange.values?.[0] || [];
+            const foundOffset = headerVals.findIndex(v => v === userKey);
+            if (foundOffset >= 0) {
+              const colIdx1 = 4 + foundOffset;
+              const colLetter = colIndexToLetter(colIdx1);
+              userCells = await readUserCells(context, settingsSheet, colLetter);
+              const inv = await loadInventory(context, settingsSheet, colLetter);
+              invRows = inv.rows;
+              dp = inv.devPremium;
+            }
+          } catch {
+            // ignore — best-effort read
+          }
+        }
+
+        return { identity, visibleSheets, userCells, invRows, devPremium: dp };
+      });
+
+      if (wbData) {
+        wbId = wbData.identity;
+        sheets = wbData.visibleSheets || [];
+        devPremium = wbData.devPremium;
+
+        if (wbData.userCells) {
+          favorites = wbData.userCells.favorites || [];
+          recents = wbData.userCells.recents || [];
+          settings = wbData.userCells.settings || {};
+          __meta = wbData.userCells.__meta || __meta;
+        }
+
+        for (const r of (wbData.invRows || [])) {
+          if (r.id) freqById[r.id] = Number(r.freq || 0);
+        }
+      }
+    } catch {
+      // Settings sheet unreadable — fall through to cache-only
+    }
+
+    // Supplement with RT caches if workbook read gave us nothing useful
+    const { workbookGuid, filenameFingerprint } = wbId;
+    if (workbookGuid && filenameFingerprint) {
+      // RT10: favorites + settings safety net
+      if (!__meta.favoritesValid || !__meta.settingsValid) {
+        try {
+          const rt = await rt10Read(workbookGuid, filenameFingerprint);
+          if (isValidRuntimePayload(rt)) {
+            if (!__meta.favoritesValid && Array.isArray(rt.favorites)) favorites = rt.favorites;
+            if (!__meta.settingsValid && rt.settings) settings = rt.settings;
+          }
+        } catch {}
+      }
+
+      // RT3: sheets + recents + freq (cache-only, allowed to be stale)
+      if (sheets.length === 0) {
+        try {
+          const perf = await rt3Read(workbookGuid, filenameFingerprint);
+          if (perf && Array.isArray(perf.sheets)) {
+            sheets = perf.sheets;
+            if (!__meta.recentsValid && Array.isArray(perf.recents)) recents = perf.recents;
+            if (perf.freqById && typeof perf.freqById === "object") freqById = perf.freqById;
+            if (perf.devPremium) devPremium = true;
+          }
+        } catch {}
+      }
+    }
+
+    const idToName = new Map(sheets.map(s => [s.id, s.name]));
+    const favIds = Array.isArray(favorites) ? favorites : [];
+    const recIds = Array.isArray(recents) ? recents : [];
+
+    return {
+      __wbId: wbId,
+      userKey,
+      sheets,
+      favorites: favIds.map(id => ({ id, name: idToName.get(id) || "" })),
+      recents: recIds.map(id => ({ id, name: idToName.get(id) || "" })),
+      settings: (settings && typeof settings === "object") ? settings : {},
+      __meta,
+      global: { freqById, devPremium },
+      isReadOnly: true,
+    };
+  }
+
+  // --- Normal (writable) path ---
 
   // Phase 4 (perf): If requested, try a fast path that avoids enumerating worksheets.
   // We still read the per-user cells from the workbook (small), then use RT3 cache
@@ -916,11 +1111,8 @@ export async function getJumpToState(options = {}) {
     }
   }
 
-  return final;
+  return { ...final, isReadOnly: false };
 }
-
-
-export async function toggleFavorite(sheetId) {
   const userKey = await getOrCreateUserKey();
   if (!userKey) return null;
 

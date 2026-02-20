@@ -14,6 +14,7 @@ import {
   setFavorites as setFavoritesInStorage,
   recordActivation,
   setUiSettings as setUiSettingsInStorage,
+  detectWorkbookReadOnly,
 } from "../services/jumpToStorage";
 
 let lockBusy = false;
@@ -24,6 +25,9 @@ let cachedState = null;
 let cachedSignature = "";
 let lastCheckTs = 0;
 const CHECK_TTL_MS = 1500;
+
+// Read-only state: detected once at dialog open, cached for the session.
+let isReadOnlyCached = null;
 
 // Global (per-user) option keys stored in OfficeRuntime.storage
 const OPT_ROW_HEIGHT = "JumpTo.Option.RowHeightPreset";
@@ -78,7 +82,7 @@ async function ensureFreshState() {
   const sig = await computeSheetSignature();
   if (sig === cachedSignature && cachedState) return false;
 
-  cachedState = await getJumpToState();
+  cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
   cachedSignature = sig;
   return true;
 }
@@ -208,6 +212,7 @@ async function buildDialogState(baseState) {
     settings: { favPercentManual, recentsDisplayCount },
     global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop, devPremium: !!(baseState.global?.devPremium) },
     recents: filtered.map((id) => ({ id, name: idToName.get(id) || "" })),
+    isReadOnly: !!(baseState.isReadOnly),
   };
 }
 
@@ -238,6 +243,9 @@ async function activateSheetById(sheetId) {
 }
 
 function openJumpDialog(event) {
+  // Reset read-only detection each time the dialog opens — workbook state can change
+  // (e.g. user saves a read-only copy as a new writable file).
+  isReadOnlyCached = null;
   const dialogUrl = new URL("./dialog.html", window.location.href).toString();
 
   Office.context.ui.displayDialogAsync(
@@ -270,7 +278,7 @@ function openJumpDialog(event) {
     }
   } else {
     try {
-      cachedState = await getJumpToState({ preferCache: true });
+      cachedState = await getJumpToState({ preferCache: true, isReadOnly: !!isReadOnlyCached });
       if (cachedState) {
         const state = await buildDialogState(cachedState);
         while (pendingStateRequests.length) {
@@ -315,6 +323,17 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
         if (msg.type === "dialogReady") {
           // Dialog has registered its parent-message handler; it's now safe to send stateData.
           await withLock(async () => {
+            // Detect read-only once per dialog session (fast sync check + probe).
+            // Cache result so all subsequent getJumpToState calls use it.
+            if (isReadOnlyCached === null) {
+              try {
+                isReadOnlyCached = await detectWorkbookReadOnly();
+              } catch {
+                isReadOnlyCached = false;
+              }
+            }
+            const readOnly = !!isReadOnlyCached;
+
             // Try to refresh workbook-backed state BEFORE sending stateData.
             // After cold start, workbook access can be transiently unavailable; retry once with a short delay.
             let changedAny = false;
@@ -327,13 +346,13 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
 
             if (!cachedState) {
               try {
-                cachedState = await getJumpToState({ preferCache: true });
+                cachedState = await getJumpToState({ preferCache: true, isReadOnly: readOnly });
               } catch (e) {
                 // ignore
               }
             }
             if (!cachedState) {
-              cachedState = await getJumpToState();
+              cachedState = await getJumpToState({ isReadOnly: readOnly });
             }
 
             let state = await buildDialogState(cachedState);
@@ -376,11 +395,14 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
         }
 
         if (msg.type === "setFavorites") {
+          // Silently ignored in read-only — the dialog should not allow this action when read-only,
+          // but we guard here as a safety net.
+          if (isReadOnlyCached) return;
           const ids = Array.isArray(msg.favorites) ? msg.favorites.filter(Boolean) : [];
           await withLock(async () => {
             await setFavoritesInStorage(ids);
             if (!cachedState) {
-              cachedState = await getJumpToState();
+              cachedState = await getJumpToState({ isReadOnly: false });
             } else {
               const idToName = new Map((cachedState.sheets || []).map((s) => [s.id, s.name]));
               cachedState = {
@@ -398,7 +420,7 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
           const patch = msg.settings && typeof msg.settings === "object" ? msg.settings : {};
           await withLock(async () => {
             await setGlobalUiSettings(patch);
-            cachedState = await getJumpToState();
+            cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
             const state = await buildDialogState(cachedState);
             reply({ type: "stateData", state });
           });
@@ -417,7 +439,7 @@ if (msg.type === "setRowHeightPreset") {
     } catch (e) {
           // ignore
         }
-    cachedState = await getJumpToState();
+    cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
     const state = await buildDialogState(cachedState);
     reply({ type: "stateData", state });
   });
@@ -425,12 +447,14 @@ if (msg.type === "setRowHeightPreset") {
 }
 
         if (msg.type === "setOneDigitActivation") {
+          // Workbook-scoped setting — silently ignored in read-only (UI control will be disabled).
+          if (isReadOnlyCached) return;
           const enabled = !!msg.enabled;
           await withLock(async () => {
             // Workbook-scoped: persist in workbook settings blob.
             await setUiSettingsInStorage({ oneDigitActivationEnabled: enabled });
             if (!cachedState) {
-              cachedState = await getJumpToState();
+              cachedState = await getJumpToState({ isReadOnly: false });
             } else {
               cachedState = {
                 ...cachedState,
@@ -482,12 +506,15 @@ if (msg.type === "selectSheet") {
 
                 await activateSheetById(sheetId);
 
-                // Record origin first, then destination — so destination lands at position 0
-                // (most recent), origin at position 1. Skip origin if same as destination.
-                if (originSheetId && originSheetId !== sheetId) {
-                  await recordActivation(originSheetId);
+                // Skip recording activations in read-only workbooks — all write paths would throw.
+                if (!isReadOnlyCached) {
+                  // Record origin first, then destination — so destination lands at position 0
+                  // (most recent), origin at position 1. Skip origin if same as destination.
+                  if (originSheetId && originSheetId !== sheetId) {
+                    await recordActivation(originSheetId);
+                  }
+                  await recordActivation(sheetId);
                 }
-                await recordActivation(sheetId);
               }
 
               // Persist latest state AFTER activation so persistence work doesn't delay the jump.
@@ -513,16 +540,16 @@ if (msg.type === "selectSheet") {
           // ignore
         }
 
-              if (uiSettings) {
+              if (uiSettings && !isReadOnlyCached) {
                 await setUiSettingsInStorage(uiSettings);
               }
 
-              if (favorites) {
+              if (favorites && !isReadOnlyCached) {
                 await setFavoritesInStorage(favorites);
               }
 
               // Keep cache coherent for the next dialog open.
-              cachedState = await getJumpToState();
+              cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
             });
 })().catch((err) => console.error("selectSheet background handler failed:", err));
 
@@ -572,15 +599,15 @@ if (msg.type === "selectSheet") {
           // ignore
         }
 
-              if (uiSettings) {
+              if (uiSettings && !isReadOnlyCached) {
                 await setUiSettingsInStorage(uiSettings);
               }
 
-              if (favorites) {
+              if (favorites && !isReadOnlyCached) {
                 await setFavoritesInStorage(favorites);
               }
 
-              cachedState = await getJumpToState();
+              cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
             });
 
                         try {
