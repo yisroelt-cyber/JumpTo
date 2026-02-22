@@ -44,7 +44,7 @@
 
           
           <Runtimes>
-            <Runtime resid="Taskpane.Url" lifetime="long"/>
+            <Runtime resid="Commands.Url" lifetime="long"/>
           </Runtimes>
 
           <Taskpane id="JumpTo.Taskpane">
