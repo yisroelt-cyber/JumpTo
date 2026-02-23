@@ -603,8 +603,8 @@ export async function getWorkbookIdentityReadOnly() {
 
 async function getUserColumn(context, settingsSheet, userKey) {
   // Search row 1 starting from column D for userKey; else first empty.
-  // We'll scan D1:ZZ1 (~700 cols) which is plenty.
-  const headerRange = settingsSheet.getRange("D1:ZZ1");
+  // We'll scan G1:ZZ1; cols A-F are reserved for inventory identity and future use.
+  const headerRange = settingsSheet.getRange("G1:ZZ1");
   headerRange.load("values");
   await context.sync();
 
@@ -619,7 +619,7 @@ async function getUserColumn(context, settingsSheet, userKey) {
 
   const offset = foundOffset !== -1 ? foundOffset : (emptyOffset !== -1 ? emptyOffset : values.length);
   // D is column 4
-  const colIdx1 = 4 + offset;
+  const colIdx1 = 7 + offset;
   const colLetter = colIndexToLetter(colIdx1);
 
   if (foundOffset === -1) {
@@ -695,7 +695,7 @@ async function writeUserCells(context, sheet, colLetter, { favorites, recents, s
 
 async function loadInventory(context, sheet, userColLetter) {
   // Load A52:C2000 and user's frequency column range for same rows.
-  // Column A = id, B = name, C reserved (blank). User col stores frequency.
+  // Column A = Office.js sheet.id, B = sheet.name, C = VBA CodeName (COM). User col stores frequency.
   // Also load the dev premium flag cell (A10) in the same batch — zero added latency.
   const endRow = 2000;
   const invRange = sheet.getRange(`A${INV_START_ROW}:C${endRow}`);
@@ -719,7 +719,8 @@ async function loadInventory(context, sheet, userColLetter) {
     const raw = freq[i]?.[0];
     const { freq: storedFreq, dts } = parseFreqCell(raw);
     const decayedFreq = decayFreq(storedFreq, dts, nowMs);
-    rows.push({ rowNum, id: String(id || ""), name: String(name || ""), freq: decayedFreq, storedFreq, dts });
+    const codename = inv[i]?.[2] ?? "";
+    rows.push({ rowNum, id: String(id || ""), name: String(name || ""), codename: String(codename || ""), freq: decayedFreq, storedFreq, dts });
   }
   return { rows, devPremium };
 }
@@ -852,13 +853,13 @@ export async function getJumpToState(options = {}) {
         if (identity.workbookGuid) {
           try {
             // getUserColumn in read-only: find existing column but don't create one if absent
-            const headerRange = settingsSheet.getRange("D1:ZZ1");
+            const headerRange = settingsSheet.getRange("G1:ZZ1");
             headerRange.load("values");
             await context.sync();
             const headerVals = headerRange.values?.[0] || [];
             const foundOffset = headerVals.findIndex(v => v === userKey);
             if (foundOffset >= 0) {
-              const colIdx1 = 4 + foundOffset;
+              const colIdx1 = 7 + foundOffset;
               const colLetter = colIndexToLetter(colIdx1);
               userCells = await readUserCells(context, settingsSheet, colLetter);
               const inv = await loadInventory(context, settingsSheet, colLetter);
