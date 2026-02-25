@@ -161,6 +161,7 @@ function DialogApp() {
   // Ensures we can verify dialog is able to write SettingsTraceLog in ORTS.
   // =====================
   const [allSheets, setAllSheets] = useState([]);
+  const [activeSheetId, setActiveSheetId] = useState(null);
   const [favorites, setFavorites] = useState([]);
   // Favorites bounce fix: prevent stale parent-state hydration from overwriting recent UI edits.
   const favoritesDirtyRef = useRef(false);
@@ -486,6 +487,8 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             const state = msg.state || {};
             // Update read-only flag whenever parent sends state.
             if (typeof state.isReadOnly === "boolean") setIsReadOnly(state.isReadOnly);
+            // Update active sheet ID
+            if (state.activeSheetId) setActiveSheetId(state.activeSheetId);
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             setAllSheets(sheets);
             setFavorites((prev) => {
@@ -688,11 +691,10 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
     let items = Array.isArray(allSheets) ? [...allSheets] : [];
 
     // Exclude active sheet unless it's the only visible sheet and search is empty
-    const activeId = stateData?.activeSheetId;
     const isOnlySheet = items.length === 1;
     const searchActive = !!q;
-    if (activeId && (!isOnlySheet || searchActive)) {
-      items = items.filter((s) => s?.id !== activeId);
+    if (activeSheetId && (!isOnlySheet || searchActive)) {
+      items = items.filter((s) => s?.id !== activeSheetId);
     }
 
     if (q) {
@@ -758,7 +760,7 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
     }
 
     return items;
-  }, [allSheets, query, globalOptions?.baselineOrder, stateData?.activeSheetId]);
+  }, [allSheets, query, globalOptions?.baselineOrder, activeSheetId]);
 
   const favoriteIds = useMemo(() => new Set((favorites || []).map((f) => f?.id).filter(Boolean)), [favorites]);
 
@@ -1964,7 +1966,31 @@ return (
             </div>
           </div>
 
-          <div style={{ fontSize: 13, fontWeight: 800, margin: "12px 0 10px", opacity: 0.9 }}>Behavior</div>
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Recents</div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.9 }}>
+              <span>Show</span>
+              <input
+                type="number"
+                min={1}
+                max={MAX_RECENTS}
+                value={uiRecentsDisplayCount}
+                onChange={(e) => {
+                  const v = Math.min(MAX_RECENTS, Math.max(1, Number(e.target.value) || 1));
+                  const nextCnt = Math.min(MAX_RECENTS, Math.max(1, Math.round(v)));
+                  uiSettingsDirtyRef.current = true;
+                  uiSettingsDirtyDesiredRef.current = {
+                    favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
+                    recentsDisplayCount: nextCnt,
+                  };
+                  setUiRecentsDisplayCount(nextCnt);
+                }}
+                style={{ width: 64, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
+              />
+              <span>items</span>
+            </div>
+          </div><div style={{ fontSize: 13, fontWeight: 800, margin: "12px 0 10px", opacity: 0.9 }}>Behavior</div>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>List ordering</div>
 
@@ -1999,33 +2025,7 @@ return (
             </div>
           </div>
 
-          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Recents</div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.9 }}>
-              <span>Show</span>
-              <input
-                type="number"
-                min={1}
-                max={MAX_RECENTS}
-                value={uiRecentsDisplayCount}
-                onChange={(e) => {
-                  const v = Math.min(MAX_RECENTS, Math.max(1, Number(e.target.value) || 1));
-                  const nextCnt = Math.min(MAX_RECENTS, Math.max(1, Math.round(v)));
-                  uiSettingsDirtyRef.current = true;
-                  uiSettingsDirtyDesiredRef.current = {
-                    favPercentManual: Math.min(80, Math.max(20, Math.round(uiFavPercentManual))),
-                    recentsDisplayCount: nextCnt,
-                  };
-                  setUiRecentsDisplayCount(nextCnt);
-                }}
-                style={{ width: 64, padding: "2px 6px", fontSize: 12, border: "1px solid rgba(0,0,0,0.25)", borderRadius: 6 }}
-              />
-              <span>items</span>
-            </div>
-          </div>
-
-          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+<div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Keyboard</div>
 
             <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: isReadOnly ? 0.45 : 0.95, userSelect: "none", cursor: isReadOnly ? "default" : "pointer" }}>
