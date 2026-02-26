@@ -1506,7 +1506,7 @@ return (
                       // ignore
                     }
                   }}
-                  placeholder="Search sheets…"
+                  placeholder="Search in sheets…"
                   disabled={!!status && status !== "" && allSheets.length === 0}
                   style={{
                     width: "100%",
@@ -1736,7 +1736,7 @@ return (
                       // ignore
                     }
                   }}
-                  placeholder="Search sheets…"
+                  placeholder="Search in sheets…"
                   disabled={!!status && status !== "" && allSheets.length === 0}
                   style={{
                     width: "100%",
