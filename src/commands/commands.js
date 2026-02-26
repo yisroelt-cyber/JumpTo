@@ -233,6 +233,7 @@ async function buildDialogState(baseState, activeSheetId = null) {
 
   return {
     ...baseState,
+    activeSheetId: activeId,
     sheets: sheetsWithFreq,
     // Keep workbook settings minimal; dialog UI can still display global values (provided via `global`).
     settings: { favPercentManual, recentsDisplayCount },
