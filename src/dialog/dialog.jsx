@@ -1,3 +1,4 @@
+// 2026-02-26 22:27 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 
@@ -168,7 +169,10 @@ function DialogApp() {
   const lastUiFavMutationAtRef = useRef(0);
 
   const [recents, setRecents] = useState([]);
+  const [recentIds, setRecentIds] = useState([]); // raw unfiltered IDs from parent
   const [globalOptions, setGlobalOptions] = useState({ oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true });
+  const [enableQuickReturn, setEnableQuickReturn] = useState(true);
+  const [isFirstOpenThisSession, setIsFirstOpenThisSession] = useState(true);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Loading…");
   const [isActivating, setIsActivating] = useState(false);
@@ -489,6 +493,8 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             if (typeof state.isReadOnly === "boolean") setIsReadOnly(state.isReadOnly);
             // Update active sheet ID
             if (state.activeSheetId) setActiveSheetId(state.activeSheetId);
+            // Update Quick Return session state
+            if (typeof state.isFirstOpenThisSession === "boolean") setIsFirstOpenThisSession(state.isFirstOpenThisSession);
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             setAllSheets(sheets);
             setFavorites((prev) => {
@@ -511,6 +517,8 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             return next;
           });
             setRecents(Array.isArray(state.recents) ? state.recents : []);
+            // Raw recentIds for Quick Return logic (unfiltered, unsliced)
+            if (Array.isArray(state.recentIds)) setRecentIds(state.recentIds);
             const incomingMeta = state && typeof state === "object" ? state.__meta : null;
             const incomingSettingsValid = !!incomingMeta?.settingsValid;
             const incomingFavoritesValid = !!incomingMeta?.favoritesValid;
@@ -534,6 +542,10 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
 
             setGlobalOptions((prev) => {
               const incoming = state.global || { oneDigitActivationEnabled: true, rowHeightPreset: "Standard" };
+              // Also update enableQuickReturn from global (not inside globalOptions, kept separate).
+              if (typeof incoming.enableQuickReturn === "boolean") {
+                setEnableQuickReturn(incoming.enableQuickReturn);
+              }
               // If the user has changed global options locally (e.g. clicked a checkbox) and we're still waiting
               // for parent persistence to catch up, don't let late-arriving stateData overwrite the user's intent.
                             if (globalOptionsDirtyRef.current) {
@@ -759,8 +771,32 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
       }
     }
 
+    // Quick Return: prepend a special row when conditions are met (search must be empty).
+    // Condition mirrors XLL: enabled, not first open this session, search empty,
+    // recentIds[0] == activeSheetId (still on the sheet we jumped to), recentIds[1] exists and is visible.
+    if (
+      enableQuickReturn &&
+      !isFirstOpenThisSession &&
+      !q &&
+      Array.isArray(recentIds) &&
+      recentIds.length >= 2 &&
+      recentIds[0] === activeSheetId
+    ) {
+      const returnId = recentIds[1];
+      const returnSheet = items.find((s) => s?.id === returnId);
+      if (returnSheet) {
+        // Remove from its normal position so it appears exactly once.
+        items = items.filter((s) => s?.id !== returnId);
+        // Prepend Quick Return row.
+        items = [
+          { ...returnSheet, name: returnSheet.name + "  ↩", isQuickReturn: true },
+          ...items,
+        ];
+      }
+    }
+
     return items;
-  }, [allSheets, query, globalOptions?.baselineOrder, activeSheetId]);
+  }, [allSheets, query, globalOptions?.baselineOrder, activeSheetId, enableQuickReturn, isFirstOpenThisSession, recentIds]);
 
   const favoriteIds = useMemo(() => new Set((favorites || []).map((f) => f?.id).filter(Boolean)), [favorites]);
 
@@ -1567,6 +1603,7 @@ return (
                       style={{
                         ...rowStyle,
                         background: fauxFocus === "all" && i === highlightAll ? "rgba(0,120,212,0.12)" : "transparent",
+                        fontStyle: s.isQuickReturn ? "italic" : "normal",
                       }}
                       role="button"
                       tabIndex={0}
@@ -2025,6 +2062,33 @@ return (
               />
               <span>items</span>
             </div>
+          </div>
+
+<div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Quick Return</div>
+
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: 0.95, userSelect: "none", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={enableQuickReturn}
+                onChange={(e) => {
+                  const nextEnabled = !!e.target.checked;
+                  setEnableQuickReturn(nextEnabled);
+                  try {
+                    if (Office?.context?.ui?.messageParent) {
+                      Office.context.ui.messageParent(JSON.stringify({ type: "setEnableQuickReturn", enabled: nextEnabled }));
+                    }
+                  } catch (err) {
+                    console.error("messageParent(setEnableQuickReturn) failed:", err);
+                  }
+                }}
+                style={{ marginTop: 2 }}
+              />
+              <div>
+                <div style={{ fontWeight: 600 }}>Enable quick return</div>
+                <div style={{ marginTop: 4, opacity: 0.85 }}>Return to your previous sheet by simply pressing Enter — available when you&rsquo;re still on the sheet you jumped to.</div>
+              </div>
+            </label>
           </div>
 
 <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>

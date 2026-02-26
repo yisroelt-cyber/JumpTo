@@ -1,3 +1,4 @@
+// 2026-02-26 22:27 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -35,9 +36,14 @@ const OPT_BASELINE_ORDER = "JumpTo.Option.BaselineOrder";
 const OPT_FREQUENT_ON_TOP = "JumpTo.Option.FrequentOnTop";
 const OPT_FAV_PERCENT = "JumpTo.Option.FavPercentManual";
 const OPT_RECENTS_DISPLAY_COUNT = "JumpTo.Option.RecentsDisplayCount";
+const OPT_QUICK_RETURN = "JumpTo.Option.EnableQuickReturn";
 
 // Legacy key (previously global) for one-digit activation; now workbook-scoped.
 const OPT_ONE_DIGIT_LEGACY = "JumpTo.Option.OneDigitActivation";
+
+// Session flag: tracks whether a jump has been made since commands.js loaded.
+// Mirrors XLL's _jumpMadeThisSession on AddIn. Resets when the shared runtime unloads.
+let jumpMadeThisSession = false;
 
 // Module-level cache for global ORTS settings.
 // Populated on first dialog open, reused for all subsequent opens in the same
@@ -149,6 +155,7 @@ async function buildDialogState(baseState, activeSheetId = null) {
 
   // Defaults (legacy fallbacks)
   let rowHeightPreset = "Standard";
+  let enableQuickReturn = true; // default ON
 
   // Workbook-scoped: one-digit activation (default ON if unset)
   let oneDigitActivationEnabled = baseState.settings?.oneDigitActivationEnabled;
@@ -179,6 +186,7 @@ async function buildDialogState(baseState, activeSheetId = null) {
           OPT_FAV_PERCENT,
           OPT_RECENTS_DISPLAY_COUNT,
           OPT_ONE_DIGIT_LEGACY,
+          OPT_QUICK_RETURN,
         ];
         // getItems returns { [key]: value } for all requested keys in one call.
         ortsSettingsCache = await OfficeRuntime.storage.getItems(keys);
@@ -190,6 +198,7 @@ async function buildDialogState(baseState, activeSheetId = null) {
       const fp  = ortsSettingsCache[OPT_FAV_PERCENT];
       const rc  = ortsSettingsCache[OPT_RECENTS_DISPLAY_COUNT];
       const od  = ortsSettingsCache[OPT_ONE_DIGIT_LEGACY];
+      const qr  = ortsSettingsCache[OPT_QUICK_RETURN];
 
       if (v)  rowHeightPreset = String(v);
       if (bo) baselineOrder = String(bo);
@@ -197,6 +206,8 @@ async function buildDialogState(baseState, activeSheetId = null) {
       else if (fot === "true") frequentOnTop = true;
       if (fp !== null && fp !== undefined && fp !== "") favPercentManual = Number(fp);
       if (rc !== null && rc !== undefined && rc !== "") recentsDisplayCount = Number(rc);
+      if (qr === "false") enableQuickReturn = false;
+      else if (qr === "true") enableQuickReturn = true;
 
       // Legacy one-digit activation: seed from global key only if workbook has no override.
       if (baseState.settings?.oneDigitActivationEnabled === undefined) {
@@ -237,9 +248,12 @@ async function buildDialogState(baseState, activeSheetId = null) {
     sheets: sheetsWithFreq,
     // Keep workbook settings minimal; dialog UI can still display global values (provided via `global`).
     settings: { favPercentManual, recentsDisplayCount },
-    global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop, devPremium: !!(baseState.global?.devPremium) },
+    global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop, devPremium: !!(baseState.global?.devPremium), enableQuickReturn },
     recents: filtered.map((id) => ({ id, name: idToName.get(id) || "" })),
     isReadOnly: !!(baseState.isReadOnly),
+    // Raw recentIds (unfiltered, unsliced) needed by Quick Return logic in dialog.
+    recentIds: recentIds,
+    isFirstOpenThisSession: !jumpMadeThisSession,
   };
 }
 
@@ -513,7 +527,25 @@ if (msg.type === "setRowHeightPreset") {
           return;
         }
 
-if (msg.type === "selectSheet") {
+if (msg.type === "setEnableQuickReturn") {
+          const enabled = msg.enabled !== false; // default true
+          await withLock(async () => {
+            try {
+              if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                await OfficeRuntime.storage.setItem(OPT_QUICK_RETURN, enabled ? "true" : "false");
+                invalidateOrtsSettingsCache();
+              }
+            } catch (e) {
+              // ignore
+            }
+            cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
+            const state = await buildDialogState(cachedState);
+            reply({ type: "stateData", state });
+          });
+          return;
+        }
+
+        if (msg.type === "selectSheet") {
           const sheetId = msg.sheetId;
 
           // Snapshot-based persistence: the dialog may close immediately after selection,
@@ -551,6 +583,7 @@ if (msg.type === "selectSheet") {
                 }
 
                 await activateSheetById(sheetId);
+                jumpMadeThisSession = true;
 
                 // Skip recording activations in read-only workbooks — all write paths would throw.
                 if (!isReadOnlyCached) {
