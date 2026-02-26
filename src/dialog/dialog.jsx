@@ -1907,6 +1907,34 @@ return (
           <div style={{ minWidth: 520 }}>
           <div style={{ fontSize: 13, fontWeight: 800, margin: "2px 0 10px", opacity: 0.9 }}>Appearance</div>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Row height</div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", fontSize: 12, opacity: 0.95 }}>
+              {["Compact", "Standard", "Comfortable", "Expanded"].map((name) => (
+                <label key={name} style={{ display: "flex", alignItems: "center", gap: 6, userSelect: "none" }}>
+                  <input
+                    type="radio"
+                    name="rowHeightPreset_final"
+                    checked={activePresetName === name}
+                    onChange={() => {
+                      const nextPreset = String(name);
+                      rowHeightDirtyRef.current = true;
+                      globalOptionsDirtyRef.current = true;
+                      globalOptionsDirtyDesiredRef.current = {
+                        oneDigitActivationEnabled: !!(globalOptions?.oneDigitActivationEnabled),
+                        rowHeightPreset: nextPreset,
+                      };
+                      setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: nextPreset }));
+                    }}
+                  />
+                  {name}
+                </label>
+              ))}
+            </div>
+          </div>
+          
+          
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>
               When space is limited, give more room to:
             </div>
@@ -1935,34 +1963,6 @@ return (
               <div style={{ width: 170, fontSize: 12, opacity: 0.85, textAlign: "right" }}>
                 Favorites {favPercentEffective}% / Recents {recPercentEffective}%
               </div>
-            </div>
-          </div>
-          
-          
-          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Row height</div>
-
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", fontSize: 12, opacity: 0.95 }}>
-              {["Compact", "Standard", "Comfortable", "Expanded"].map((name) => (
-                <label key={name} style={{ display: "flex", alignItems: "center", gap: 6, userSelect: "none" }}>
-                  <input
-                    type="radio"
-                    name="rowHeightPreset_final"
-                    checked={activePresetName === name}
-                    onChange={() => {
-                      const nextPreset = String(name);
-                      rowHeightDirtyRef.current = true;
-                      globalOptionsDirtyRef.current = true;
-                      globalOptionsDirtyDesiredRef.current = {
-                        oneDigitActivationEnabled: !!(globalOptions?.oneDigitActivationEnabled),
-                        rowHeightPreset: nextPreset,
-                      };
-                      setGlobalOptions((prev) => ({ ...(prev || {}), rowHeightPreset: nextPreset }));
-                    }}
-                  />
-                  {name}
-                </label>
-              ))}
             </div>
           </div>
 
