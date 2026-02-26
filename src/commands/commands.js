@@ -1,4 +1,4 @@
-// 2026-02-26 22:27 UTC
+// 2026-02-26 23:57 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -363,6 +363,20 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
         }
 
         if (msg.type === "dialogReady") {
+          // Diagnostic: write jumpMadeThisSession status to E1 of settings sheet.
+          // Remove before launch.
+          try {
+            await Excel.run(async (context) => {
+              const ws = context.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
+              ws.load("name");
+              await context.sync();
+              if (!ws.isNullObject) {
+                ws.getRange("E1").values = [[`jMTS=${jumpMadeThisSession} @ ${new Date().toISOString()}`]];
+                await context.sync();
+              }
+            });
+          } catch (e) { /* ignore */ }
+
           // Dialog has registered its parent-message handler; it's now safe to send stateData.
           await withLock(async () => {
             // Single Excel.run fetches read-only status, active sheet id, and sheet
