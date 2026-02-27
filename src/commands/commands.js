@@ -1,4 +1,4 @@
-// 2026-02-27 00:20 UTC
+// 2026-02-27 00:34 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -439,22 +439,6 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
 
             reply({ type: "stateData", state });
 
-            // Diagnostic: write Quick Return inputs to settings sheet. Remove before launch.
-            try {
-              await Excel.run(async (context) => {
-                const ws = context.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
-                ws.load("name");
-                await context.sync();
-                if (!ws.isNullObject) {
-                  const rIds = Array.isArray(state.recentIds) ? state.recentIds : [];
-                  ws.getRange("E1").values = [[`activeSheetId=${state.activeSheetId} @ ${new Date().toISOString()}`]];
-                  ws.getRange("E2").values = [[`recentIds[0]=${rIds[0]||"none"} recentIds[1]=${rIds[1]||"none"}`]];
-                  ws.getRange("E3").values = [[`enableQR=${state.global?.enableQuickReturn} match=${rIds[0]===state.activeSheetId}`]];
-                  await context.sync();
-                }
-              });
-            } catch (e) { /* ignore */ }
-
             if (changedAny && cachedState) {
               try {
                 const state2 = await buildDialogState(cachedState, activeSheetId);
@@ -578,6 +562,10 @@ if (msg.type === "setEnableQuickReturn") {
           // ignore
         }
           event.completed();
+
+          // Invalidate cache immediately so the next dialog open reads fresh state
+          // (including updated recents). The background block will repopulate it.
+          cachedState = null;
 
           // Continue work in the background so UI close is not blocked by Excel writes.
           (async () => {
