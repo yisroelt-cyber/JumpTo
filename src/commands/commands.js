@@ -1,4 +1,4 @@
-// 2026-02-26 23:57 UTC
+// 2026-02-27 00:03 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -363,20 +363,6 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
         }
 
         if (msg.type === "dialogReady") {
-          // Diagnostic: write jumpMadeThisSession status to E1 of settings sheet.
-          // Remove before launch.
-          try {
-            await Excel.run(async (context) => {
-              const ws = context.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
-              ws.load("name");
-              await context.sync();
-              if (!ws.isNullObject) {
-                ws.getRange("E1").values = [[`jMTS=${jumpMadeThisSession} @ ${new Date().toISOString()}`]];
-                await context.sync();
-              }
-            });
-          } catch (e) { /* ignore */ }
-
           // Dialog has registered its parent-message handler; it's now safe to send stateData.
           await withLock(async () => {
             // Single Excel.run fetches read-only status, active sheet id, and sheet
@@ -454,7 +440,18 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
 
             reply({ type: "stateData", state });
 
-            // If a refresh changed anything, push the updated state (best-effort).
+            // Diagnostic: write pre-send jMTS to E1. Remove before launch.
+            try {
+              await Excel.run(async (context) => {
+                const ws = context.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
+                ws.load("name");
+                await context.sync();
+                if (!ws.isNullObject) {
+                  ws.getRange("E1").values = [[`pre-send jMTS=${jumpMadeThisSession} isFirst=${state.isFirstOpenThisSession} @ ${new Date().toISOString()}`]];
+                  await context.sync();
+                }
+              });
+            } catch (e) { /* ignore */ }
             if (changedAny && cachedState) {
               try {
                 const state2 = await buildDialogState(cachedState, activeSheetId);
@@ -598,6 +595,19 @@ if (msg.type === "setEnableQuickReturn") {
 
                 await activateSheetById(sheetId);
                 jumpMadeThisSession = true;
+
+                // Diagnostic: write post-jump status to E2. Remove before launch.
+                try {
+                  await Excel.run(async (context) => {
+                    const ws = context.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
+                    ws.load("name");
+                    await context.sync();
+                    if (!ws.isNullObject) {
+                      ws.getRange("E2").values = [[`post-jump jMTS=${jumpMadeThisSession} @ ${new Date().toISOString()}`]];
+                      await context.sync();
+                    }
+                  });
+                } catch (e) { /* ignore */ }
 
                 // Skip recording activations in read-only workbooks — all write paths would throw.
                 if (!isReadOnlyCached) {
