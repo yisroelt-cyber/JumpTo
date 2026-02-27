@@ -1,4 +1,4 @@
-// 2026-02-26 23:31 UTC
+// 2026-02-27 00:18 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 import { BUILD_TIMESTAMP } from "../version";
@@ -173,7 +173,7 @@ function DialogApp() {
   const [recentIds, setRecentIds] = useState([]); // raw unfiltered IDs from parent
   const [globalOptions, setGlobalOptions] = useState({ oneDigitActivationEnabled: true, rowHeightPreset: "Standard", baselineOrder: "workbook", frequentOnTop: true });
   const [enableQuickReturn, setEnableQuickReturn] = useState(true);
-  const [isFirstOpenThisSession, setIsFirstOpenThisSession] = useState(true);
+
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Loading…");
   const [isActivating, setIsActivating] = useState(false);
@@ -495,7 +495,7 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             // Update active sheet ID
             if (state.activeSheetId) setActiveSheetId(state.activeSheetId);
             // Update Quick Return session state
-            if (typeof state.isFirstOpenThisSession === "boolean") setIsFirstOpenThisSession(state.isFirstOpenThisSession);
+
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             setAllSheets(sheets);
             setFavorites((prev) => {
@@ -773,11 +773,9 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
     }
 
     // Quick Return: prepend a special row when conditions are met (search must be empty).
-    // Condition mirrors XLL: enabled, not first open this session, search empty,
-    // recentIds[0] == activeSheetId (still on the sheet we jumped to), recentIds[1] exists and is visible.
+    // Quick Return: enabled, search empty, recentIds[0] == activeSheetId (still on jumped-to sheet), recentIds[1] exists and visible.
     if (
       enableQuickReturn &&
-      !isFirstOpenThisSession &&
       !q &&
       Array.isArray(recentIds) &&
       recentIds.length >= 2 &&
@@ -797,7 +795,7 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
     }
 
     return items;
-  }, [allSheets, query, globalOptions?.baselineOrder, activeSheetId, enableQuickReturn, isFirstOpenThisSession, recentIds]);
+  }, [allSheets, query, globalOptions?.baselineOrder, activeSheetId, enableQuickReturn, recentIds]);
 
   const favoriteIds = useMemo(() => new Set((favorites || []).map((f) => f?.id).filter(Boolean)), [favorites]);
 

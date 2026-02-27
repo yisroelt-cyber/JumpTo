@@ -1,4 +1,4 @@
-// 2026-02-27 00:03 UTC
+// 2026-02-27 00:20 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -42,8 +42,7 @@ const OPT_QUICK_RETURN = "JumpTo.Option.EnableQuickReturn";
 const OPT_ONE_DIGIT_LEGACY = "JumpTo.Option.OneDigitActivation";
 
 // Session flag: tracks whether a jump has been made since commands.js loaded.
-// Mirrors XLL's _jumpMadeThisSession on AddIn. Resets when the shared runtime unloads.
-let jumpMadeThisSession = false;
+
 
 // Module-level cache for global ORTS settings.
 // Populated on first dialog open, reused for all subsequent opens in the same
@@ -253,7 +252,7 @@ async function buildDialogState(baseState, activeSheetId = null) {
     isReadOnly: !!(baseState.isReadOnly),
     // Raw recentIds (unfiltered, unsliced) needed by Quick Return logic in dialog.
     recentIds: recentIds,
-    isFirstOpenThisSession: !jumpMadeThisSession,
+
   };
 }
 
@@ -440,18 +439,22 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
 
             reply({ type: "stateData", state });
 
-            // Diagnostic: write pre-send jMTS to E1. Remove before launch.
+            // Diagnostic: write Quick Return inputs to settings sheet. Remove before launch.
             try {
               await Excel.run(async (context) => {
                 const ws = context.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
                 ws.load("name");
                 await context.sync();
                 if (!ws.isNullObject) {
-                  ws.getRange("E1").values = [[`pre-send jMTS=${jumpMadeThisSession} isFirst=${state.isFirstOpenThisSession} @ ${new Date().toISOString()}`]];
+                  const rIds = Array.isArray(state.recentIds) ? state.recentIds : [];
+                  ws.getRange("E1").values = [[`activeSheetId=${state.activeSheetId} @ ${new Date().toISOString()}`]];
+                  ws.getRange("E2").values = [[`recentIds[0]=${rIds[0]||"none"} recentIds[1]=${rIds[1]||"none"}`]];
+                  ws.getRange("E3").values = [[`enableQR=${state.global?.enableQuickReturn} match=${rIds[0]===state.activeSheetId}`]];
                   await context.sync();
                 }
               });
             } catch (e) { /* ignore */ }
+
             if (changedAny && cachedState) {
               try {
                 const state2 = await buildDialogState(cachedState, activeSheetId);
@@ -594,20 +597,6 @@ if (msg.type === "setEnableQuickReturn") {
                 }
 
                 await activateSheetById(sheetId);
-                jumpMadeThisSession = true;
-
-                // Diagnostic: write post-jump status to E2. Remove before launch.
-                try {
-                  await Excel.run(async (context) => {
-                    const ws = context.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
-                    ws.load("name");
-                    await context.sync();
-                    if (!ws.isNullObject) {
-                      ws.getRange("E2").values = [[`post-jump jMTS=${jumpMadeThisSession} @ ${new Date().toISOString()}`]];
-                      await context.sync();
-                    }
-                  });
-                } catch (e) { /* ignore */ }
 
                 // Skip recording activations in read-only workbooks — all write paths would throw.
                 if (!isReadOnlyCached) {
