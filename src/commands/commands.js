@@ -1,4 +1,15 @@
 // 2026-03-02 01:00 UTC
+// DIAG: module init counter — written to ORTS immediately on load
+(async () => {
+  try {
+    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
+      const prev = await OfficeRuntime.storage.getItem("JumpTo.Diag.InitCount");
+      const count = prev ? (parseInt(prev) + 1) : 1;
+      await OfficeRuntime.storage.setItem("JumpTo.Diag.InitCount", String(count));
+      await OfficeRuntime.storage.setItem("JumpTo.Diag.InitTs", new Date().toISOString());
+    }
+  } catch(e) { /* ignore */ }
+})();
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -423,7 +434,9 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
                   const pVal = _diagPendingAtEntry ? JSON.stringify(_diagPendingAtEntry.slice(0,2)) : "null";
                   ws.getRange("I1").values = [["ENTRY DIAG"]];
                   ws.getRange("I2").insert(Excel.InsertShiftDirection.down);
-                  ws.getRange("I2").values = [[`${new Date().toISOString()} | pending=${pVal} | age=${_diagPendingAgeAtEntry}ms`]];
+                  let _initCount = "?";
+                  try { _initCount = await OfficeRuntime.storage.getItem("JumpTo.Diag.InitCount") || "?"; } catch(e) {}
+                  ws.getRange("I2").values = [[`${new Date().toISOString()} | pending=${pVal} | age=${_diagPendingAgeAtEntry}ms | init#${_initCount} | ortsRestored=${_ortsOverride ? "YES" : "no"}`]];
                   await ctx.sync();
                 }
               });
