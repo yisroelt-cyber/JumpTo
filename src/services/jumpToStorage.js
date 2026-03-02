@@ -1,4 +1,4 @@
-// src/services/jumpToStorage.js
+// 2026-03-02 00:00 UTC
 /* global Excel, OfficeRuntime */
 
 import { MAX_RECENTS, MAX_FAVORITES } from "../shared/constants";
@@ -725,9 +725,16 @@ async function loadInventory(context, sheet, userColLetter) {
   return { rows, devPremium };
 }
 
-async function syncInventoryWithVisibleSheets(context, sheet, userColLetter, visibleSheets) {
-  // visibleSheets: [{id,name,orderIndex?}]
+async function syncInventoryWithVisibleSheets(context, sheet, userColLetter, visibleSheets, allSheets) {
+  // visibleSheets: [{id,name,orderIndex?}] — sheets currently visible (used to add/update rows)
+  // allSheets: [{id,name}] — ALL sheets in workbook including hidden (used to decide what to clear)
+  // Rows are only cleared for sheets that are completely absent from the workbook.
+  // Hidden sheets retain their inventory row and frequency data intact.
   const { rows } = await loadInventory(context, sheet, userColLetter);
+
+  // Build set of all workbook sheet ids and names (visible + hidden) for existence check
+  const allSheetIds = new Set((allSheets || visibleSheets).map(s => String(s.id || "")));
+  const allSheetNames = new Set((allSheets || visibleSheets).map(s => String(s.name || "")));
 
   // Build maps of existing rows
   const idToRow = new Map();
@@ -778,9 +785,14 @@ async function syncInventoryWithVisibleSheets(context, sheet, userColLetter, vis
     matchedRows.add(lastUsedRow);
   }
 
-  // Clear rows that are not matched but contain data
+  // Clear rows only for sheets that no longer exist anywhere in the workbook (not merely hidden).
   for (const r of rows) {
-    if ((r.id || r.name) && !matchedRows.has(r.rowNum)) {
+    if (!(r.id || r.name)) continue;
+    if (matchedRows.has(r.rowNum)) continue;
+    // Only clear if the sheet is gone from the workbook entirely
+    const existsById = r.id && allSheetIds.has(r.id);
+    const existsByName = r.name && allSheetNames.has(r.name);
+    if (!existsById && !existsByName) {
       sheet.getRange(`A${r.rowNum}:C${r.rowNum}`).clear();
       sheet.getRange(`${userColLetter}${r.rowNum}`).clear();
     }
@@ -1002,9 +1014,10 @@ export async function getJumpToState(options = {}) {
     await context.sync();
     const visible = sheets.items.filter(ws => ws.visibility === Excel.SheetVisibility.visible);
     const visibleSheets = visible.map((ws, idx) => ({ id: ws.id, name: ws.name, orderIndex: idx }));
+    const allWorkbookSheets = sheets.items.map(ws => ({ id: ws.id, name: ws.name }));
 
     // Reconcile inventory and read per-user blobs
-    await syncInventoryWithVisibleSheets(context, settingsSheet, colLetter, visibleSheets);
+    await syncInventoryWithVisibleSheets(context, settingsSheet, colLetter, visibleSheets, allWorkbookSheets);
     const { favorites, recents, settings, __meta } = await readUserCells(context, settingsSheet, colLetter);
 
     // Build enriched favorites/recents objects with names
@@ -1281,8 +1294,9 @@ export async function recordActivation(sheetId) {
     await context.sync();
     const visible = ws.items.filter(w => w.visibility === Excel.SheetVisibility.visible);
     const visibleSheets = visible.map((w, idx) => ({ id: w.id, name: w.name, orderIndex: idx }));
+    const allWorkbookSheets = ws.items.map(w => ({ id: w.id, name: w.name }));
 
-    await syncInventoryWithVisibleSheets(context, settingsSheet, colLetter, visibleSheets);
+    await syncInventoryWithVisibleSheets(context, settingsSheet, colLetter, visibleSheets, allWorkbookSheets);
 
     const state = await readUserCells(context, settingsSheet, colLetter);
 

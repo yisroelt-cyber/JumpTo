@@ -1,4 +1,4 @@
-// 2026-03-01 22:00 UTC
+// 2026-03-02 00:30 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 import { BUILD_TIMESTAMP } from "../version";
@@ -2083,7 +2083,7 @@ return (
               />
               <div>
                 <div style={{ fontWeight: 600 }}>Promote frequently used sheets</div>
-                <div style={{ marginTop: 4, opacity: 0.85 }}>When searching, frequently visited sheets rise to the top of results.</div>
+                <div style={{ marginTop: 4, opacity: 0.85 }}>When searching, heavily-used sheets appear at top of search results.</div>
                 {!(PREMIUM_FREQ_BUMP || devPremiumRef.current) && (
                   <div style={{ marginTop: 4, color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>Premium feature.</div>
                 )}
