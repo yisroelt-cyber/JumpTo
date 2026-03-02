@@ -43,9 +43,12 @@ const OPT_ONE_DIGIT_LEGACY = "JumpTo.Option.OneDigitActivation";
 
 // Session flag: tracks whether a jump has been made since commands.js loaded.
 
-// Recents freshness flag: set true after recordActivation completes so that
-// the next dialogReady handler skips getJumpToState and trusts cachedState.recents.
-let recentsFresh = false;
+// Pending recents: set to the authoritative recentIds array immediately after
+// recordActivation completes. Overrides whatever getJumpToState returns until
+// the next full state refresh that postdates the jump.
+// Format: array of sheet id strings, or null when not pending.
+let pendingRecentIds = null;
+let pendingRecentIdsTs = 0; // timestamp when pendingRecentIds was set
 
 
 // Module-level cache for global ORTS settings.
@@ -412,13 +415,8 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
             const readOnly = !!isReadOnlyCached;
 
             // Use snapshot signature to decide whether a full state refresh is needed.
-            // Skip refresh if recentsFresh is set — recents were just written by recordActivation
-            // and cachedState already has the correct values. Refreshing would race with the write.
             let changedAny = false;
-            if (recentsFresh) {
-              recentsFresh = false; // consume the flag
-              lastCheckTs = Date.now(); // reset TTL so we don't immediately refresh on next open
-            } else if (snapshot) {
+            if (snapshot) {
               const now = Date.now();
               if (now - lastCheckTs >= CHECK_TTL_MS) {
                 lastCheckTs = now;
@@ -428,6 +426,20 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
                   changedAny = true;
                 }
               }
+            }
+
+            // If a jump was recently recorded, override recents in cachedState with the
+            // authoritative values from recordActivation. This corrects any stale recents
+            // that getJumpToState may have read before the workbook write landed.
+            // Keep applying until 10 seconds after the jump to cover repeated opens.
+            if (pendingRecentIds !== null && cachedState && (Date.now() - pendingRecentIdsTs < 10000)) {
+              const idToName = new Map((Array.isArray(cachedState.sheets) ? cachedState.sheets : []).map(s => [s.id, s.name]));
+              cachedState = {
+                ...cachedState,
+                recents: pendingRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
+              };
+            } else if (pendingRecentIds !== null && Date.now() - pendingRecentIdsTs >= 10000) {
+              pendingRecentIds = null; // expire after 10s
             } else {
               // Snapshot failed — fall back to original ensureFreshState path.
               try {
@@ -694,10 +706,11 @@ if (msg.type === "setEnableQuickReturn") {
                   ...cachedState,
                   recents: finalRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
                 };
-                recentsFresh = true;
+                pendingRecentIds = finalRecentIds;
+                pendingRecentIdsTs = Date.now();
               } else {
                 cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
-                recentsFresh = false;
+                pendingRecentIds = null;
               }
             });
 })().catch((err) => console.error("selectSheet background handler failed:", err));
