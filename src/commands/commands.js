@@ -623,36 +623,44 @@ if (msg.type === "setEnableQuickReturn") {
         }
           event.completed();
 
-          // Set pendingRecentIds unconditionally from sheetId alone — we don't need cachedState
-          // for this. This ensures dialogReady always has the correct destination at r0, even
-          // if cachedState is still being built by a concurrent dialogReady withLock call.
-          // The background task will upgrade this to the full authoritative list from recordActivation.
-          if (sheetId) {
-            // Best-effort: prepend sheetId to current recents if cachedState is available.
-            // If not, seed with just sheetId — background task will fill in the rest.
-            try {
-              if (cachedState) {
-                const prevRecents = Array.isArray(cachedState.recents) ? cachedState.recents : [];
-                const prevRecentIds = prevRecents.map(r => (typeof r === "string" ? r : r?.id)).filter(Boolean);
-                pendingRecentIds = [sheetId, ...prevRecentIds.filter(id => id !== sheetId)].slice(0, 20);
-                const idToName = new Map((Array.isArray(cachedState.sheets) ? cachedState.sheets : []).map(s => [s.id, s.name]));
-                cachedState = {
-                  ...cachedState,
-                  recents: pendingRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
-                };
-              } else {
-                // cachedState not yet available — seed pending with destination only.
-                // Background task will build the full list.
-                pendingRecentIds = [sheetId];
-                cachedState = null;
+          // DIAG: log optimistic block entry conditions to col G
+          try {
+            await Excel.run(async (ctx) => {
+              const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
+              ws.load("name");
+              await ctx.sync();
+              if (!ws.isNullObject) {
+                ws.getRange("G1").values = [["OPTIMISTIC DIAG"]];
+                ws.getRange("G2").insert(Excel.InsertShiftDirection.down);
+                ws.getRange("G2").values = [[`${new Date().toISOString()} | sheetId=${sheetId||"null"} | cachedState=${cachedState?"ok":"null"}`]];
+                await ctx.sync();
               }
-              pendingRecentIdsTs = Date.now();
+            });
+          } catch(e) { /* diag */ }
+
+          // Set pendingRecentIds unconditionally from sheetId — does NOT depend on cachedState.
+          // This guarantees dialogReady always sees a non-null pendingRecentIds even if
+          // cachedState is still being built by a concurrent dialogReady withLock call.
+          if (sheetId) {
+            pendingRecentIds = [sheetId];
+            pendingRecentIdsTs = Date.now();
+          }
+          // Also optimistically patch cachedState if available.
+          if (sheetId && cachedState) {
+            try {
+              const prevRecents = Array.isArray(cachedState.recents) ? cachedState.recents : [];
+              const prevRecentIds = prevRecents.map(r => (typeof r === "string" ? r : r?.id)).filter(Boolean);
+              const nextRecentIds = [sheetId, ...prevRecentIds.filter(id => id !== sheetId)].slice(0, 20);
+              const idToName = new Map((Array.isArray(cachedState.sheets) ? cachedState.sheets : []).map(s => [s.id, s.name]));
+              cachedState = {
+                ...cachedState,
+                recents: nextRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
+              };
+              pendingRecentIds = nextRecentIds; // upgrade to full list if available
             } catch (e) {
-              pendingRecentIds = [sheetId];
-              pendingRecentIdsTs = Date.now();
               cachedState = null;
             }
-          } else {
+          } else if (!sheetId) {
             cachedState = null;
           }
 
