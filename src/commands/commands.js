@@ -587,6 +587,7 @@ if (msg.type === "setEnableQuickReturn") {
           // Continue work in the background so UI close is not blocked by Excel writes.
           (async () => {
             await withLock(async () => {
+              let finalRecentIds = null;
               if (sheetId) {
                 // Capture the origin sheet (currently active) before jumping away.
                 let originSheetId = null;
@@ -610,7 +611,12 @@ if (msg.type === "setEnableQuickReturn") {
                   if (originSheetId && originSheetId !== sheetId) {
                     await recordActivation(originSheetId);
                   }
-                  await recordActivation(sheetId);
+                  const recResult = await recordActivation(sheetId);
+                  // Capture the authoritative recentIds returned by recordActivation so we can
+                  // patch cachedState without doing a full getJumpToState read afterward.
+                  if (recResult && Array.isArray(recResult.recents)) {
+                    finalRecentIds = recResult.recents;
+                  }
                 }
               }
 
@@ -648,7 +654,17 @@ if (msg.type === "setEnableQuickReturn") {
               }
 
               // Keep cache coherent for the next dialog open.
-              cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
+              // Prefer patching recents directly from recordActivation's return value to avoid
+              // a race where getJumpToState reads the workbook before the write has landed.
+              if (finalRecentIds !== null && cachedState) {
+                const idToName = new Map((Array.isArray(cachedState.sheets) ? cachedState.sheets : []).map(s => [s.id, s.name]));
+                cachedState = {
+                  ...cachedState,
+                  recents: finalRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
+                };
+              } else {
+                cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
+              }
             });
 })().catch((err) => console.error("selectSheet background handler failed:", err));
 
