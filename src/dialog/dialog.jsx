@@ -1,4 +1,4 @@
-// 2026-02-27 00:18 UTC
+// 2026-03-01 22:00 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 import { BUILD_TIMESTAMP } from "../version";
@@ -194,7 +194,7 @@ function DialogApp() {
 
   // UI layout settings (Navigation + Favorites tab right column)
   const [uiFavPercentManual, setUiFavPercentManual] = useState(50); // 20..80 (Favorites share when space is limited)
-  const [uiRecentsDisplayCount, setUiRecentsDisplayCount] = useState(10); // 1..MAX_RECENTS
+  const [uiRecentsDisplayCount, setUiRecentsDisplayCount] = useState(5); // 1..MAX_RECENTS
   const uiSettingsPersistTimerRef = useRef(null);
 
   // Global options persistence (debounced): rowHeightPreset.
@@ -725,7 +725,7 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
     // Apply "frequent bump" ONLY when search is active, the list is narrowed, AND premium is enabled.
     // Premium is active if the compile-time constant is set OR the dev magic cell (A10 = "DEV_PREMIUM") is present.
     const allCount = Array.isArray(allSheets) ? allSheets.length : 0;
-    if (q && items.length < allCount && (PREMIUM_FREQ_BUMP || devPremiumRef.current)) {
+    if (q && items.length < allCount && (PREMIUM_FREQ_BUMP || devPremiumRef.current) && !!(globalOptions?.frequentOnTop)) {
       const N = items.length;
       const k = Math.min(Math.max(Math.ceil(0.1 * N), 1), 5); // candidates considered; does not force a bump
 
@@ -1382,7 +1382,7 @@ return (
         >
           <div style={{ flex: "1 1 auto" }}>
             <div style={{ fontWeight: 600, marginBottom: 3 }}>This workbook is read-only</div>
-            <div style={{ opacity: 0.85 }}>JumpTo is running in degraded mode. Navigation works normally, but favorites/recents and some settings cannot be changed.</div>
+            <div style={{ opacity: 0.85 }}>JumpTo is running in degraded mode. Navigation works normally, but favorites cannot be edited.</div>
           </div>
           <button
             type="button"
@@ -1452,22 +1452,40 @@ return (
                       const recentsVisible = (Array.isArray(recents) ? recents : []).slice(0, uiRecentsDisplayCount);
                       const hasRecs = recentsVisible.length > 0;
 
-                      // Tab cycles faux-focus: all -> favorites (if any) -> recents (if any) -> all
+                      // Tab / Shift+Tab cycles faux-focus forward / backward: all -> favorites (if any) -> recents (if any) -> all
                       if (key === "Tab") {
                         e.preventDefault();
-                        setFauxFocus((prev) => {
-                          if (prev === "all") {
-                            if (hasFavs) return "favorites";
-                            if (hasRecs) return "recents";
+                        if (e.shiftKey) {
+                          // Backward
+                          setFauxFocus((prev) => {
+                            if (prev === "all") {
+                              if (hasRecs) return "recents";
+                              if (hasFavs) return "favorites";
+                              return "all";
+                            }
+                            if (prev === "recents") {
+                              if (hasFavs) return "favorites";
+                              return "all";
+                            }
+                            // favorites -> all
                             return "all";
-                          }
-                          if (prev === "favorites") {
-                            if (hasRecs) return "recents";
+                          });
+                        } else {
+                          // Forward
+                          setFauxFocus((prev) => {
+                            if (prev === "all") {
+                              if (hasFavs) return "favorites";
+                              if (hasRecs) return "recents";
+                              return "all";
+                            }
+                            if (prev === "favorites") {
+                              if (hasRecs) return "recents";
+                              return "all";
+                            }
+                            // recents -> all
                             return "all";
-                          }
-                          // recents -> all
-                          return "all";
-                        });
+                          });
+                        }
                         requestSearchFocus("tab");
                         return;
                       }
@@ -1519,13 +1537,23 @@ return (
                       const leadingSpace = q.startsWith(" ");
 
                       // One-digit activation: always available regardless of faux-focus.
-                      if (oneDigit && !mods && !leadingSpace && q === "" && key >= "0" && key <= "9") {
-                        const idx = key === "0" ? 9 : (Number(key) - 1);
-                        const fav = favorites?.[idx];
-                        if (fav?.id) {
-                          e.preventDefault();
-                          onSelect(fav);
-                          return;
+                      // Supports both main keyboard digits and numpad (Numpad0–Numpad9).
+                      if (oneDigit && !mods && !leadingSpace && q === "") {
+                        let digitChar = null;
+                        if (key >= "0" && key <= "9") {
+                          digitChar = key;
+                        } else if (key.startsWith("Numpad") && key.length === 7) {
+                          const c = key[6];
+                          if (c >= "0" && c <= "9") digitChar = c;
+                        }
+                        if (digitChar !== null) {
+                          const idx = digitChar === "0" ? 9 : (Number(digitChar) - 1);
+                          const fav = favorites?.[idx];
+                          if (fav?.id) {
+                            e.preventDefault();
+                            onSelect(fav);
+                            return;
+                          }
                         }
                       }
 
@@ -2038,6 +2066,32 @@ return (
           </div>
 
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Frequent on top</div>
+
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: (PREMIUM_FREQ_BUMP || devPremiumRef.current) ? 0.95 : 0.45, userSelect: "none", cursor: (PREMIUM_FREQ_BUMP || devPremiumRef.current) ? "pointer" : "default" }}>
+              <input
+                type="checkbox"
+                checked={!!(globalOptions?.frequentOnTop)}
+                disabled={!(PREMIUM_FREQ_BUMP || devPremiumRef.current)}
+                onChange={(e) => {
+                  if (!(PREMIUM_FREQ_BUMP || devPremiumRef.current)) return;
+                  const nextEnabled = !!e.target.checked;
+                  setGlobalOptions((prev) => ({ ...(prev || {}), frequentOnTop: nextEnabled }));
+                  schedulePersistUiSettings("frequentOnTop");
+                }}
+                style={{ marginTop: 2 }}
+              />
+              <div>
+                <div style={{ fontWeight: 600 }}>Promote frequently used sheets</div>
+                <div style={{ marginTop: 4, opacity: 0.85 }}>When searching, frequently visited sheets rise to the top of results.</div>
+                {!(PREMIUM_FREQ_BUMP || devPremiumRef.current) && (
+                  <div style={{ marginTop: 4, color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>Premium feature.</div>
+                )}
+              </div>
+            </label>
+          </div>
+
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Recents</div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.9 }}>
@@ -2064,34 +2118,7 @@ return (
           </div>
 
 <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Quick Return</div>
-
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: 0.95, userSelect: "none", cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={enableQuickReturn}
-                onChange={(e) => {
-                  const nextEnabled = !!e.target.checked;
-                  setEnableQuickReturn(nextEnabled);
-                  try {
-                    if (Office?.context?.ui?.messageParent) {
-                      Office.context.ui.messageParent(JSON.stringify({ type: "setEnableQuickReturn", enabled: nextEnabled }));
-                    }
-                  } catch (err) {
-                    console.error("messageParent(setEnableQuickReturn) failed:", err);
-                  }
-                }}
-                style={{ marginTop: 2 }}
-              />
-              <div>
-                <div style={{ fontWeight: 600 }}>Enable quick return</div>
-                <div style={{ marginTop: 4, opacity: 0.85 }}>Return to your previous sheet by simply pressing Enter — available when you&rsquo;re still on the sheet you jumped to.</div>
-              </div>
-            </label>
-          </div>
-
-<div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Keyboard</div>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>One-digit activation</div>
 
             <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: isReadOnly ? 0.45 : 0.95, userSelect: "none", cursor: isReadOnly ? "default" : "pointer" }}>
               <input
@@ -2118,6 +2145,33 @@ return (
                 {isReadOnly && (
                   <div style={{ marginTop: 4, color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>Not available in read-only workbooks.</div>
                 )}
+              </div>
+            </label>
+          </div>
+
+<div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, opacity: 0.9 }}>Quick Return</div>
+
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, opacity: 0.95, userSelect: "none", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={enableQuickReturn}
+                onChange={(e) => {
+                  const nextEnabled = !!e.target.checked;
+                  setEnableQuickReturn(nextEnabled);
+                  try {
+                    if (Office?.context?.ui?.messageParent) {
+                      Office.context.ui.messageParent(JSON.stringify({ type: "setEnableQuickReturn", enabled: nextEnabled }));
+                    }
+                  } catch (err) {
+                    console.error("messageParent(setEnableQuickReturn) failed:", err);
+                  }
+                }}
+                style={{ marginTop: 2 }}
+              />
+              <div>
+                <div style={{ fontWeight: 600 }}>Enable quick return</div>
+                <div style={{ marginTop: 4, opacity: 0.85 }}>To return to your previous sheet, open JumpTo and simply press Enter — available when you&rsquo;re still on the sheet you jumped to.</div>
               </div>
             </label>
           </div>

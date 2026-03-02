@@ -1,4 +1,4 @@
-// 2026-02-27 00:34 UTC
+// 2026-03-01 22:00 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -171,7 +171,7 @@ async function buildDialogState(baseState, activeSheetId = null) {
     : 50;
   let recentsDisplayCount = Number.isFinite(Number(baseState.settings?.recentsDisplayCount))
     ? Number(baseState.settings?.recentsDisplayCount)
-    : 20;
+    : 5;
 
   try {
     if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItems) {
@@ -222,7 +222,7 @@ async function buildDialogState(baseState, activeSheetId = null) {
   // Clamp recentsDisplayCount for use in filtered Recents list.
   const n = Number.isFinite(recentsDisplayCount)
     ? Math.max(1, Math.min(20, Math.floor(recentsDisplayCount)))
-    : 20;
+    : 5;
 
   const filtered = [];
   for (const id of recentIds) {
