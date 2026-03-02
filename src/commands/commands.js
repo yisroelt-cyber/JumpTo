@@ -43,6 +43,10 @@ const OPT_ONE_DIGIT_LEGACY = "JumpTo.Option.OneDigitActivation";
 
 // Session flag: tracks whether a jump has been made since commands.js loaded.
 
+// Recents freshness flag: set true after recordActivation completes so that
+// the next dialogReady handler skips getJumpToState and trusts cachedState.recents.
+let recentsFresh = false;
+
 
 // Module-level cache for global ORTS settings.
 // Populated on first dialog open, reused for all subsequent opens in the same
@@ -408,8 +412,13 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
             const readOnly = !!isReadOnlyCached;
 
             // Use snapshot signature to decide whether a full state refresh is needed.
+            // Skip refresh if recentsFresh is set — recents were just written by recordActivation
+            // and cachedState already has the correct values. Refreshing would race with the write.
             let changedAny = false;
-            if (snapshot) {
+            if (recentsFresh) {
+              recentsFresh = false; // consume the flag
+              lastCheckTs = Date.now(); // reset TTL so we don't immediately refresh on next open
+            } else if (snapshot) {
               const now = Date.now();
               if (now - lastCheckTs >= CHECK_TTL_MS) {
                 lastCheckTs = now;
@@ -685,8 +694,10 @@ if (msg.type === "setEnableQuickReturn") {
                   ...cachedState,
                   recents: finalRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
                 };
+                recentsFresh = true;
               } else {
                 cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
+                recentsFresh = false;
               }
             });
 })().catch((err) => console.error("selectSheet background handler failed:", err));
