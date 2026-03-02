@@ -1,4 +1,4 @@
-// 2026-03-01 22:00 UTC
+// 2026-03-02 01:00 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -563,9 +563,26 @@ if (msg.type === "setEnableQuickReturn") {
         }
           event.completed();
 
-          // Invalidate cache immediately so the next dialog open reads fresh state
-          // (including updated recents). The background block will repopulate it.
-          cachedState = null;
+          // Optimistically update cachedState with the destination sheet at recentIds[0].
+          // This ensures Quick Return is available immediately if the user reopens the dialog
+          // before the background recordActivation write completes.
+          // The background task will replace this with authoritative state from the workbook.
+          if (sheetId && cachedState) {
+            try {
+              const prevRecents = Array.isArray(cachedState.recents) ? cachedState.recents : [];
+              const prevRecentIds = prevRecents.map(r => (typeof r === "string" ? r : r?.id)).filter(Boolean);
+              const nextRecentIds = [sheetId, ...prevRecentIds.filter(id => id !== sheetId)].slice(0, 20);
+              const idToName = new Map((Array.isArray(cachedState.sheets) ? cachedState.sheets : []).map(s => [s.id, s.name]));
+              cachedState = {
+                ...cachedState,
+                recents: nextRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
+              };
+            } catch (e) {
+              cachedState = null;
+            }
+          } else {
+            cachedState = null;
+          }
 
           // Continue work in the background so UI close is not blocked by Excel writes.
           (async () => {
