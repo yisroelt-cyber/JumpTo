@@ -394,6 +394,23 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
         if (msg.type === "dialogReady") {
           // Dialog has registered its parent-message handler; it's now safe to send stateData.
           await withLock(async () => {
+            // DIAG col I: log pendingRecentIds at very first line inside withLock
+            const _diagPendingAtEntry = pendingRecentIds;
+            const _diagPendingAgeAtEntry = pendingRecentIds !== null ? (Date.now() - pendingRecentIdsTs) : -1;
+            try {
+              await Excel.run(async (ctx) => {
+                const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
+                ws.load("name");
+                await ctx.sync();
+                if (!ws.isNullObject) {
+                  const pVal = _diagPendingAtEntry ? JSON.stringify(_diagPendingAtEntry.slice(0,2)) : "null";
+                  ws.getRange("I1").values = [["ENTRY DIAG"]];
+                  ws.getRange("I2").insert(Excel.InsertShiftDirection.down);
+                  ws.getRange("I2").values = [[`${new Date().toISOString()} | pending=${pVal} | age=${_diagPendingAgeAtEntry}ms`]];
+                  await ctx.sync();
+                }
+              });
+            } catch(e) { /* diag */ }
             // Single Excel.run fetches read-only status, active sheet id, and sheet
             // signature — replacing three previously separate round-trips.
             let activeSheetId = null;
