@@ -748,7 +748,8 @@ if (msg.type === "setEnableQuickReturn") {
                 pendingRecentIdsTs = Date.now();
               } else {
                 cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
-                pendingRecentIds = null;
+                // Do NOT clear pendingRecentIds here — it was set optimistically at close time
+                // and is still valid. Clearing it would cause Quick Return to miss on next open.
               }
             });
 })().catch((err) => console.error("selectSheet background handler failed:", err));
