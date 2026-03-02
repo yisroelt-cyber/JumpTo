@@ -395,6 +395,23 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
           // Dialog has registered its parent-message handler; it's now safe to send stateData.
           await withLock(async () => {
             // DIAG col I: log pendingRecentIds at very first line inside withLock
+            // Also check ORTS fallback if module-level variable is null
+            let _ortsOverride = null;
+            if (pendingRecentIds === null) {
+              try {
+                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
+                  const raw = await OfficeRuntime.storage.getItem("JumpTo.PendingRecentIds");
+                  if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && Array.isArray(parsed.ids) && parsed.ts && (Date.now() - parsed.ts) < 10000) {
+                      _ortsOverride = parsed.ids;
+                      pendingRecentIds = _ortsOverride;
+                      pendingRecentIdsTs = parsed.ts;
+                    }
+                  }
+                }
+              } catch(e) { /* ignore */ }
+            }
             const _diagPendingAtEntry = pendingRecentIds;
             const _diagPendingAgeAtEntry = pendingRecentIds !== null ? (Date.now() - pendingRecentIdsTs) : -1;
             try {
@@ -630,6 +647,12 @@ if (msg.type === "setEnableQuickReturn") {
           if (sheetId) {
             pendingRecentIds = [sheetId];
             pendingRecentIdsTs = Date.now();
+            // Also persist to ORTS as a fallback in case module-level state is unreliable.
+            try {
+              if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                await OfficeRuntime.storage.setItem("JumpTo.PendingRecentIds", JSON.stringify({ ids: [sheetId], ts: Date.now() }));
+              }
+            } catch(e) { /* ignore */ }
           }
 
           // Snapshot-based persistence: the dialog may close immediately after selection,
