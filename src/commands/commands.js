@@ -432,13 +432,29 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
             // authoritative values from recordActivation. This corrects any stale recents
             // that getJumpToState may have read before the workbook write landed.
             // Keep applying until 10 seconds after the jump to cover repeated opens.
-            if (pendingRecentIds !== null && cachedState && (Date.now() - pendingRecentIdsTs < 10000)) {
+            const _pAge = pendingRecentIds !== null ? (Date.now() - pendingRecentIdsTs) : -1;
+            // DIAG: log pendingRecentIds state to settings sheet col F
+            try {
+              await Excel.run(async (ctx) => {
+                const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
+                ws.load("name");
+                await ctx.sync();
+                if (!ws.isNullObject) {
+                  const pVal = pendingRecentIds ? pendingRecentIds.slice(0,3).join(",") : "null";
+                  ws.getRange("F1").values = [["PENDING DIAG"]];
+                  ws.getRange("F2").insert(Excel.InsertShiftDirection.down);
+                  ws.getRange("F2").values = [[`${new Date().toISOString()} | pending=${pVal} | age=${_pAge}ms`]];
+                  await ctx.sync();
+                }
+              });
+            } catch(e) { /* diag */ }
+            if (pendingRecentIds !== null && cachedState && (_pAge < 10000)) {
               const idToName = new Map((Array.isArray(cachedState.sheets) ? cachedState.sheets : []).map(s => [s.id, s.name]));
               cachedState = {
                 ...cachedState,
                 recents: pendingRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
               };
-            } else if (pendingRecentIds !== null && Date.now() - pendingRecentIdsTs >= 10000) {
+            } else if (pendingRecentIds !== null && _pAge >= 10000) {
               pendingRecentIds = null; // expire after 10s
             } else {
               // Snapshot failed — fall back to original ensureFreshState path.
