@@ -606,6 +606,15 @@ if (msg.type === "setEnableQuickReturn") {
         if (msg.type === "selectSheet") {
           const sheetId = msg.sheetId;
 
+          // Set pendingRecentIds immediately — before dialog.close() and event.completed() —
+          // so it is guaranteed to be set before the next dialog opens and sends dialogReady.
+          // This is the earliest possible moment; everything after this point may race with
+          // the next dialog's startup sequence.
+          if (sheetId) {
+            pendingRecentIds = [sheetId];
+            pendingRecentIdsTs = Date.now();
+          }
+
           // Snapshot-based persistence: the dialog may close immediately after selection,
           // so carry the latest state in the select message and persist it from the parent
           // *after* the sheet activation has been initiated.
@@ -645,6 +654,20 @@ if (msg.type === "setEnableQuickReturn") {
             pendingRecentIds = [sheetId];
             pendingRecentIdsTs = Date.now();
           }
+          // DIAG: log pendingRecentIds immediately after setting, to col H
+          try {
+            await Excel.run(async (ctx) => {
+              const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
+              ws.load("name");
+              await ctx.sync();
+              if (!ws.isNullObject) {
+                ws.getRange("H1").values = [["SET DIAG"]];
+                ws.getRange("H2").insert(Excel.InsertShiftDirection.down);
+                ws.getRange("H2").values = [[`${new Date().toISOString()} | sheetId=${sheetId||"null"} | pending=${JSON.stringify(pendingRecentIds)}`]];
+                await ctx.sync();
+              }
+            });
+          } catch(e) { /* diag */ }
           // Also optimistically patch cachedState if available.
           if (sheetId && cachedState) {
             try {
