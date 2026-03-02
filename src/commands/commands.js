@@ -623,6 +623,21 @@ if (msg.type === "setEnableQuickReturn") {
         }
           event.completed();
 
+          // DIAG: log optimistic block entry conditions to col G
+          try {
+            await Excel.run(async (ctx) => {
+              const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
+              ws.load("name");
+              await ctx.sync();
+              if (!ws.isNullObject) {
+                ws.getRange("G1").values = [["OPTIMISTIC DIAG"]];
+                ws.getRange("G2").insert(Excel.InsertShiftDirection.down);
+                ws.getRange("G2").values = [[`${new Date().toISOString()} | sheetId=${sheetId||"null"} | cachedState=${cachedState?"ok":"null"}`]];
+                await ctx.sync();
+              }
+            });
+          } catch(e) { /* diag */ }
+
           // Optimistically update cachedState and pendingRecentIds with the destination sheet
           // at recentIds[0]. This ensures Quick Return is available immediately even if the
           // user reopens the dialog before the background recordActivation write completes,
