@@ -623,47 +623,37 @@ if (msg.type === "setEnableQuickReturn") {
         }
           event.completed();
 
-          // DIAG: log optimistic block entry conditions to col G
-          try {
-            await Excel.run(async (ctx) => {
-              const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
-              ws.load("name");
-              await ctx.sync();
-              if (!ws.isNullObject) {
-                ws.getRange("G1").values = [["OPTIMISTIC DIAG"]];
-                ws.getRange("G2").insert(Excel.InsertShiftDirection.down);
-                ws.getRange("G2").values = [[`${new Date().toISOString()} | sheetId=${sheetId||"null"} | cachedState=${cachedState?"ok":"null"}`]];
-                await ctx.sync();
-              }
-            });
-          } catch(e) { /* diag */ }
-
-          // Optimistically update cachedState and pendingRecentIds with the destination sheet
-          // at recentIds[0]. This ensures Quick Return is available immediately even if the
-          // user reopens the dialog before the background recordActivation write completes,
-          // and even if dialogReady triggers a getJumpToState call that reads stale workbook data.
-          // pendingRecentIds persists for 10s and overrides any stale getJumpToState result.
-          if (sheetId && cachedState) {
+          // Set pendingRecentIds unconditionally from sheetId alone — we don't need cachedState
+          // for this. This ensures dialogReady always has the correct destination at r0, even
+          // if cachedState is still being built by a concurrent dialogReady withLock call.
+          // The background task will upgrade this to the full authoritative list from recordActivation.
+          if (sheetId) {
+            // Best-effort: prepend sheetId to current recents if cachedState is available.
+            // If not, seed with just sheetId — background task will fill in the rest.
             try {
-              const prevRecents = Array.isArray(cachedState.recents) ? cachedState.recents : [];
-              const prevRecentIds = prevRecents.map(r => (typeof r === "string" ? r : r?.id)).filter(Boolean);
-              const nextRecentIds = [sheetId, ...prevRecentIds.filter(id => id !== sheetId)].slice(0, 20);
-              const idToName = new Map((Array.isArray(cachedState.sheets) ? cachedState.sheets : []).map(s => [s.id, s.name]));
-              cachedState = {
-                ...cachedState,
-                recents: nextRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
-              };
-              // Set pendingRecentIds immediately so dialogReady can apply it even before
-              // the background task completes and sets the authoritative value.
-              pendingRecentIds = nextRecentIds;
+              if (cachedState) {
+                const prevRecents = Array.isArray(cachedState.recents) ? cachedState.recents : [];
+                const prevRecentIds = prevRecents.map(r => (typeof r === "string" ? r : r?.id)).filter(Boolean);
+                pendingRecentIds = [sheetId, ...prevRecentIds.filter(id => id !== sheetId)].slice(0, 20);
+                const idToName = new Map((Array.isArray(cachedState.sheets) ? cachedState.sheets : []).map(s => [s.id, s.name]));
+                cachedState = {
+                  ...cachedState,
+                  recents: pendingRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
+                };
+              } else {
+                // cachedState not yet available — seed pending with destination only.
+                // Background task will build the full list.
+                pendingRecentIds = [sheetId];
+                cachedState = null;
+              }
               pendingRecentIdsTs = Date.now();
             } catch (e) {
+              pendingRecentIds = [sheetId];
+              pendingRecentIdsTs = Date.now();
               cachedState = null;
-              pendingRecentIds = null;
             }
           } else {
             cachedState = null;
-            pendingRecentIds = null;
           }
 
           // Continue work in the background so UI close is not blocked by Excel writes.
