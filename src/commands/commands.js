@@ -241,6 +241,29 @@ async function buildDialogState(baseState, activeSheetId = null) {
     freq: Number(freqById[s.id] || 0),
   }));
 
+  // DIAG: write Quick Return debug info to settings sheet column E
+  try {
+    await Excel.run(async (ctx) => {
+      const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
+      ws.load("name");
+      await ctx.sync();
+      if (!ws.isNullObject) {
+        const ts = new Date().toISOString();
+        const r0 = recentIds[0] || "(none)";
+        const r1 = recentIds[1] || "(none)";
+        const match = (r0 === activeId) ? "MATCH" : "NO-MATCH";
+        const r0name = idToName.get(r0) || r0;
+        const r1name = idToName.get(r1) || r1;
+        const activeName = idToName.get(activeId) || activeId;
+        ws.getRange("E1").values = [["QR DIAG (latest at top)"]];
+        // Shift existing rows down by inserting at E2
+        ws.getRange("E2").insert(Excel.InsertShiftDirection.down);
+        ws.getRange("E2").values = [[`${ts} | active=${activeName} | r0=${r0name} | r1=${r1name} | ${match}`]];
+        await ctx.sync();
+      }
+    });
+  } catch (e) { /* diag best-effort */ }
+
   return {
     ...baseState,
     activeSheetId: activeId,
