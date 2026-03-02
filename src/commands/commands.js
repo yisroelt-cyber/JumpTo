@@ -607,10 +607,11 @@ if (msg.type === "setEnableQuickReturn") {
         }
           event.completed();
 
-          // Optimistically update cachedState with the destination sheet at recentIds[0].
-          // This ensures Quick Return is available immediately if the user reopens the dialog
-          // before the background recordActivation write completes.
-          // The background task will replace this with authoritative state from the workbook.
+          // Optimistically update cachedState and pendingRecentIds with the destination sheet
+          // at recentIds[0]. This ensures Quick Return is available immediately even if the
+          // user reopens the dialog before the background recordActivation write completes,
+          // and even if dialogReady triggers a getJumpToState call that reads stale workbook data.
+          // pendingRecentIds persists for 10s and overrides any stale getJumpToState result.
           if (sheetId && cachedState) {
             try {
               const prevRecents = Array.isArray(cachedState.recents) ? cachedState.recents : [];
@@ -621,11 +622,17 @@ if (msg.type === "setEnableQuickReturn") {
                 ...cachedState,
                 recents: nextRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
               };
+              // Set pendingRecentIds immediately so dialogReady can apply it even before
+              // the background task completes and sets the authoritative value.
+              pendingRecentIds = nextRecentIds;
+              pendingRecentIdsTs = Date.now();
             } catch (e) {
               cachedState = null;
+              pendingRecentIds = null;
             }
           } else {
             cachedState = null;
+            pendingRecentIds = null;
           }
 
           // Continue work in the background so UI close is not blocked by Excel writes.
