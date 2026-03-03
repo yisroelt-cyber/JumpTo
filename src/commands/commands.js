@@ -406,25 +406,6 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
 
         if (msg.type === "dialogReady") {
           // Dialog has registered its parent-message handler; it's now safe to send stateData.
-          // Eagerly restore pendingRecentIds from ORTS BEFORE entering withLock,
-          // so the value is available immediately when withLock runs — eliminating the
-          // delay caused by the async ORTS read inside the lock.
-          // Only attempt if a jump has been made this session — avoids ORTS read cost on
-          // every dialog open when Quick Return can't possibly be needed yet.
-          if (pendingRecentIds === null && jumpMadeThisSession) {
-            try {
-              if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
-                const raw = await OfficeRuntime.storage.getItem("JumpTo.PendingRecentIds");
-                if (raw) {
-                  const parsed = JSON.parse(raw);
-                  if (parsed && Array.isArray(parsed.ids) && parsed.ts && (Date.now() - parsed.ts) < 10000) {
-                    pendingRecentIds = parsed.ids;
-                    pendingRecentIdsTs = parsed.ts;
-                  }
-                }
-              }
-            } catch(e) { /* ignore */ }
-          }
           await withLock(async () => {
             const _diagPendingAtEntry = pendingRecentIds;
             const _diagPendingAgeAtEntry = pendingRecentIds !== null ? (Date.now() - pendingRecentIdsTs) : -1;
@@ -665,8 +646,8 @@ if (msg.type === "setEnableQuickReturn") {
             pendingRecentIds = [sheetId];
             pendingRecentIdsTs = Date.now();
             jumpMadeThisSession = true;
-            // Also persist to ORTS as a fallback in case module-level state is unreliable.
-            // Fire-and-forget — must NOT be awaited before dialog.close() to avoid blocking UI.
+            // Fire-and-forget ORTS write — best effort, no latency cost.
+            // Quick Return is a bonus feature; occasional misses under rapid use are acceptable.
             (async () => {
               try {
                 if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
