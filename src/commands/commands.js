@@ -60,6 +60,8 @@ const OPT_ONE_DIGIT_LEGACY = "JumpTo.Option.OneDigitActivation";
 // Format: array of sheet id strings, or null when not pending.
 let pendingRecentIds = null;
 let pendingRecentIdsTs = 0; // timestamp when pendingRecentIds was set
+let jumpMadeThisSession = false; // true after first successful jump; guards ORTS read cost
+let _diagJumpCounter = 0; // DIAG: increments on every selectSheet, read in dialogReady
 
 
 // Module-level cache for global ORTS settings.
@@ -404,25 +406,26 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
 
         if (msg.type === "dialogReady") {
           // Dialog has registered its parent-message handler; it's now safe to send stateData.
-          await withLock(async () => {
-            // DIAG col I: log pendingRecentIds at very first line inside withLock
-            // Also check ORTS fallback if module-level variable is null
-            let _ortsOverride = null;
-            if (pendingRecentIds === null) {
-              try {
-                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
-                  const raw = await OfficeRuntime.storage.getItem("JumpTo.PendingRecentIds");
-                  if (raw) {
-                    const parsed = JSON.parse(raw);
-                    if (parsed && Array.isArray(parsed.ids) && parsed.ts && (Date.now() - parsed.ts) < 10000) {
-                      _ortsOverride = parsed.ids;
-                      pendingRecentIds = _ortsOverride;
-                      pendingRecentIdsTs = parsed.ts;
-                    }
+          // Eagerly restore pendingRecentIds from ORTS BEFORE entering withLock,
+          // so the value is available immediately when withLock runs — eliminating the
+          // delay caused by the async ORTS read inside the lock.
+          // Only attempt if a jump has been made this session — avoids ORTS read cost on
+          // every dialog open when Quick Return can't possibly be needed yet.
+          if (pendingRecentIds === null && jumpMadeThisSession) {
+            try {
+              if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
+                const raw = await OfficeRuntime.storage.getItem("JumpTo.PendingRecentIds");
+                if (raw) {
+                  const parsed = JSON.parse(raw);
+                  if (parsed && Array.isArray(parsed.ids) && parsed.ts && (Date.now() - parsed.ts) < 10000) {
+                    pendingRecentIds = parsed.ids;
+                    pendingRecentIdsTs = parsed.ts;
                   }
                 }
-              } catch(e) { /* ignore */ }
-            }
+              }
+            } catch(e) { /* ignore */ }
+          }
+          await withLock(async () => {
             const _diagPendingAtEntry = pendingRecentIds;
             const _diagPendingAgeAtEntry = pendingRecentIds !== null ? (Date.now() - pendingRecentIdsTs) : -1;
             try {
@@ -436,7 +439,7 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
                   ws.getRange("I2").insert(Excel.InsertShiftDirection.down);
                   let _initCount = "?";
                   try { _initCount = await OfficeRuntime.storage.getItem("JumpTo.Diag.InitCount") || "?"; } catch(e) {}
-                  ws.getRange("I2").values = [[`${new Date().toISOString()} | pending=${pVal} | age=${_diagPendingAgeAtEntry}ms | init#${_initCount} | ortsRestored=${_ortsOverride ? "YES" : "no"}`]];
+                  ws.getRange("I2").values = [[`${new Date().toISOString()} | pending=${pVal} | age=${_diagPendingAgeAtEntry}ms | init#${_initCount} | jumps=${_diagJumpCounter}`]];
                   await ctx.sync();
                 }
               });
@@ -652,6 +655,7 @@ if (msg.type === "setEnableQuickReturn") {
 
         if (msg.type === "selectSheet") {
           const sheetId = msg.sheetId;
+          _diagJumpCounter += 1; // DIAG
 
           // Set pendingRecentIds immediately — before dialog.close() and event.completed() —
           // so it is guaranteed to be set before the next dialog opens and sends dialogReady.
@@ -660,12 +664,16 @@ if (msg.type === "setEnableQuickReturn") {
           if (sheetId) {
             pendingRecentIds = [sheetId];
             pendingRecentIdsTs = Date.now();
+            jumpMadeThisSession = true;
             // Also persist to ORTS as a fallback in case module-level state is unreliable.
-            try {
-              if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                await OfficeRuntime.storage.setItem("JumpTo.PendingRecentIds", JSON.stringify({ ids: [sheetId], ts: Date.now() }));
-              }
-            } catch(e) { /* ignore */ }
+            // Fire-and-forget — must NOT be awaited before dialog.close() to avoid blocking UI.
+            (async () => {
+              try {
+                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                  await OfficeRuntime.storage.setItem("JumpTo.PendingRecentIds", JSON.stringify({ ids: [sheetId], ts: Date.now() }));
+                }
+              } catch(e) { /* ignore */ }
+            })();
           }
 
           // Snapshot-based persistence: the dialog may close immediately after selection,
