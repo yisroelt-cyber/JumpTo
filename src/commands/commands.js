@@ -646,15 +646,6 @@ if (msg.type === "setEnableQuickReturn") {
             pendingRecentIds = [sheetId];
             pendingRecentIdsTs = Date.now();
             jumpMadeThisSession = true;
-            // Fire-and-forget ORTS write — best effort, no latency cost.
-            // Quick Return is a bonus feature; occasional misses under rapid use are acceptable.
-            (async () => {
-              try {
-                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                  await OfficeRuntime.storage.setItem("JumpTo.PendingRecentIds", JSON.stringify({ ids: [sheetId], ts: Date.now() }));
-                }
-              } catch(e) { /* ignore */ }
-            })();
           }
 
           // Snapshot-based persistence: the dialog may close immediately after selection,
