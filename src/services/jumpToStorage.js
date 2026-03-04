@@ -1,4 +1,4 @@
-// 2026-03-04 16:00 UTC
+// 2026-03-04 21:15 UTC
 /* global Excel, OfficeRuntime */
 
 import { MAX_RECENTS, MAX_FAVORITES } from "../shared/constants";
@@ -977,7 +977,7 @@ export async function getJumpToState(options = {}) {
         try {
           const rt = await rt10Read(workbookGuid, filenameFingerprint);
           if (isValidRuntimePayload(rt)) {
-            if (!__meta.favoritesValid && Array.isArray(rt.favorites)) favorites = rt.favorites;
+            if (!__meta.favoritesValid && Array.isArray(rt.favorites)) favorites = rt.favorites.map((e, i) => normalizeFavoriteItem(e, i)).filter(Boolean);
             if (!__meta.settingsValid && rt.settings) settings = rt.settings;
           }
         } catch {}
