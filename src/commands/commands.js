@@ -1,4 +1,4 @@
-// 2026-03-04 20:30 UTC
+// 2026-03-04 22:00 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -242,6 +242,11 @@ async function buildDialogState(baseState, activeSheetId = null) {
     freq: Number(freqById[s.id] || 0),
   }));
 
+  // All favorites (for Fav tab curation — includes cross-workbook entries).
+  const allFavs = Array.isArray(baseState.favorites) ? baseState.favorites : [];
+  // Nav tab favorites: current-workbook only (workbookId === "this").
+  const navFavs = allFavs.filter(f => !f.workbookId || f.workbookId === "this");
+
   return {
     ...baseState,
     activeSheetId: activeId,
@@ -249,6 +254,9 @@ async function buildDialogState(baseState, activeSheetId = null) {
     // Keep workbook settings minimal; dialog UI can still display global values (provided via `global`).
     settings: { favPercentManual, recentsDisplayCount },
     global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop, devPremium: !!(baseState.global?.devPremium), enableQuickReturn },
+    // favorites: all entries (Fav tab curation); navFavorites: current-workbook only (Nav tab).
+    favorites: allFavs,
+    navFavorites: navFavs,
     recents: filtered.map((id) => ({ id, name: idToName.get(id) || "" })),
     isReadOnly: !!(baseState.isReadOnly),
     // Raw recentIds (unfiltered, unsliced) needed by Quick Return logic in dialog.

@@ -1,4 +1,4 @@
-// 2026-03-04 21:30 UTC
+// 2026-03-04 22:00 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 
@@ -172,6 +172,7 @@ function DialogApp() {
   const [allSheets, setAllSheets] = useState([]);
   const [activeSheetId, setActiveSheetId] = useState(null);
   const [favorites, setFavorites] = useState([]);
+  const [navFavorites, setNavFavorites] = useState([]);
   // Favorites bounce fix: prevent stale parent-state hydration from overwriting recent UI edits.
   const favoritesDirtyRef = useRef(false);
   const lastUiFavMutationAtRef = useRef(0);
@@ -524,6 +525,7 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             favDbgLog("hydrate:parentState", prev, next);
             return next;
           });
+            setNavFavorites(Array.isArray(state.navFavorites) ? state.navFavorites : []);
             setRecents(Array.isArray(state.recents) ? state.recents : []);
             // Raw recentIds for Quick Return logic (unfiltered, unsliced)
             if (Array.isArray(state.recentIds)) setRecentIds(state.recentIds);
@@ -779,9 +781,10 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
       }
     }
 
-    // Quick Return: prepend a special row when conditions are met (search must be empty).
-    // Quick Return: enabled, search empty, recentIds[0] == activeSheetId (still on jumped-to sheet), recentIds[1] exists and visible.
+    // Quick Return: prepend a special row when conditions are met (Nav tab only, search must be empty).
+    // Quick Return: enabled, Nav tab, search empty, recentIds[0] == activeSheetId (still on jumped-to sheet), recentIds[1] exists and visible.
     if (
+      activeTab === "Navigation" &&
       enableQuickReturn &&
       !q &&
       Array.isArray(recentIds) &&
@@ -802,7 +805,7 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
     }
 
     return items;
-  }, [allSheets, query, globalOptions?.baselineOrder, activeSheetId, enableQuickReturn, recentIds]);
+  }, [allSheets, query, globalOptions?.baselineOrder, activeSheetId, enableQuickReturn, recentIds, activeTab]);
 
   const favoriteIds = useMemo(() => new Set((favorites || []).map((f) => f?.id).filter(Boolean)), [favorites]);
 
@@ -1683,7 +1686,7 @@ return (
                   marginBottom: 6,
                   boxShadow: fauxFocus === "favorites" ? "0 0 0 2px rgba(0,120,212,0.12)" : "none",
                 }}>
-                {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
+                {(Array.isArray(navFavorites) ? navFavorites : []).map((f, i) => {
                   const slot = i < 9 ? String(i + 1) : i === 9 ? "0" : "-";
                   const name = f?.name || "";
                   const id = f?.id;
@@ -1710,7 +1713,7 @@ return (
                     </div>
                   );
                 })}
-                {(Array.isArray(favorites) ? favorites : []).length === 0 && (
+                {(Array.isArray(navFavorites) ? navFavorites : []).length === 0 && (
                   <div style={{ padding: "10px 12px", fontSize: 13, opacity: 0.75 }}>No favorites yet.</div>
                 )}
               </div>
@@ -1900,6 +1903,20 @@ return (
                   {(Array.isArray(favorites) ? favorites : []).map((f, i) => {
                     const name = f?.name || "";
                     const id = f?.id;
+                    const isCross = f?.workbookId && f.workbookId !== "this";
+                    const badge = isCross ? (() => {
+                      try {
+                        const wbId = f.workbookId;
+                        const search = '"filename":"';
+                        const idx = wbId.indexOf(search);
+                        if (idx >= 0) {
+                          const start = idx + search.length;
+                          const end = wbId.indexOf('"', start);
+                          if (end > start) return wbId.substring(start, end);
+                        }
+                        return wbId;
+                      } catch (e) { return f.workbookId; }
+                    })() : null;
                     const isHovered = hoverFavTabFavoriteId === id;
                     const isSelected = favTabSelectedFavoriteId === id;
                     // Favorites tab favorites list: show a single highlight.
@@ -1930,7 +1947,10 @@ return (
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{i < 9 ? String(i + 1) : ""}</div>
-                          <div title={name} style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                          {isCross && badge && (
+                            <div title={badge} style={{ flexShrink: 0, maxWidth: 120, padding: "1px 4px", fontSize: 10, color: "#4B5FC0", background: "#EEF2FF", border: "1px solid #A0AAFA", borderRadius: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{badge}</div>
+                          )}
+                          <div title={name} style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: isCross ? 0.65 : 1 }}>{name}</div>
                         </div>
                       </div>
                     );
