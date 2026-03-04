@@ -1,7 +1,6 @@
-// 2026-03-02 00:30 UTC
+// 2026-03-03 13:00 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
-import { BUILD_TIMESTAMP } from "../version";
 
 import { createRoot } from "react-dom/client";
 
@@ -2184,7 +2183,6 @@ return (
       </div>
       {/* Global actions (outside tabs) */}
       <div ref={footerRef} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, paddingTop: 8, borderTop: "1px solid #e0e0e0" }}>
-        <div style={{ fontSize: 10, color: "rgba(0,0,0,0.3)", fontFamily: "Segoe UI, Arial, sans-serif" }}>{BUILD_TIMESTAMP}</div>
         <button
           type="button"
           onClick={() => {

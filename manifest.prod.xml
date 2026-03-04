@@ -48,7 +48,6 @@
           </Runtimes>
 
           <Taskpane id="JumpTo.Taskpane">
-            <SourceLocation resid="Taskpane.Url"/>
           </Taskpane>
 
 <ExtensionPoint xsi:type="PrimaryCommandSurface">
@@ -76,21 +75,6 @@
                     <FunctionName>openJumpDialog</FunctionName>
                   </Action>
                 </Control>
-                <Control xsi:type="Button" id="JumpTo.ShowTaskpaneButton.AddIns">
-                  <Label resid="JumpTo.TaskpaneButtonLabel"/>
-                  <Supertip>
-                    <Title resid="JumpTo.TaskpaneButtonLabel"/>
-                    <Description resid="JumpTo.TaskpaneButtonTooltip"/>
-                  </Supertip>
-                  <Icon>
-                    <bt:Image size="16" resid="Icon.16x16"/>
-                    <bt:Image size="32" resid="Icon.32x32"/>
-                    <bt:Image size="80" resid="Icon.80x80"/>
-                  </Icon>
-                  <Action xsi:type="ExecuteFunction">
-                    <FunctionName>openJumpDialog</FunctionName>
-                  </Action>
-                </Control>
               </Group>
             </OfficeTab>
           </ExtensionPoint>
@@ -108,20 +92,16 @@
 
       <bt:Urls>
         <bt:Url id="Commands.Url" DefaultValue="https://yisroelt-cyber.github.io/JumpTo/commands.html?v=38"/>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://yisroelt-cyber.github.io/JumpTo/taskpane.html?v=38"/>
-                <bt:Url id="TaskpaneShim.Url" DefaultValue="https://yisroelt-cyber.github.io/JumpTo/taskpane.html?shim=1&amp;v=36"/>
 <bt:Url id="Dialog.Url" DefaultValue="https://yisroelt-cyber.github.io/JumpTo/dialog.html?v=38"/>
       </bt:Urls>
 
       <bt:ShortStrings>
         <bt:String id="JumpTo.GroupLabel" DefaultValue="JumpTo"/>
         <bt:String id="JumpTo.ButtonLabel" DefaultValue="JumpTo"/>
-        <bt:String id="JumpTo.TaskpaneButtonLabel" DefaultValue="Open Taskpane (Dev)"/>
       </bt:ShortStrings>
 
       <bt:LongStrings>
         <bt:String id="JumpTo.ButtonTooltip" DefaultValue="Open a small search dialog to jump to a worksheet."/>
-        <bt:String id="JumpTo.TaskpaneButtonTooltip" DefaultValue="(Dev) Open the taskpane launcher. Not used in normal UX."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>
