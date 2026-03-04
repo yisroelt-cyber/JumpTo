@@ -151,6 +151,14 @@ function DialogApp() {
   const receivedStateDataRef = useRef(false);
   const devPremiumRef = useRef(false);
 
+  // Suppress hover highlight on dialog open so a row under the cursor at open
+  // time doesn't steal faux-focus. Cleared after layout settles (same approach
+  // as XLL's Dispatcher.BeginInvoke(DispatcherPriority.Input)).
+  const suppressHoverRef = useRef(true);
+  useEffect(() => {
+    requestAnimationFrame(() => { suppressHoverRef.current = false; });
+  }, []);
+
   useEffect(() => {
     if (!canMessageParentLocal()) return;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1624,7 +1632,7 @@ return (
                     <div
                       key={s.id || s.name}
                       ref={(el) => { listRowRefs.current[i] = el; }}
-                      onMouseEnter={() => { try { setFauxFocus("all"); setHighlightAll(i); } catch (e) { /* ignore */ } }}
+                      onMouseEnter={() => { if (suppressHoverRef.current) return; try { setFauxFocus("all"); setHighlightAll(i); } catch (e) { /* ignore */ } }}
                       onClick={() => { if (!isActivating) { try { setFauxFocus("all"); setHighlightAll(i); } catch (e) { /* ignore */ } onSelect(s); } }}
                       style={{
                         ...rowStyle,
@@ -1683,7 +1691,7 @@ return (
                       key={id || `${name}_${i}`}
                       ref={(el) => { navFavRowRefs.current[i] = el; }}
                       onClick={() => { if (!isActivating && id) { setFauxFocus("favorites"); setHighlightFav(i); onSelect({ id }); } }}
-                      onMouseEnter={() => { setFauxFocus("favorites"); setHighlightFav(i); setHoverNavFavoriteId(id); }}
+                      onMouseEnter={() => { if (suppressHoverRef.current) return; setFauxFocus("favorites"); setHighlightFav(i); setHoverNavFavoriteId(id); }}
                       onMouseLeave={() => setHoverNavFavoriteId(null)}
                       style={{ ...rowStyle, background: isFauxHighlighted ? "rgba(0,120,212,0.12)" : (hoverNavFavoriteId === id && fauxFocus !== "favorites" ? "rgba(0,120,212,0.07)" : "transparent") }}
                       role="button"
@@ -1735,7 +1743,7 @@ return (
                       key={id || `${name}_${i}`}
                       ref={(el) => { navRecRowRefs.current[i] = el; }}
                       onClick={() => { if (!isActivating && id) { setFauxFocus("recents"); setHighlightRec(i); onSelect({ id }); } }}
-                      onMouseEnter={() => { setFauxFocus("recents"); setHighlightRec(i); setHoverNavRecentId(id); }}
+                      onMouseEnter={() => { if (suppressHoverRef.current) return; setFauxFocus("recents"); setHighlightRec(i); setHoverNavRecentId(id); }}
                       onMouseLeave={() => setHoverNavRecentId(null)}
                       style={{ ...rowStyle, background: isFauxHighlighted ? "rgba(0,120,212,0.12)" : (hoverNavRecentId === id && fauxFocus !== "recents" ? "rgba(0,120,212,0.07)" : "transparent") }}
                       role="button"
