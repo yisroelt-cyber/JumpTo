@@ -1,4 +1,4 @@
-// 2026-03-04 16:00 UTC
+// 2026-03-04 20:30 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -37,8 +37,7 @@ const OPT_FAV_PERCENT = "JumpTo.Option.FavPercentManual";
 const OPT_RECENTS_DISPLAY_COUNT = "JumpTo.Option.RecentsDisplayCount";
 const OPT_QUICK_RETURN = "JumpTo.Option.EnableQuickReturn";
 
-// Legacy key (previously global) for one-digit activation; now workbook-scoped.
-const OPT_ONE_DIGIT_LEGACY = "JumpTo.Option.OneDigitActivation";
+// oneDigitActivation is workbook-scoped; stored in Row 4 of _JumpToAddinSettings, not ORTS.
 
 // Origin sheet: captured at dialogReady time (inside withLock, after getWorkbookSnapshot).
 // Used by the selectSheet background handler so origin recording does not require
@@ -193,7 +192,6 @@ async function buildDialogState(baseState, activeSheetId = null) {
           OPT_FREQUENT_ON_TOP,
           OPT_FAV_PERCENT,
           OPT_RECENTS_DISPLAY_COUNT,
-          OPT_ONE_DIGIT_LEGACY,
           OPT_QUICK_RETURN,
         ];
         // getItems returns { [key]: value } for all requested keys in one call.
@@ -205,7 +203,6 @@ async function buildDialogState(baseState, activeSheetId = null) {
       const fot = ortsSettingsCache[OPT_FREQUENT_ON_TOP];
       const fp  = ortsSettingsCache[OPT_FAV_PERCENT];
       const rc  = ortsSettingsCache[OPT_RECENTS_DISPLAY_COUNT];
-      const od  = ortsSettingsCache[OPT_ONE_DIGIT_LEGACY];
       const qr  = ortsSettingsCache[OPT_QUICK_RETURN];
 
       if (v)  rowHeightPreset = String(v);
@@ -216,12 +213,7 @@ async function buildDialogState(baseState, activeSheetId = null) {
       if (rc !== null && rc !== undefined && rc !== "") recentsDisplayCount = Number(rc);
       if (qr === "false") enableQuickReturn = false;
       else if (qr === "true") enableQuickReturn = true;
-
-      // Legacy one-digit activation: seed from global key only if workbook has no override.
-      if (baseState.settings?.oneDigitActivationEnabled === undefined) {
-        if (od === "false") oneDigitActivationEnabled = false;
-        else if (od === "true") oneDigitActivationEnabled = true;
-      }
+      // oneDigitActivationEnabled comes from workbook Row 4 (baseState.settings) — no ORTS read needed.
     }
   } catch (e) {
     // If batched getItems fails, clear cache so next open retries.
@@ -624,20 +616,10 @@ function openJumpDialog(event) {
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
 
-              try {
-                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                  await OfficeRuntime.storage.setItem(
-                    "JumpTo.Option.OneDigitActivation",
-                    oneDigitActivationEnabled ? "true" : "false"
-                  );
-                  invalidateOrtsSettingsCache();
-                }
-              } catch (e) {
-                // ignore
-              }
-
               if (uiSettings && !isReadOnlyCached) {
-                await setUiSettingsInStorage(uiSettings);
+                await setUiSettingsInStorage({ ...uiSettings, oneDigitActivationEnabled });
+              } else if (!isReadOnlyCached) {
+                await setUiSettingsInStorage({ oneDigitActivationEnabled });
               }
 
               if (favorites && !isReadOnlyCached) {
@@ -691,20 +673,10 @@ function openJumpDialog(event) {
 
               const oneDigitActivationEnabled = !!snapshot.oneDigitActivationEnabled;
 
-              try {
-                if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-                  await OfficeRuntime.storage.setItem(
-                    "JumpTo.Option.OneDigitActivation",
-                    oneDigitActivationEnabled ? "true" : "false"
-                  );
-                  invalidateOrtsSettingsCache();
-                }
-              } catch (e) {
-                // ignore
-              }
-
               if (uiSettings && !isReadOnlyCached) {
-                await setUiSettingsInStorage(uiSettings);
+                await setUiSettingsInStorage({ ...uiSettings, oneDigitActivationEnabled });
+              } else if (!isReadOnlyCached) {
+                await setUiSettingsInStorage({ oneDigitActivationEnabled });
               }
 
               if (favorites && !isReadOnlyCached) {
