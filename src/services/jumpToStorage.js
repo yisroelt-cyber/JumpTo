@@ -1,4 +1,4 @@
-// 2026-03-02 00:00 UTC
+// 2026-03-04 16:00 UTC
 /* global Excel, OfficeRuntime */
 
 import { MAX_RECENTS, MAX_FAVORITES } from "../shared/constants";
@@ -277,22 +277,83 @@ function stringifyFreqCell(freq, dts) {
 }
 
 
+// Normalize a raw favorites entry to a FavoriteItem object.
+// Accepts either a plain string ID (legacy) or a partial/full object.
+function normalizeFavoriteItem(entry, index) {
+  if (typeof entry === "string" && entry) {
+    // Legacy plain-ID — derive digit and displayOrder from position
+    return { id: entry, workbookId: "this", digit: index + 1, displayOrder: index + 1, name: "" };
+  }
+  if (entry && typeof entry === "object" && entry.id) {
+    return {
+      id:           String(entry.id),
+      workbookId:   typeof entry.workbookId === "string" ? entry.workbookId : "this",
+      digit:        typeof entry.digit === "number" ? entry.digit : index + 1,
+      displayOrder: typeof entry.displayOrder === "number" ? entry.displayOrder : index + 1,
+      name:         typeof entry.name === "string" ? entry.name : ""
+    };
+  }
+  return null;
+}
+
+// Normalize a raw recents entry to a RecentItem object.
+function normalizeRecentItem(entry) {
+  if (typeof entry === "string" && entry) {
+    return { id: entry, workbookId: "this", name: "" };
+  }
+  if (entry && typeof entry === "object" && entry.id) {
+    return {
+      id:         String(entry.id),
+      workbookId: typeof entry.workbookId === "string" ? entry.workbookId : "this",
+      name:       typeof entry.name === "string" ? entry.name : ""
+    };
+  }
+  return null;
+}
+
 function parseFavoritesCell(raw) {
-  // Accept either legacy array format: ["sheetId", ...]
-  // or wrapped format: { dts: <ms>, favorites: ["sheetId", ...] }
+  // Accepts:
+  //   Legacy bare array of plain IDs:   ["id1","id2",...]
+  //   Legacy wrapped plain IDs:          { dts: ms, favorites: ["id1","id2",...] }
+  //   New wrapped object array:          { dts: ms, favorites: [{id,workbookId,digit,displayOrder,name},...] }
   try {
     if (typeof raw !== "string") raw = String(raw ?? "");
     const s = raw.trim();
     if (!s) return { favorites: [], dts: 0, valid: false };
     const v = JSON.parse(s);
-    if (Array.isArray(v)) return { favorites: v.filter(Boolean), dts: 0, valid: true };
+
+    // Bare array (legacy)
+    if (Array.isArray(v)) {
+      const items = v.map((e, i) => normalizeFavoriteItem(e, i)).filter(Boolean);
+      return { favorites: items, dts: 0, valid: true };
+    }
+
+    // Wrapped object { dts, favorites: [...] }
     if (v && typeof v === "object" && Array.isArray(v.favorites)) {
       const dts = (typeof v.dts === "number" && isFinite(v.dts)) ? v.dts : 0;
-      return { favorites: v.favorites.filter(Boolean), dts, valid: true };
+      const items = v.favorites.map((e, i) => normalizeFavoriteItem(e, i)).filter(Boolean);
+      return { favorites: items, dts, valid: true };
     }
+
     return { favorites: [], dts: 0, valid: false };
   } catch {
     return { favorites: [], dts: 0, valid: false };
+  }
+}
+
+function parseRecentsCell(raw) {
+  // Accepts:
+  //   Legacy bare array of plain IDs:   ["id1","id2",...]
+  //   New bare array of RecentItem objects: [{id,workbookId,name},...]
+  try {
+    if (typeof raw !== "string") raw = String(raw ?? "");
+    const s = raw.trim();
+    if (!s) return [];
+    const v = JSON.parse(s);
+    if (!Array.isArray(v)) return [];
+    return v.map(e => normalizeRecentItem(e)).filter(Boolean);
+  } catch {
+    return [];
   }
 }
 
@@ -648,9 +709,8 @@ async function readUserCells(context, sheet, colLetter) {
 
   const favParsed = parseFavoritesCell(favRaw);
   const setParsed = parseSettingsCell(setRaw);
-  const recParsed = safeJsonParse(recRaw, null);
-  const recents = Array.isArray(recParsed) ? recParsed : [];
-  const recentsValid = Array.isArray(recParsed);
+  const recents = parseRecentsCell(recRaw);
+  const recentsValid = Array.isArray(recents);
 
   // We treat Favorites + Settings as a single logical payload for reconciliation.
   // Use max dts to be robust if they ever diverge.
@@ -678,13 +738,16 @@ async function writeUserCells(context, sheet, colLetter, { favorites, recents, s
 
   const dts = (typeof dtsOverride === "number" && isFinite(dtsOverride)) ? dtsOverride : Date.now();
 
-  const favPayload = { dts, favorites: Array.isArray(favorites) ? favorites : [] };
+  // favorites is always an array of FavoriteItem objects
+  const favItems = Array.isArray(favorites) ? favorites : [];
+  const favPayload = { dts, favorites: favItems };
   const setPayload = { dts, settings: (settings && typeof settings === "object" && !Array.isArray(settings)) ? settings : {} };
 
   if (favorites !== undefined) {
     favCell.values = [[safeJsonStringify(favPayload)]];
   }
   if (recents !== undefined) {
+    // recents is always an array of RecentItem objects — no wrapper, matches XLL format
     recCell.values = [[safeJsonStringify(Array.isArray(recents) ? recents : [])]];
   }
   if (settings !== undefined) {
@@ -926,7 +989,7 @@ export async function getJumpToState(options = {}) {
           const perf = await rt3Read(workbookGuid, filenameFingerprint);
           if (perf && Array.isArray(perf.sheets)) {
             sheets = perf.sheets;
-            if (!__meta.recentsValid && Array.isArray(perf.recents)) recents = perf.recents;
+            if (!__meta.recentsValid && Array.isArray(perf.recents)) recents = perf.recents.map(r => normalizeRecentItem(r)).filter(Boolean);
             if (perf.freqById && typeof perf.freqById === "object") freqById = perf.freqById;
             if (perf.devPremium) devPremium = true;
           }
@@ -942,8 +1005,8 @@ export async function getJumpToState(options = {}) {
       __wbId: wbId,
       userKey,
       sheets,
-      favorites: favIds.map(id => ({ id, name: idToName.get(id) || "" })),
-      recents: recIds.map(id => ({ id, name: idToName.get(id) || "" })),
+      favorites: favIds.map(f => ({ ...f, name: idToName.get(f.id) || f.name || "" })),
+      recents: recIds.map(r => ({ ...r, name: idToName.get(r.id) || r.name || "" })),
       settings: (settings && typeof settings === "object") ? settings : {},
       __meta,
       global: { freqById, devPremium },
@@ -988,8 +1051,8 @@ export async function getJumpToState(options = {}) {
           __wbId: mini.__wbId,
           userKey: mini.userKey,
           sheets,
-          favorites: favIds.map((id) => ({ id, name: idToName.get(id) || "" })),
-          recents: recIds.map((id) => ({ id, name: idToName.get(id) || "" })),
+          favorites: favIds.map((f) => ({ ...f, name: idToName.get(f.id) || f.name || "" })),
+          recents: recIds.map((r) => ({ ...r, name: idToName.get(r.id) || r.name || "" })),
           settings: mini.settings,
           __meta: mini.__meta,
           global: {
@@ -1020,10 +1083,16 @@ export async function getJumpToState(options = {}) {
     await syncInventoryWithVisibleSheets(context, settingsSheet, colLetter, visibleSheets, allWorkbookSheets);
     const { favorites, recents, settings, __meta } = await readUserCells(context, settingsSheet, colLetter);
 
-    // Build enriched favorites/recents objects with names
+    // Build enriched favorites/recents objects with live names
     const idToName = new Map(visibleSheets.map(s => [s.id, s.name]));
-    const favObjs = (Array.isArray(favorites) ? favorites : []).map(id => ({ id, name: idToName.get(id) || "" }));
-    const recObjs = (Array.isArray(recents) ? recents : []).map(id => ({ id, name: idToName.get(id) || "" }));
+    const favObjs = (Array.isArray(favorites) ? favorites : []).map(f => ({
+      ...f,
+      name: idToName.get(f.id) || f.name || ""
+    }));
+    const recObjs = (Array.isArray(recents) ? recents : []).map(r => ({
+      ...r,
+      name: idToName.get(r.id) || r.name || ""
+    }));
 
     // Load frequency values and dev flag for visible sheets (single batch, no extra sync).
     const { rows: invRows, devPremium } = await loadInventory(context, settingsSheet, colLetter);
@@ -1074,12 +1143,12 @@ export async function getJumpToState(options = {}) {
 
     if (choose === "rt" && rt) {
       // Apply runtime state to the returned object
-      const rtFavIds = Array.isArray(rt.favorites) ? rt.favorites : [];
+      const rtFavItems = Array.isArray(rt.favorites) ? rt.favorites : [];
       const rtSet = (rt.settings && typeof rt.settings === "object") ? rt.settings : {};
       const idToName = new Map((Array.isArray(wb?.sheets) ? wb.sheets : []).map((s) => [s.id, s.name]));
       final = {
         ...wb,
-        favorites: rtFavIds.map((id) => ({ id, name: idToName.get(id) || "" })),
+        favorites: rtFavItems.map((f) => ({ ...f, name: idToName.get(f.id) || f.name || "" })),
         settings: rtSet,
         __meta: { ...(wb.__meta || {}), dts: rtDts, favoritesValid: true, settingsValid: true }
       };
@@ -1091,7 +1160,7 @@ export async function getJumpToState(options = {}) {
           const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
           const current = await readUserCells(context, settingsSheet, colLetter);
           await writeUserCells(context, settingsSheet, colLetter, {
-            favorites: rtFavIds,
+            favorites: rtFavItems,
             recents: current.recents,
             settings: rtSet,
             dtsOverride: rtDts
@@ -1102,11 +1171,11 @@ export async function getJumpToState(options = {}) {
 
     if (choose === "wb" && wbValid) {
       // Background self-heal: write workbook-chosen state into runtime (best effort)
-      const wbFavIds = (Array.isArray(wb?.favorites) ? wb.favorites : []).map((f) => (typeof f === "string" ? f : f?.id)).filter(Boolean);
+      const wbFavItems = Array.isArray(wb?.favorites) ? wb.favorites : [];
       const wbSet = wb?.settings || {};
       const dts = wbDts || Date.now();
       setTimeout(() => {
-        rt10Write(workbookGuid, filenameFingerprint, wbFavIds, wbSet, dts).catch(() => {});
+        rt10Write(workbookGuid, filenameFingerprint, wbFavItems, wbSet, dts).catch(() => {});
       }, 0);
     }
   }
@@ -1115,11 +1184,11 @@ export async function getJumpToState(options = {}) {
   if (workbookGuid && filenameFingerprint) {
     try {
       const sheets = Array.isArray(final?.sheets) ? final.sheets : [];
-      const recIds = (Array.isArray(final?.recents) ? final.recents : []).map((r) => (typeof r === "string" ? r : r?.id)).filter(Boolean);
+      const recItems = Array.isArray(final?.recents) ? final.recents : [];
       await rt3Write(workbookGuid, filenameFingerprint, {
         dts: Date.now(),
         sheets,
-        recents: recIds,
+        recents: recItems,
         freqById: final?.global?.freqById || {},
         devPremium: !!(final?.global?.devPremium)
       });
@@ -1143,11 +1212,14 @@ export async function toggleFavorite(sheetId) {
     const state = await readUserCells(context, sheet, colLetter);
     const favs = Array.isArray(state.favorites) ? [...state.favorites] : [];
 
-    const idx = favs.indexOf(sheetId);
+    const idx = favs.findIndex(f => f.id === sheetId);
     if (idx >= 0) {
       favs.splice(idx, 1);
+      // Re-derive digit and displayOrder from new positions
+      favs.forEach((f, i) => { f.digit = i + 1; f.displayOrder = i + 1; });
     } else {
-      favs.push(sheetId);
+      const newPos = favs.length;
+      favs.push({ id: sheetId, workbookId: "this", digit: newPos + 1, displayOrder: newPos + 1, name: "" });
       if (favs.length > MAX_FAVORITES) favs.length = MAX_FAVORITES;
     }
     const dts = Date.now();
@@ -1165,11 +1237,11 @@ export async function toggleFavorite(sheetId) {
 }
 
 
-export async function setFavorites(favIds) {
+export async function setFavorites(favItems) {
   const userKey = await getOrCreateUserKey();
   if (!userKey) return;
 
-  const nextFavs = Array.isArray(favIds) ? favIds.filter(Boolean) : [];
+  const nextFavs = Array.isArray(favItems) ? favItems.filter(f => f && f.id) : [];
   const dts = Date.now();
 
   const out = await Excel.run(async (context) => {
@@ -1199,17 +1271,21 @@ export async function setFavorites(favIds) {
 export async function addFavorite(sheetId) {
   if (!sheetId) return null;
   const state = await getJumpToState();
-  const current = Array.isArray(state.favorites) ? state.favorites.map(x => x?.id).filter(Boolean) : [];
-  if (current.includes(sheetId)) return current;
-  const next = [...current, sheetId].slice(0, MAX_FAVORITES);
+  const current = Array.isArray(state.favorites) ? state.favorites : [];
+  if (current.some(f => f.id === sheetId)) return current;
+  const newPos = current.length;
+  const next = [...current, { id: sheetId, workbookId: "this", digit: newPos + 1, displayOrder: newPos + 1, name: "" }]
+    .slice(0, MAX_FAVORITES);
   return setFavorites(next);
 }
 
 export async function removeFavorite(sheetId) {
   if (!sheetId) return null;
   const state = await getJumpToState();
-  const current = Array.isArray(state.favorites) ? state.favorites.map(x => x?.id).filter(Boolean) : [];
-  const next = current.filter(id => id !== sheetId);
+  const current = Array.isArray(state.favorites) ? state.favorites : [];
+  const next = current.filter(f => f.id !== sheetId);
+  // Re-derive digit and displayOrder from new positions
+  next.forEach((f, i) => { f.digit = i + 1; f.displayOrder = i + 1; });
   return setFavorites(next);
 }
 
@@ -1218,8 +1294,8 @@ export async function moveFavorite(sheetId, direction) {
   if (direction !== "up" && direction !== "down") return null;
 
   const state = await getJumpToState();
-  const current = Array.isArray(state.favorites) ? state.favorites.map(x => x?.id).filter(Boolean) : [];
-  const idx = current.indexOf(sheetId);
+  const current = Array.isArray(state.favorites) ? state.favorites : [];
+  const idx = current.findIndex(f => f.id === sheetId);
   if (idx < 0) return current;
 
   const to = direction === "up" ? idx - 1 : idx + 1;
@@ -1228,6 +1304,8 @@ export async function moveFavorite(sheetId, direction) {
   const next = current.slice();
   const [item] = next.splice(idx, 1);
   next.splice(to, 0, item);
+  // Re-derive digit and displayOrder from new positions
+  next.forEach((f, i) => { f.digit = i + 1; f.displayOrder = i + 1; });
   return setFavorites(next);
 }
 
@@ -1300,11 +1378,11 @@ export async function recordActivation(sheetId) {
 
     const state = await readUserCells(context, settingsSheet, colLetter);
 
-    // Update recents
+    // Update recents — stored as RecentItem objects
     const rec = Array.isArray(state.recents) ? [...state.recents] : [];
-    const existing = rec.indexOf(sheetId);
+    const existing = rec.findIndex(r => r.id === sheetId);
     if (existing >= 0) rec.splice(existing, 1);
-    rec.unshift(sheetId);
+    rec.unshift({ id: sheetId, workbookId: "this", name: "" });
     if (rec.length > MAX_RECENTS) rec.length = MAX_RECENTS;
 
     const favValid = !!state?.__meta?.favoritesValid;

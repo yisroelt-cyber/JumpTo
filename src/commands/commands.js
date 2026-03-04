@@ -1,4 +1,4 @@
-// 2026-03-03 12:00 UTC
+// 2026-03-04 16:00 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -445,16 +445,16 @@ function openJumpDialog(event) {
           // Silently ignored in read-only — the dialog should not allow this action when read-only,
           // but we guard here as a safety net.
           if (isReadOnlyCached) return;
-          const ids = Array.isArray(msg.favorites) ? msg.favorites.filter(Boolean) : [];
+          const items = Array.isArray(msg.favorites) ? msg.favorites.filter(f => f && f.id) : [];
           await withLock(async () => {
-            await setFavoritesInStorage(ids);
+            await setFavoritesInStorage(items);
             if (!cachedState) {
               cachedState = await getJumpToState({ isReadOnly: false });
             } else {
               const idToName = new Map((cachedState.sheets || []).map((s) => [s.id, s.name]));
               cachedState = {
                 ...cachedState,
-                favorites: ids.slice(0, 20).map((id) => ({ id, name: idToName.get(id) || "" })),
+                favorites: items.slice(0, 20).map((f) => ({ ...f, name: idToName.get(f.id) || f.name || "" })),
               };
             }
             const state = await buildDialogState(cachedState);
@@ -549,7 +549,7 @@ function openJumpDialog(event) {
           // *after* the sheet activation has been initiated.
           const snapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
-          const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
+          const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(f => f && f.id) : null;
           const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
           const rowHeightDirty = !!snapshot.rowHeightDirty;
 
@@ -566,14 +566,16 @@ function openJumpDialog(event) {
           if (sheetId && cachedState) {
             try {
               const prevRecents = Array.isArray(cachedState.recents) ? cachedState.recents : [];
-              const prevRecentIds = prevRecents.map(r => (typeof r === "string" ? r : r?.id)).filter(Boolean);
-              const nextRecentIds = [sheetId, ...prevRecentIds.filter(id => id !== sheetId)].slice(0, 20);
+              const nextRecents = [
+                { id: sheetId, workbookId: "this", name: "" },
+                ...prevRecents.filter(r => r.id !== sheetId)
+              ].slice(0, 20);
               const idToName = new Map((Array.isArray(cachedState.sheets) ? cachedState.sheets : []).map(s => [s.id, s.name]));
               cachedState = {
                 ...cachedState,
-                recents: nextRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
+                recents: nextRecents.map(r => ({ ...r, name: idToName.get(r.id) || r.name || "" })),
               };
-              pendingRecentIds = nextRecentIds; // upgrade to full list if available
+              pendingRecentIds = nextRecents.map(r => r.id); // upgrade to full list if available
             } catch (e) {
               cachedState = null;
             }
@@ -649,9 +651,9 @@ function openJumpDialog(event) {
                 const idToName = new Map((Array.isArray(cachedState.sheets) ? cachedState.sheets : []).map(s => [s.id, s.name]));
                 cachedState = {
                   ...cachedState,
-                  recents: finalRecentIds.map(id => ({ id, name: idToName.get(id) || "" })),
+                  recents: finalRecentIds.map(r => ({ ...r, name: idToName.get(r.id) || r.name || "" })),
                 };
-                pendingRecentIds = finalRecentIds;
+                pendingRecentIds = finalRecentIds.map(r => r.id);
                 pendingRecentIdsTs = Date.now();
               } else {
                 cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
@@ -667,7 +669,7 @@ function openJumpDialog(event) {
         if (msg.type === "cancel") {
           const snapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
-          const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
+          const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(f => f && f.id) : null;
           const rowHeightPreset = typeof snapshot.rowHeightPreset === "string" ? snapshot.rowHeightPreset : "";
           const rowHeightDirty = !!snapshot.rowHeightDirty;
 

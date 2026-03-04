@@ -1,4 +1,4 @@
-// 2026-03-03 13:00 UTC
+// 2026-03-04 16:00 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 
@@ -1184,8 +1184,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     favPersistTimerRef.current = setTimeout(() => {
       favPersistTimerRef.current = null;
       try {
-        const ids = (Array.isArray(favoritesRef.current) ? favoritesRef.current : []).map((x) => x?.id).filter(Boolean);
-        sendSetFavoritesToParent(ids);
+        const items = (Array.isArray(favoritesRef.current) ? favoritesRef.current : []).filter(x => x?.id);
+        sendSetFavoritesToParent(items);
         favDirtyRef.current = false;
       } catch (e) {
         // ignore
@@ -1200,8 +1200,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       favPersistTimerRef.current = null;
     }
     try {
-      const ids = (Array.isArray(favoritesRef.current) ? favoritesRef.current : []).map((x) => x?.id).filter(Boolean);
-      sendSetFavoritesToParent(ids);
+      const items = (Array.isArray(favoritesRef.current) ? favoritesRef.current : []).filter(x => x?.id);
+      sendSetFavoritesToParent(items);
     } catch (e) {
       // ignore
     }
@@ -1232,16 +1232,15 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       frequentOnTop: !!(globalOptions?.frequentOnTop),
     };
 
-    const favoritesIds = (Array.isArray(favoritesRef.current) ? favoritesRef.current : [])
-      .map((x) => x?.id)
-      .filter(Boolean);
+    const favoritesItems = (Array.isArray(favoritesRef.current) ? favoritesRef.current : [])
+      .filter((x) => x?.id);
 
     const rowHeightPreset = String(globalOptions?.rowHeightPreset || "Standard");
     const oneDigitActivationEnabled = !!(globalOptions?.oneDigitActivationEnabled);
 
     const rowHeightDirty = !!rowHeightDirtyRef.current;
 
-    return { uiSettings, favorites: favoritesIds, rowHeightPreset, rowHeightDirty, oneDigitActivationEnabled };
+    return { uiSettings, favorites: favoritesItems, rowHeightPreset, rowHeightDirty, oneDigitActivationEnabled };
   };
 
 const onSelect = (sheet) => {
