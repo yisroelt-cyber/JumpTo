@@ -40,6 +40,11 @@ const OPT_QUICK_RETURN = "JumpTo.Option.EnableQuickReturn";
 // Legacy key (previously global) for one-digit activation; now workbook-scoped.
 const OPT_ONE_DIGIT_LEGACY = "JumpTo.Option.OneDigitActivation";
 
+// Origin sheet: captured at dialogReady time (inside withLock, after getWorkbookSnapshot).
+// Used by the selectSheet background handler so origin recording does not require
+// an extra Excel.run at jump time.
+let _originSheetId = null;
+
 // Pending recents: set to the authoritative recentIds array immediately after
 // recordActivation completes. Overrides whatever getJumpToState returns until
 // the next full state refresh that postdates the jump.
@@ -426,6 +431,12 @@ function openJumpDialog(event) {
                 // ignore
               }
             }
+
+            // Store the origin sheet as the very last step — after all state work is done —
+            // so it is always fresh when the user makes a jump from this dialog session.
+            if (activeSheetId) {
+              _originSheetId = activeSheetId;
+            }
           });
           return;
         }
@@ -575,18 +586,10 @@ function openJumpDialog(event) {
             await withLock(async () => {
               let finalRecentIds = null;
               if (sheetId) {
-                // Capture the origin sheet (currently active) before jumping away.
-                let originSheetId = null;
-                try {
-                  originSheetId = await Excel.run(async (context) => {
-                    const ws = context.workbook.worksheets.getActiveWorksheet();
-                    ws.load("id");
-                    await context.sync();
-                    return ws.id;
-                  });
-                } catch (e) {
-                  // ignore — origin capture is best-effort
-                }
+                // Use the origin sheet captured at dialogReady time — avoids an extra
+                // Excel.run at jump time. Falls back to null (origin skipped) if not set.
+                const originSheetId = _originSheetId || null;
+                _originSheetId = null; // consume it so a stale value can't leak into the next jump
 
                 await activateSheetById(sheetId);
 
