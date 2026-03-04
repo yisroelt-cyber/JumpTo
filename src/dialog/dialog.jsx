@@ -1,4 +1,4 @@
-// 2026-03-04 21:00 UTC
+// 2026-03-04 21:30 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 
@@ -922,7 +922,8 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
       } else {
         const s = (Array.isArray(allSheets) ? allSheets : []).find((x) => x?.id === sheetId);
         const name = s?.name || "";
-        next = [...arr, { id: sheetId, name }];
+        const newPos = arr.length;
+        next = [...arr, { id: sheetId, workbookId: "this", digit: newPos + 1, displayOrder: newPos + 1, name }];
       }
 
       favDbgLog("ui:addFavorite", prev, next);
@@ -941,6 +942,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
 
     setFavorites((prev) => {
       const next = (Array.isArray(prev) ? prev : []).filter((x) => x?.id !== sheetId);
+      next.forEach((f, i) => { f.digit = i + 1; f.displayOrder = i + 1; });
       favDbgLog("ui:removeFavorite", prev, next);
       return next;
     });
@@ -968,6 +970,7 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
         } else {
           const [item] = arr.splice(idx, 1);
           arr.splice(to, 0, item);
+          arr.forEach((f, i) => { f.digit = i + 1; f.displayOrder = i + 1; });
           next = arr;
         }
       }
