@@ -1,4 +1,4 @@
-// 2026-03-04 22:30 UTC
+// 2026-03-04 23:00 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 
@@ -2172,7 +2172,7 @@ return (
                 <div style={{ marginTop: 4, opacity: 0.85 }}>Jump instantly to a Favorite by typing a single digit (1–9, 0).</div>
                 <div style={{ marginTop: 4, opacity: 0.85 }}>Tip: To search for numbers (e.g. 2024), start the search with a space.</div>
                 {isReadOnly && (
-                  <div style={{ marginTop: 4, color: "rgba(0,0,0,0.45)", fontStyle: "italic" }}>Not available in read-only workbooks.</div>
+                  <div style={{ marginTop: 4, color: "#C05000", fontStyle: "italic" }}>Not available in read-only workbooks.</div>
                 )}
               </div>
             </label>
