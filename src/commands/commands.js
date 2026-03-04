@@ -1,15 +1,4 @@
-// 2026-03-02 01:00 UTC
-// DIAG: module init counter — written to ORTS immediately on load
-(async () => {
-  try {
-    if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.getItem) {
-      const prev = await OfficeRuntime.storage.getItem("JumpTo.Diag.InitCount");
-      const count = prev ? (parseInt(prev) + 1) : 1;
-      await OfficeRuntime.storage.setItem("JumpTo.Diag.InitCount", String(count));
-      await OfficeRuntime.storage.setItem("JumpTo.Diag.InitTs", new Date().toISOString());
-    }
-  } catch(e) { /* ignore */ }
-})();
+// 2026-03-03 12:00 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -31,7 +20,6 @@ import {
 
 let lockBusy = false;
 const lockQueue = [];
-const pendingStateRequests = [];
 
 let cachedState = null;
 let cachedSignature = "";
@@ -52,16 +40,12 @@ const OPT_QUICK_RETURN = "JumpTo.Option.EnableQuickReturn";
 // Legacy key (previously global) for one-digit activation; now workbook-scoped.
 const OPT_ONE_DIGIT_LEGACY = "JumpTo.Option.OneDigitActivation";
 
-// Session flag: tracks whether a jump has been made since commands.js loaded.
-
 // Pending recents: set to the authoritative recentIds array immediately after
 // recordActivation completes. Overrides whatever getJumpToState returns until
 // the next full state refresh that postdates the jump.
 // Format: array of sheet id strings, or null when not pending.
 let pendingRecentIds = null;
 let pendingRecentIdsTs = 0; // timestamp when pendingRecentIds was set
-let jumpMadeThisSession = false; // true after first successful jump; guards ORTS read cost
-let _diagJumpCounter = 0; // DIAG: increments on every selectSheet, read in dialogReady
 
 
 // Module-level cache for global ORTS settings.
@@ -261,29 +245,6 @@ async function buildDialogState(baseState, activeSheetId = null) {
     freq: Number(freqById[s.id] || 0),
   }));
 
-  // DIAG: write Quick Return debug info to settings sheet column E
-  try {
-    await Excel.run(async (ctx) => {
-      const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
-      ws.load("name");
-      await ctx.sync();
-      if (!ws.isNullObject) {
-        const ts = new Date().toISOString();
-        const r0 = recentIds[0] || "(none)";
-        const r1 = recentIds[1] || "(none)";
-        const match = (r0 === activeId) ? "MATCH" : "NO-MATCH";
-        const r0name = idToName.get(r0) || r0;
-        const r1name = idToName.get(r1) || r1;
-        const activeName = idToName.get(activeId) || activeId;
-        ws.getRange("E1").values = [["QR DIAG (latest at top)"]];
-        // Shift existing rows down by inserting at E2
-        ws.getRange("E2").insert(Excel.InsertShiftDirection.down);
-        ws.getRange("E2").values = [[`${ts} | active=${activeName} | r0=${r0name} | r1=${r1name} | ${match}`]];
-        await ctx.sync();
-      }
-    });
-  } catch (e) { /* diag best-effort */ }
-
   return {
     ...baseState,
     activeSheetId: activeId,
@@ -295,7 +256,6 @@ async function buildDialogState(baseState, activeSheetId = null) {
     isReadOnly: !!(baseState.isReadOnly),
     // Raw recentIds (unfiltered, unsliced) needed by Quick Return logic in dialog.
     recentIds: recentIds,
-
   };
 }
 
@@ -351,51 +311,12 @@ function openJumpDialog(event) {
         }
       };
 
-      const flushStateQueue = async () => {
-  // Phase 4: fast-first render. If we have an in-memory cache, use it immediately.
-  // Otherwise, try a perf-cache-backed state (preferCache) before doing the full refresh.
-  if (cachedState) {
-    const state = await buildDialogState(cachedState);
-    while (pendingStateRequests.length) {
-      pendingStateRequests.pop();
-      reply({ type: "stateData", state });
-    }
-  } else {
-    try {
-      cachedState = await getJumpToState({ preferCache: true, isReadOnly: !!isReadOnlyCached });
-      if (cachedState) {
-        const state = await buildDialogState(cachedState);
-        while (pendingStateRequests.length) {
-          pendingStateRequests.pop();
-          reply({ type: "stateData", state });
-        }
-      }
-    } catch (e) {
-      // ignore; fall through to full refresh
-    }
-  }
-
-  const changed = await ensureFreshState();
-  if (changed && cachedState) {
-    const state = await buildDialogState(cachedState);
-    reply({ type: "stateData", state });
-  }
-};
-
-dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
+      dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
         let msg;
         try {
           msg = JSON.parse(arg.message);
         } catch (e) {
           return;
-        }
-
-        
-        try {
-          if (msg && msg.type && String(msg.type).startsWith("diag")) {
-          }
-        } catch (e) {
-          // ignore
         }
 
         if (msg.type === "ping") {
@@ -407,24 +328,6 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
         if (msg.type === "dialogReady") {
           // Dialog has registered its parent-message handler; it's now safe to send stateData.
           await withLock(async () => {
-            const _diagPendingAtEntry = pendingRecentIds;
-            const _diagPendingAgeAtEntry = pendingRecentIds !== null ? (Date.now() - pendingRecentIdsTs) : -1;
-            try {
-              await Excel.run(async (ctx) => {
-                const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
-                ws.load("name");
-                await ctx.sync();
-                if (!ws.isNullObject) {
-                  const pVal = _diagPendingAtEntry ? JSON.stringify(_diagPendingAtEntry.slice(0,2)) : "null";
-                  ws.getRange("I1").values = [["ENTRY DIAG"]];
-                  ws.getRange("I2").insert(Excel.InsertShiftDirection.down);
-                  let _initCount = "?";
-                  try { _initCount = await OfficeRuntime.storage.getItem("JumpTo.Diag.InitCount") || "?"; } catch(e) {}
-                  ws.getRange("I2").values = [[`${new Date().toISOString()} | pending=${pVal} | age=${_diagPendingAgeAtEntry}ms | init#${_initCount} | jumps=${_diagJumpCounter}`]];
-                  await ctx.sync();
-                }
-              });
-            } catch(e) { /* diag */ }
             // Single Excel.run fetches read-only status, active sheet id, and sheet
             // signature — replacing three previously separate round-trips.
             let activeSheetId = null;
@@ -464,21 +367,6 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
             // that getJumpToState may have read before the workbook write landed.
             // Keep applying until 10 seconds after the jump to cover repeated opens.
             const _pAge = pendingRecentIds !== null ? (Date.now() - pendingRecentIdsTs) : -1;
-            // DIAG: log pendingRecentIds state to settings sheet col F
-            try {
-              await Excel.run(async (ctx) => {
-                const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
-                ws.load("name");
-                await ctx.sync();
-                if (!ws.isNullObject) {
-                  const pVal = pendingRecentIds ? pendingRecentIds.slice(0,3).join(",") : "null";
-                  ws.getRange("F1").values = [["PENDING DIAG"]];
-                  ws.getRange("F2").insert(Excel.InsertShiftDirection.down);
-                  ws.getRange("F2").values = [[`${new Date().toISOString()} | pending=${pVal} | age=${_pAge}ms`]];
-                  await ctx.sync();
-                }
-              });
-            } catch(e) { /* diag */ }
             if (pendingRecentIds !== null && cachedState && (_pAge < 10000)) {
               const idToName = new Map((Array.isArray(cachedState.sheets) ? cachedState.sheets : []).map(s => [s.id, s.name]));
               cachedState = {
@@ -575,25 +463,24 @@ dialog.addEventHandler(Office.EventType.DialogMessageReceived, async (arg) => {
           return;
         }
 
-
-if (msg.type === "setRowHeightPreset") {
-  const preset = typeof msg.preset === "string" ? msg.preset : "";
-  if (!preset) return;
-  await withLock(async () => {
-    try {
-      if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
-        await OfficeRuntime.storage.setItem(OPT_ROW_HEIGHT, preset);
-        invalidateOrtsSettingsCache();
-      }
-    } catch (e) {
-          // ignore
+        if (msg.type === "setRowHeightPreset") {
+          const preset = typeof msg.preset === "string" ? msg.preset : "";
+          if (!preset) return;
+          await withLock(async () => {
+            try {
+              if (typeof OfficeRuntime !== "undefined" && OfficeRuntime.storage?.setItem) {
+                await OfficeRuntime.storage.setItem(OPT_ROW_HEIGHT, preset);
+                invalidateOrtsSettingsCache();
+              }
+            } catch (e) {
+              // ignore
+            }
+            cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
+            const state = await buildDialogState(cachedState);
+            reply({ type: "stateData", state });
+          });
+          return;
         }
-    cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
-    const state = await buildDialogState(cachedState);
-    reply({ type: "stateData", state });
-  });
-  return;
-}
 
         if (msg.type === "setOneDigitActivation") {
           // Workbook-scoped setting — silently ignored in read-only (UI control will be disabled).
@@ -616,7 +503,7 @@ if (msg.type === "setRowHeightPreset") {
           return;
         }
 
-if (msg.type === "setEnableQuickReturn") {
+        if (msg.type === "setEnableQuickReturn") {
           const enabled = msg.enabled !== false; // default true
           await withLock(async () => {
             try {
@@ -636,7 +523,6 @@ if (msg.type === "setEnableQuickReturn") {
 
         if (msg.type === "selectSheet") {
           const sheetId = msg.sheetId;
-          _diagJumpCounter += 1; // DIAG
 
           // Set pendingRecentIds immediately — before dialog.close() and event.completed() —
           // so it is guaranteed to be set before the next dialog opens and sends dialogReady.
@@ -645,7 +531,6 @@ if (msg.type === "setEnableQuickReturn") {
           if (sheetId) {
             pendingRecentIds = [sheetId];
             pendingRecentIdsTs = Date.now();
-            jumpMadeThisSession = true;
           }
 
           // Snapshot-based persistence: the dialog may close immediately after selection,
@@ -661,47 +546,12 @@ if (msg.type === "setEnableQuickReturn") {
           try {
             dialog.close();
           } catch (e) {
-          // ignore
-        }
+            // ignore
+          }
           event.completed();
 
-          // DIAG: log optimistic block entry conditions to col G
-          try {
-            await Excel.run(async (ctx) => {
-              const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
-              ws.load("name");
-              await ctx.sync();
-              if (!ws.isNullObject) {
-                ws.getRange("G1").values = [["OPTIMISTIC DIAG"]];
-                ws.getRange("G2").insert(Excel.InsertShiftDirection.down);
-                ws.getRange("G2").values = [[`${new Date().toISOString()} | sheetId=${sheetId||"null"} | cachedState=${cachedState?"ok":"null"}`]];
-                await ctx.sync();
-              }
-            });
-          } catch(e) { /* diag */ }
-
-          // Set pendingRecentIds unconditionally from sheetId — does NOT depend on cachedState.
-          // This guarantees dialogReady always sees a non-null pendingRecentIds even if
-          // cachedState is still being built by a concurrent dialogReady withLock call.
-          if (sheetId) {
-            pendingRecentIds = [sheetId];
-            pendingRecentIdsTs = Date.now();
-          }
-          // DIAG: log pendingRecentIds immediately after setting, to col H
-          try {
-            await Excel.run(async (ctx) => {
-              const ws = ctx.workbook.worksheets.getItemOrNullObject("_JumpToAddinSettings");
-              ws.load("name");
-              await ctx.sync();
-              if (!ws.isNullObject) {
-                ws.getRange("H1").values = [["SET DIAG"]];
-                ws.getRange("H2").insert(Excel.InsertShiftDirection.down);
-                ws.getRange("H2").values = [[`${new Date().toISOString()} | sheetId=${sheetId||"null"} | pending=${JSON.stringify(pendingRecentIds)}`]];
-                await ctx.sync();
-              }
-            });
-          } catch(e) { /* diag */ }
-          // Also optimistically patch cachedState if available.
+          // Optimistically patch cachedState so the next dialog open reflects the jump
+          // without waiting for the background recordActivation write to land.
           if (sheetId && cachedState) {
             try {
               const prevRecents = Array.isArray(cachedState.recents) ? cachedState.recents : [];
@@ -778,8 +628,8 @@ if (msg.type === "setEnableQuickReturn") {
                   invalidateOrtsSettingsCache();
                 }
               } catch (e) {
-          // ignore
-        }
+                // ignore
+              }
 
               if (uiSettings && !isReadOnlyCached) {
                 await setUiSettingsInStorage(uiSettings);
@@ -806,20 +656,12 @@ if (msg.type === "setEnableQuickReturn") {
                 // and is still valid. Clearing it would cause Quick Return to miss on next open.
               }
             });
-})().catch((err) => console.error("selectSheet background handler failed:", err));
+          })().catch((err) => console.error("selectSheet background handler failed:", err));
 
           return;
         }
 
         if (msg.type === "cancel") {
-          try {
-            const p = msg.payload || {};
-            if (p && p.settingsSnap) {
-            }
-          } catch (e) {
-            // ignore
-          }
-
           const snapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
           const uiSettings = snapshot.uiSettings && typeof snapshot.uiSettings === "object" ? snapshot.uiSettings : null;
           const favorites = Array.isArray(snapshot.favorites) ? snapshot.favorites.filter(Boolean) : null;
@@ -829,8 +671,8 @@ if (msg.type === "setEnableQuickReturn") {
           try {
             dialog.close();
           } catch (e) {
-          // ignore
-        }
+            // ignore
+          }
           event.completed();
 
           (async () => {
@@ -853,8 +695,8 @@ if (msg.type === "setEnableQuickReturn") {
                   invalidateOrtsSettingsCache();
                 }
               } catch (e) {
-          // ignore
-        }
+                // ignore
+              }
 
               if (uiSettings && !isReadOnlyCached) {
                 await setUiSettingsInStorage(uiSettings);
@@ -866,10 +708,6 @@ if (msg.type === "setEnableQuickReturn") {
 
               cachedState = await getJumpToState({ isReadOnly: !!isReadOnlyCached });
             });
-
-                        try {
-            } catch (e) {
-            }
           })().catch((err) => console.error("cancel background handler failed:", err));
           return;
         }
