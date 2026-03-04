@@ -1,4 +1,4 @@
-// 2026-03-04 22:00 UTC
+// 2026-03-04 22:30 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 
@@ -1687,7 +1687,7 @@ return (
                   boxShadow: fauxFocus === "favorites" ? "0 0 0 2px rgba(0,120,212,0.12)" : "none",
                 }}>
                 {(Array.isArray(navFavorites) ? navFavorites : []).map((f, i) => {
-                  const slot = i < 9 ? String(i + 1) : i === 9 ? "0" : "-";
+                  const slot = f?.digit >= 1 && f?.digit <= 9 ? String(f.digit) : f?.digit === 10 ? "0" : "";
                   const name = f?.name || "";
                   const id = f?.id;
                   const isFauxHighlighted = fauxFocus === "favorites" && i === highlightFav;
@@ -1947,10 +1947,10 @@ return (
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ width: 18, opacity: 0.75, textAlign: "right" }}>{i < 9 ? String(i + 1) : ""}</div>
+                          <div title={name} style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: isCross ? 0.65 : 1 }}>{name}</div>
                           {isCross && badge && (
                             <div title={badge} style={{ flexShrink: 0, maxWidth: 120, padding: "1px 4px", fontSize: 10, color: "#4B5FC0", background: "#EEF2FF", border: "1px solid #A0AAFA", borderRadius: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{badge}</div>
                           )}
-                          <div title={name} style={{ flex: "1 1 auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: isCross ? 0.65 : 1 }}>{name}</div>
                         </div>
                       </div>
                     );
