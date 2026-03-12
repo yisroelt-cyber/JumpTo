@@ -1533,7 +1533,6 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
         body.style.margin = "0";
         body.style.height = "100%";
         body.style.overflow = "hidden";
-        body.style.background = "#ffffff";
       }
     } catch (e) {
       // ignore
