@@ -1,4 +1,4 @@
-// 2026-03-12 19:30 UTC
+// 2026-03-12 20:20 UTC
 // Shared constants (single source of truth)
 // Keep storage caps and UI constraints aligned to prevent silent truncation.
 export const MAX_RECENTS = 20;
