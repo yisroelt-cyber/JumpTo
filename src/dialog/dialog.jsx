@@ -162,10 +162,10 @@ function WorksheetSurveyModal({ onSubmit }) {
     }}>
       <div style={{ maxWidth: 360, width: "100%" }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Welcome to LeapSheet</div>
-        <div style={{ fontSize: 12, marginBottom: 10, opacity: 0.9 }}>
+        <div style={{ fontSize: 12, marginBottom: 14, opacity: 0.9 }}>
           Before you get started, please answer one quick question.
         </div>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6, textAlign: "justify" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, textAlign: "justify" }}>
           About how many worksheets are in the largest workbook you work with regularly?
         </div>
         <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.9 }}>
