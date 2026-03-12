@@ -1,4 +1,4 @@
-// 2026-03-04 23:00 UTC
+// 2026-03-11 12:00 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 
@@ -147,6 +147,390 @@ function sameFavoriteIds(a, b) {
   return true;
 }
 
+// ─── Worksheet survey modal ────────────────────────────────────────────────────
+// Presented on first dialog open. Mandatory — user must answer before proceeding.
+const WS_SURVEY_OPTIONS = ["1–10", "11–20", "21–30", "31–40", "41–50", "51–60", "61–70", "71+"];
+
+function WorksheetSurveyModal({ onSubmit }) {
+  const [selected, setSelected] = useState(null);
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 9999,
+      background: "rgba(255,255,255,0.97)",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      fontFamily: "Segoe UI, Arial, sans-serif", padding: 24,
+    }}>
+      <div style={{ maxWidth: 360, width: "100%" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Welcome to LeapSheet</div>
+        <div style={{ fontSize: 12, marginBottom: 16, opacity: 0.85, lineHeight: 1.5 }}>
+          Before you start, please answer one quick question to help us improve LeapSheet.
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+          How many worksheets does your largest regular workbook have?
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+          {WS_SURVEY_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => setSelected(opt)}
+              style={{
+                padding: "6px 14px", fontSize: 12, borderRadius: 6,
+                border: selected === opt ? "2px solid #0078d4" : "1px solid rgba(0,0,0,0.2)",
+                background: selected === opt ? "rgba(0,120,212,0.1)" : "white",
+                fontWeight: selected === opt ? 600 : 400,
+                cursor: "pointer",
+              }}
+            >{opt}</button>
+          ))}
+        </div>
+        <button
+          type="button"
+          disabled={!selected}
+          onClick={() => selected && onSubmit(selected)}
+          style={{
+            width: "100%", padding: "8px 0", fontSize: 13, fontWeight: 600,
+            borderRadius: 6, border: "none",
+            background: selected ? "#0078d4" : "#c8c8c8",
+            color: "white", cursor: selected ? "pointer" : "default",
+          }}
+        >
+          Continue
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── About tab ────────────────────────────────────────────────────────────────
+function AboutTab({ licensing, onActivate, version }) {
+  const [licenseKeyInput, setLicenseKeyInput] = useState("");
+  const [friendlyNameInput, setFriendlyNameInput] = useState("");
+  const [activating, setActivating] = useState(false);
+  const [activationMessage, setActivationMessage] = useState(null); // { type: "error"|"info", text }
+  // Displacement flow: when slots_full, show machine list.
+  const [slotsFullMachines, setSlotsFullMachines] = useState(null); // array of { machine_id, friendly_name, last_checkin }
+  const [displaceTarget, setDisplaceTarget] = useState(null);
+
+  const status  = licensing?.effective_status || "trial";
+  const tier    = licensing?.effective_tier   || "standard";
+  const isRestricted = !!licensing?.is_restricted;
+  const isMujdActive = !!licensing?.mujd_active;
+
+  // Banner colour and message for restricted states.
+  let bannerBg    = null;
+  let bannerBorder= null;
+  let bannerText  = null;
+  if (status === "revoked") {
+    bannerBg     = "rgba(232,17,35,0.07)";
+    bannerBorder = "rgba(200,0,0,0.3)";
+    const isCorpRevoke = licensing?.license_type === "corporate";
+    bannerText   = isCorpRevoke
+      ? "Your license is no longer active. Please contact your administrator."
+      : "Invalid license.";
+  } else if (status === "expired") {
+    bannerBg     = "rgba(255,200,0,0.10)";
+    bannerBorder = "rgba(180,130,0,0.3)";
+    bannerText   = "Your trial has ended. Please purchase a license to continue using LeapSheet.";
+  } else if (status === "displaced") {
+    bannerBg     = "rgba(0,120,212,0.07)";
+    bannerBorder = "rgba(0,120,212,0.25)";
+    bannerText   = "This machine has been displaced by another device. Please re-activate below.";
+  }
+
+  const showActivationForm = status === "trial" || isRestricted;
+  const showActivated = status === "active" && !isRestricted;
+
+  const handleActivate = () => {
+    const key = licenseKeyInput.trim();
+    if (!key) {
+      setActivationMessage({ type: "error", text: "Please enter a license key." });
+      return;
+    }
+    setActivating(true);
+    setActivationMessage(null);
+    setSlotsFullMachines(null);
+    setDisplaceTarget(null);
+    onActivate({ licenseKey: key, friendlyName: friendlyNameInput.trim(), machineToDisplace: null });
+  };
+
+  const handleDisplace = () => {
+    if (!displaceTarget) {
+      setActivationMessage({ type: "error", text: "Please select a machine to displace." });
+      return;
+    }
+    setActivating(true);
+    setActivationMessage(null);
+    onActivate({ licenseKey: licenseKeyInput.trim(), friendlyName: friendlyNameInput.trim(), machineToDisplace: displaceTarget });
+  };
+
+  // Exposed so commands parent can call back with result.
+  AboutTab._setActivating    = setActivating;
+  AboutTab._setMessage       = setActivationMessage;
+  AboutTab._setSlotsFullMachines = setSlotsFullMachines;
+
+  const inputStyle = {
+    width: "100%", padding: "5px 8px", fontSize: 12,
+    border: "1px solid rgba(0,0,0,0.22)", borderRadius: 6,
+    boxSizing: "border-box",
+  };
+
+  return (
+    <div style={{ maxWidth: 480, fontFamily: "Segoe UI, Arial, sans-serif", fontSize: 12 }}>
+      <div style={{ fontSize: 12, opacity: 0.6, marginBottom: 14 }}>
+        LeapSheet Compatible{version ? ` v${version}` : ""}
+        {isMujdActive && (
+          <span style={{ marginLeft: 10, color: "#C05000", fontSize: 11 }}>● Offline mode</span>
+        )}
+      </div>
+
+      {/* Restricted-state banner */}
+      {bannerText && (
+        <div style={{
+          marginBottom: 14, padding: "9px 12px", borderRadius: 6,
+          background: bannerBg, border: `1px solid ${bannerBorder}`,
+          fontSize: 12, lineHeight: 1.45,
+        }}>
+          {bannerText}
+        </div>
+      )}
+
+      {/* Trial status */}
+      {status === "trial" && !isRestricted && (
+        <div style={{
+          marginBottom: 14, padding: "9px 12px", borderRadius: 6,
+          background: "rgba(0,120,212,0.06)", border: "1px solid rgba(0,120,212,0.2)",
+          fontSize: 12, lineHeight: 1.45,
+        }}>
+          {isMujdActive
+            ? "Trial active — extended while LeapSheet servers are unreachable."
+            : "Your trial is active for 30 days. All features including Premium are available during the trial."}
+        </div>
+      )}
+
+      {/* Post-activation state */}
+      {showActivated && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 8 }}>
+            <span style={{ fontWeight: 600 }}>Status: </span>
+            <span style={{ color: "#107c10" }}>Licensed</span>
+          </div>
+          <div style={{ marginBottom: 4 }}>
+            <span style={{ fontWeight: 600 }}>Tier: </span>
+            <span style={{ textTransform: "capitalize" }}>{tier}</span>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <a
+              href="https://leapsheet.com/portal"
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 12, color: "#0078d4" }}
+            >
+              Open customer portal →
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Activation form */}
+      {showActivationForm && !slotsFullMachines && (
+        <div>
+          <div style={{ fontWeight: 600, marginBottom: 10 }}>
+            {status === "trial" ? "Activate your license" : "Re-activate"}
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ marginBottom: 4, opacity: 0.8 }}>License key</div>
+            <input
+              type="text"
+              value={licenseKeyInput}
+              onChange={(e) => setLicenseKeyInput(e.target.value)}
+              placeholder="XXXX-XXXX-XXXX-XXXX"
+              disabled={activating}
+              style={inputStyle}
+            />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: 4, opacity: 0.8 }}>Machine name <span style={{ opacity: 0.55 }}>(optional)</span></div>
+            <input
+              type="text"
+              value={friendlyNameInput}
+              onChange={(e) => setFriendlyNameInput(e.target.value)}
+              placeholder="e.g. John's laptop"
+              disabled={activating}
+              style={inputStyle}
+            />
+          </div>
+
+          {activationMessage && (
+            <div style={{
+              marginBottom: 10, padding: "7px 10px", borderRadius: 6,
+              background: activationMessage.type === "error" ? "rgba(200,0,0,0.07)" : "rgba(0,120,212,0.07)",
+              border: `1px solid ${activationMessage.type === "error" ? "rgba(200,0,0,0.25)" : "rgba(0,120,212,0.2)"}`,
+              fontSize: 12,
+            }}>
+              {activationMessage.text}
+            </div>
+          )}
+
+          <button
+            type="button"
+            disabled={activating || !licenseKeyInput.trim()}
+            onClick={handleActivate}
+            style={{
+              padding: "7px 18px", fontSize: 12, fontWeight: 600,
+              borderRadius: 6, border: "none",
+              background: (!activating && licenseKeyInput.trim()) ? "#0078d4" : "#c8c8c8",
+              color: "white", cursor: (!activating && licenseKeyInput.trim()) ? "pointer" : "default",
+              marginRight: 8,
+            }}
+          >
+            {activating ? "Activating…" : "Activate"}
+          </button>
+
+          <a
+            href="https://leapsheet.com/buy"
+            target="_blank"
+            rel="noreferrer"
+            style={{ fontSize: 12, color: "#0078d4" }}
+          >
+            Purchase a license →
+          </a>
+        </div>
+      )}
+
+      {/* Displacement flow: slots full */}
+      {showActivationForm && slotsFullMachines && (
+        <div>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Both activation slots are in use</div>
+          <div style={{ marginBottom: 12, opacity: 0.85, lineHeight: 1.5 }}>
+            Select a machine to displace. That machine will revert to unactivated status and be prompted to re-activate.
+          </div>
+          <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6, marginBottom: 12 }}>
+            {slotsFullMachines.map((m) => {
+              const isSelected = displaceTarget === m.machine_id;
+              const lastSeen = m.last_checkin
+                ? new Date(m.last_checkin).toLocaleDateString()
+                : "Unknown";
+              return (
+                <div
+                  key={m.machine_id}
+                  onClick={() => setDisplaceTarget(m.machine_id)}
+                  style={{
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    background: isSelected ? "rgba(0,120,212,0.10)" : "transparent",
+                    borderBottom: "1px solid rgba(0,0,0,0.07)",
+                  }}
+                >
+                  <div style={{ fontWeight: isSelected ? 600 : 400, marginBottom: 2 }}>
+                    {m.friendly_name || m.machine_id}
+                  </div>
+                  <div style={{ fontSize: 11, opacity: 0.65 }}>Last seen: {lastSeen}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {activationMessage && (
+            <div style={{
+              marginBottom: 10, padding: "7px 10px", borderRadius: 6,
+              background: activationMessage.type === "error" ? "rgba(200,0,0,0.07)" : "rgba(0,120,212,0.07)",
+              border: `1px solid ${activationMessage.type === "error" ? "rgba(200,0,0,0.25)" : "rgba(0,120,212,0.2)"}`,
+              fontSize: 12,
+            }}>
+              {activationMessage.text}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              disabled={activating || !displaceTarget}
+              onClick={handleDisplace}
+              style={{
+                padding: "7px 18px", fontSize: 12, fontWeight: 600,
+                borderRadius: 6, border: "none",
+                background: (!activating && displaceTarget) ? "#0078d4" : "#c8c8c8",
+                color: "white", cursor: (!activating && displaceTarget) ? "pointer" : "default",
+              }}
+            >
+              {activating ? "Activating…" : "Displace & Activate"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setSlotsFullMachines(null); setDisplaceTarget(null); setActivationMessage(null); }}
+              style={{
+                padding: "7px 14px", fontSize: 12, borderRadius: 6,
+                border: "1px solid rgba(0,0,0,0.2)", background: "white", cursor: "pointer",
+              }}
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Free Upgrade tab ─────────────────────────────────────────────────────────
+function FreeUpgradeTab() {
+  const points = [
+    {
+      title: "Instant responsiveness",
+      body: "LeapSheet opens your sheet list in under 50ms — no perceptible delay, ever.",
+    },
+    {
+      title: "Works offline",
+      body: "LeapSheet runs entirely inside Excel and never needs a network connection.",
+    },
+    {
+      title: "Keyboard shortcut",
+      body: "Launch with Ctrl+J (configurable) — no mouse required.",
+    },
+    {
+      title: "Premium tier",
+      body: "Cross-workbook favorites, recents, and search across all open workbooks simultaneously.",
+    },
+  ];
+
+  return (
+    <div style={{ maxWidth: 480, fontFamily: "Segoe UI, Arial, sans-serif", fontSize: 12 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>Upgrade to LeapSheet</div>
+      <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 16, lineHeight: 1.5 }}>
+        LeapSheet Compatible works anywhere Excel works — but the full desktop app takes things further.
+        Upgrading is free for all licensed users.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+        {points.map((p) => (
+          <div key={p.title} style={{ display: "flex", gap: 10 }}>
+            <div style={{
+              flexShrink: 0, width: 20, height: 20, borderRadius: "50%",
+              background: "rgba(0,120,212,0.12)", display: "flex", alignItems: "center",
+              justifyContent: "center", fontSize: 11, color: "#0078d4", fontWeight: 700,
+            }}>✓</div>
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 2 }}>{p.title}</div>
+              <div style={{ opacity: 0.8, lineHeight: 1.45 }}>{p.body}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <a
+        href="https://leapsheet.com/download"
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          display: "inline-block", padding: "8px 20px", fontSize: 12, fontWeight: 600,
+          borderRadius: 6, background: "#0078d4", color: "white", textDecoration: "none",
+        }}
+      >
+        Download LeapSheet (free upgrade) →
+      </a>
+    </div>
+  );
+}
+
 function DialogApp() {
   const receivedStateDataRef = useRef(false);
   const devPremiumRef = useRef(false);
@@ -189,6 +573,13 @@ function DialogApp() {
   const [activeTab, setActiveTab] = useState("Navigation");
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [readOnlyBannerDismissed, setReadOnlyBannerDismissed] = useState(false);
+
+  // ── Licensing state ──────────────────────────────────────────────────────────
+  const [licensing, setLicensing] = useState(null); // effective licensing state from parent
+  const [showSurvey, setShowSurvey] = useState(false); // worksheet count survey modal
+
+  // Ref used to pass activation callbacks through the AboutTab component.
+  const aboutTabActivateRef = useRef(null);
   
   // Favorites tab UI state (remember selection across tab switches)
   const [favTabSelectedAvailableId, setFavTabSelectedAvailableId] = useState(null);
@@ -502,7 +893,22 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             if (typeof state.isReadOnly === "boolean") setIsReadOnly(state.isReadOnly);
             // Update active sheet ID
             if (state.activeSheetId) setActiveSheetId(state.activeSheetId);
-            // Update Quick Return session state
+
+            // ── Licensing: update state and enforce UI rules ──────────────────
+            if (state.licensing) {
+              const lic = state.licensing;
+              setLicensing(lic);
+
+              // Show worksheet survey if not yet answered.
+              if (!lic.ws_survey_done) {
+                setShowSurvey(true);
+              }
+
+              // Restricted state: force About tab and disable other tabs.
+              if (lic.is_restricted) {
+                setActiveTab("About");
+              }
+            }
 
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
             setAllSheets(sheets);
@@ -643,6 +1049,13 @@ const incomingFrequentOnTop = !!ui.frequentOnTop;
           if (msg.type === "error") {
             setIsActivating(false);
             setStatus(msg.message || "An error occurred.");
+            return;
+          }
+
+          if (msg.type === "activateResult") {
+            // Route result back to AboutTab via stored callback.
+            const cb = aboutTabActivateRef.current;
+            if (cb) cb(msg);
             return;
           }
         },
@@ -1249,6 +1662,56 @@ const favTabBottomBlockHeight = Math.max(80, favTabListsTotal - favTabFavListHei
     return { uiSettings, favorites: favoritesItems, rowHeightPreset, rowHeightDirty, oneDigitActivationEnabled };
   };
 
+// Worksheet survey submission.
+const onSaveWorksheetSurvey = (range) => {
+  try {
+    Office.context.ui.messageParent(JSON.stringify({ type: "saveWorksheetSurvey", range }));
+  } catch (err) {
+    console.error("messageParent(saveWorksheetSurvey) failed:", err);
+  }
+  setShowSurvey(false);
+};
+
+// License activation: sends request to parent; result comes back via activateResult message.
+const onActivate = ({ licenseKey, friendlyName, machineToDisplace }) => {
+  try {
+    Office.context.ui.messageParent(JSON.stringify({ type: "activate", licenseKey, friendlyName, machineToDisplace }));
+  } catch (err) {
+    console.error("messageParent(activate) failed:", err);
+    // Surface error back via the stored callback.
+    const cb = aboutTabActivateRef.current;
+    if (cb) cb({ status: "error", message: "Failed to reach parent." });
+  }
+};
+
+// Wire up the AboutTab activation callback so parent responses route back.
+// This is set on each render so the closure captures fresh state setters via the component.
+aboutTabActivateRef.current = (result) => {
+  // Called when parent sends activateResult.
+  if (!result) return;
+  if (result.status === "activated") {
+    // Parent will send updated stateData shortly; nothing more needed here.
+    return;
+  }
+  if (result.status === "slots_full") {
+    AboutTab._setActivating && AboutTab._setActivating(false);
+    AboutTab._setSlotsFullMachines && AboutTab._setSlotsFullMachines(result.machines || []);
+    return;
+  }
+  if (result.status === "invalid_key") {
+    AboutTab._setActivating && AboutTab._setActivating(false);
+    AboutTab._setMessage && AboutTab._setMessage({ type: "error", text: "Invalid license key. Please check the key and try again." });
+    return;
+  }
+  if (result.status === "rate_limited") {
+    AboutTab._setActivating && AboutTab._setActivating(false);
+    AboutTab._setMessage && AboutTab._setMessage({ type: "error", text: "Too many attempts. Please wait a moment and try again." });
+    return;
+  }
+  AboutTab._setActivating && AboutTab._setActivating(false);
+  AboutTab._setMessage && AboutTab._setMessage({ type: "error", text: result.message || "Activation failed. Please try again." });
+};
+
 const onSelect = (sheet) => {
   if (!sheet || isActivating) return;
   const sheetId = typeof sheet === "string" ? sheet : sheet.id;
@@ -1428,15 +1891,45 @@ return (
         role="tablist"
         aria-label="JumpTo tabs"
       >
-        <TabButton label="Navigation" active={activeTab === "Navigation"} onClick={() => setActiveTab("Navigation")} />
-        <TabButton
-          label="Favorites"
-          active={activeTab === "Favorites"}
-          onClick={() => setActiveTab("Favorites")}
-          disabled={isReadOnly}
-          disabledTitle="Favorites cannot be edited in a read-only workbook"
-        />
-        <TabButton label="Settings" active={activeTab === "Settings"} onClick={() => setActiveTab("Settings")} />
+        {(() => {
+          // When restricted (expired/displaced/revoked), Nav/Favorites/Settings are disabled.
+          const isRestricted = !!(licensing?.is_restricted);
+          return (
+            <>
+              <TabButton
+                label="Navigation"
+                active={activeTab === "Navigation"}
+                onClick={() => setActiveTab("Navigation")}
+                disabled={isRestricted}
+                disabledTitle="Navigation is not available in this license state"
+              />
+              <TabButton
+                label="Favorites"
+                active={activeTab === "Favorites"}
+                onClick={() => setActiveTab("Favorites")}
+                disabled={isRestricted || isReadOnly}
+                disabledTitle={isRestricted ? "Favorites is not available in this license state" : "Favorites cannot be edited in a read-only workbook"}
+              />
+              <TabButton
+                label="Settings"
+                active={activeTab === "Settings"}
+                onClick={() => setActiveTab("Settings")}
+                disabled={isRestricted}
+                disabledTitle="Settings is not available in this license state"
+              />
+              <TabButton
+                label="About"
+                active={activeTab === "About"}
+                onClick={() => setActiveTab("About")}
+              />
+              <TabButton
+                label="Free Upgrade"
+                active={activeTab === "FreeUpgrade"}
+                onClick={() => setActiveTab("FreeUpgrade")}
+              />
+            </>
+          );
+        })()}
       </div>
 
       <div ref={bodyRef} style={{ flex: "1 1 auto", overflow: "hidden" }}>
@@ -2210,7 +2703,29 @@ return (
         </div>
       )}
 
+      {activeTab === "About" && (
+        <div style={{ height: panelHeight, overflowY: "auto", overflowX: "hidden", paddingRight: 4 }}>
+          <AboutTab
+            licensing={licensing}
+            onActivate={onActivate}
+            version={null}
+          />
+        </div>
+      )}
+
+      {activeTab === "FreeUpgrade" && (
+        <div style={{ height: panelHeight, overflowY: "auto", overflowX: "hidden", paddingRight: 4 }}>
+          <FreeUpgradeTab />
+        </div>
+      )}
+
       </div>
+      {/* Worksheet survey modal — overlays entire dialog, must be answered first */}
+      {showSurvey && (
+        <WorksheetSurveyModal onSubmit={(range) => {
+          onSaveWorksheetSurvey(range);
+        }} />
+      )}
       {/* Global actions (outside tabs) */}
       <div ref={footerRef} style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginTop: 8, paddingTop: 8, borderTop: "1px solid #e0e0e0", width: "100%" }}>
         <button

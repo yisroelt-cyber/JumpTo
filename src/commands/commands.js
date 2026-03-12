@@ -1,4 +1,4 @@
-// 2026-03-04 22:00 UTC
+// 2026-03-11 12:00 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -17,6 +17,19 @@ import {
   setUiSettings as setUiSettingsInStorage,
   detectWorkbookReadOnly,
 } from "../services/jumpToStorage";
+
+import {
+  readLicensingState,
+  ensureMachineHash,
+  ensureTrialOnset,
+  recordUseDay,
+  maybeCheckin,
+  computeEffectiveLicenseState,
+  activateLicense,
+  saveWorksheetSurveyAnswer,
+} from "../services/licensingService";
+
+import { LIC_LAST_CHECKIN } from "../shared/constants";
 
 let lockBusy = false;
 const lockQueue = [];
@@ -61,6 +74,35 @@ let ortsSettingsCache = null;
 function invalidateOrtsSettingsCache() {
   ortsSettingsCache = null;
 }
+
+// ─── Licensing module-level state ─────────────────────────────────────────────
+// Cached licensing state. Refreshed on each dialog open (async, background).
+// Also updated immediately after activation so next dialog open sees fresh state.
+let cachedLicensingState = null;
+
+// Flag: use-day recorded for this shared-runtime session (once per session, not per dialog open).
+let useDayRecordedThisSession = false;
+
+// Flag: trial onset ensured for this session.
+let trialOnsetEnsuredThisSession = false;
+
+// Initialise licensing state on add-in load (fire-and-forget).
+// Records use-day and trial onset without blocking any UI path.
+(async () => {
+  try {
+    if (!useDayRecordedThisSession) {
+      useDayRecordedThisSession = true;
+      await recordUseDay();
+    }
+    if (!trialOnsetEnsuredThisSession) {
+      trialOnsetEnsuredThisSession = true;
+      await ensureTrialOnset();
+    }
+    await ensureMachineHash();
+  } catch (e) {
+    // ignore — licensing init must never crash the add-in
+  }
+})();
 
 
 function withLock(fn) {
@@ -193,6 +235,7 @@ async function buildDialogState(baseState, activeSheetId = null) {
           OPT_FAV_PERCENT,
           OPT_RECENTS_DISPLAY_COUNT,
           OPT_QUICK_RETURN,
+          LIC_LAST_CHECKIN,  // licensing: read last check-in timestamp in this batch
         ];
         // getItems returns { [key]: value } for all requested keys in one call.
         ortsSettingsCache = await OfficeRuntime.storage.getItems(keys);
@@ -261,6 +304,11 @@ async function buildDialogState(baseState, activeSheetId = null) {
     isReadOnly: !!(baseState.isReadOnly),
     // Raw recentIds (unfiltered, unsliced) needed by Quick Return logic in dialog.
     recentIds: recentIds,
+    // Effective licensing state (MUJD-adjusted) for dialog UI.
+    licensing: cachedLicensingState ? computeEffectiveLicenseState({
+      ...cachedLicensingState,
+      last_checkin: ortsSettingsCache ? ortsSettingsCache[LIC_LAST_CHECKIN] : null,
+    }) : null,
   };
 }
 
@@ -402,6 +450,24 @@ function openJumpDialog(event) {
             }
 
             let state = await buildDialogState(cachedState, activeSheetId);
+
+            // ── Licensing: refresh cached state and trigger background check-in ──
+            // Read licensing state from ORTS (separate from the main settings batch —
+            // licState keys other than LIC_LAST_CHECKIN are not in ortsSettingsCache).
+            try {
+              const licRaw = await readLicensingState();
+              // Inject last_checkin from the settings batch (per WMD constraint).
+              const lastCheckinFromBatch = ortsSettingsCache ? ortsSettingsCache[LIC_LAST_CHECKIN] : null;
+              cachedLicensingState = { ...licRaw, last_checkin: lastCheckinFromBatch };
+
+              // Trigger background check-in (never awaited — zero latency impact).
+              maybeCheckin(cachedLicensingState).catch(() => {});
+
+              // Rebuild state now that cachedLicensingState is fresh.
+              state = await buildDialogState(cachedState, activeSheetId);
+            } catch (e) {
+              // Licensing errors must never block the dialog from opening.
+            }
 
             // If we still look "invalid" (common right after Excel restart), retry once after a short delay.
             if (state && state.__meta && state.__meta.dts === 0) {
@@ -653,6 +719,63 @@ function openJumpDialog(event) {
             });
           })().catch((err) => console.error("selectSheet background handler failed:", err));
 
+          return;
+        }
+
+        if (msg.type === "activate") {
+          // Dialog requests license activation.
+          const licenseKey   = typeof msg.licenseKey   === "string" ? msg.licenseKey.trim()   : "";
+          const friendlyName = typeof msg.friendlyName === "string" ? msg.friendlyName.trim() : "";
+          const machineToDisplace = typeof msg.machineToDisplace === "string" ? msg.machineToDisplace : null;
+
+          if (!licenseKey) {
+            reply({ type: "activateResult", status: "invalid_key" });
+            return;
+          }
+
+          (async () => {
+            try {
+              const result = await activateLicense(licenseKey, friendlyName, machineToDisplace);
+
+              // If activated, refresh cached licensing state so next dialog open is correct.
+              if (result.status === "activated") {
+                try {
+                  const licRaw = await readLicensingState();
+                  const lastCheckinFromBatch = ortsSettingsCache ? ortsSettingsCache[LIC_LAST_CHECKIN] : null;
+                  cachedLicensingState = { ...licRaw, last_checkin: lastCheckinFromBatch };
+                  // Invalidate settings cache so next build picks up the new licensing state.
+                  invalidateOrtsSettingsCache();
+                } catch (e) {
+                  // ignore
+                }
+              }
+
+              reply({ type: "activateResult", ...result });
+            } catch (e) {
+              // Network or server error during activation.
+              reply({ type: "activateResult", status: "error", message: e?.message || "Activation failed." });
+            }
+          })();
+          return;
+        }
+
+        if (msg.type === "saveWorksheetSurvey") {
+          const range = typeof msg.range === "string" ? msg.range : "";
+          if (!range) return;
+          (async () => {
+            try {
+              await saveWorksheetSurveyAnswer(range);
+              // Refresh cached licensing state so dialog shows survey as done.
+              const licRaw = await readLicensingState();
+              const lastCheckinFromBatch = ortsSettingsCache ? ortsSettingsCache[LIC_LAST_CHECKIN] : null;
+              cachedLicensingState = { ...licRaw, last_checkin: lastCheckinFromBatch };
+              // Send refreshed state back to dialog.
+              const state = await buildDialogState(cachedState, null);
+              reply({ type: "stateData", state });
+            } catch (e) {
+              // ignore
+            }
+          })();
           return;
         }
 
