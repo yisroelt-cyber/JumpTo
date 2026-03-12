@@ -1,4 +1,4 @@
-// 2026-03-04 21:15 UTC
+// 2026-03-12 19:30 UTC
 /* global Excel, OfficeRuntime */
 
 import { MAX_RECENTS, MAX_FAVORITES } from "../shared/constants";
@@ -14,6 +14,11 @@ const ROW_SETTINGS = 4;
 // Dev premium flag cell: write "DEV_PREMIUM" here to enable frequency bump for testing.
 const DEV_FLAG_CELL = "A10";
 const DEV_FLAG_VALUE = "DEV_PREMIUM";
+
+// Dev force-survey flag cell: write "DEV_FORCE_SURVEY" here to force the worksheet survey
+// to appear regardless of stored ORTS state. Delete the value when done testing.
+const DEV_SURVEY_FLAG_CELL = "A12";
+const DEV_SURVEY_FLAG_VALUE = "DEV_FORCE_SURVEY";
 
 // Workbook-scoped user settings persisted in the workbook Settings sheet blob.
 const WB_SETTINGS_KEYS = ["oneDigitActivationEnabled"];
@@ -764,12 +769,15 @@ async function loadInventory(context, sheet, userColLetter) {
   const invRange = sheet.getRange(`A${INV_START_ROW}:C${endRow}`);
   const freqRange = sheet.getRange(`${userColLetter}${INV_START_ROW}:${userColLetter}${endRow}`);
   const devFlagCell = sheet.getRange(DEV_FLAG_CELL);
+  const devSurveyFlagCell = sheet.getRange(DEV_SURVEY_FLAG_CELL);
   invRange.load("values");
   freqRange.load("values");
   devFlagCell.load("values");
+  devSurveyFlagCell.load("values");
   await context.sync();
 
   const devPremium = String(devFlagCell.values?.[0]?.[0] ?? "").trim() === DEV_FLAG_VALUE;
+  const devForceSurvey = String(devSurveyFlagCell.values?.[0]?.[0] ?? "").trim() === DEV_SURVEY_FLAG_VALUE;
 
   const inv = invRange.values || [];
   const freq = freqRange.values || [];
@@ -785,7 +793,7 @@ async function loadInventory(context, sheet, userColLetter) {
     const codename = inv[i]?.[2] ?? "";
     rows.push({ rowNum, id: String(id || ""), name: String(name || ""), codename: String(codename || ""), freq: decayedFreq, storedFreq, dts });
   }
-  return { rows, devPremium };
+  return { rows, devPremium, devForceSurvey };
 }
 
 async function syncInventoryWithVisibleSheets(context, sheet, userColLetter, visibleSheets, allSheets) {
@@ -903,6 +911,7 @@ export async function getJumpToState(options = {}) {
     let sheets = [];
     let freqById = {};
     let devPremium = false;
+    let devForceSurvey = false;
     let __meta = { favoritesValid: false, settingsValid: false, recentsValid: false, dts: 0 };
 
     // Try to read from the settings sheet if it exists
@@ -917,7 +926,7 @@ export async function getJumpToState(options = {}) {
         const visible = wsItems.items.filter(ws => ws.visibility === Excel.SheetVisibility.visible);
         const visibleSheets = visible.map((ws, idx) => ({ id: ws.id, name: ws.name, orderIndex: idx }));
 
-        if (!settingsSheet) return { identity: { workbookGuid: null, filenameFingerprint: null }, visibleSheets, userCells: null, invRows: [], devPremium: false };
+        if (!settingsSheet) return { identity: { workbookGuid: null, filenameFingerprint: null }, visibleSheets, userCells: null, invRows: [], devPremium: false, devForceSurvey: false };
 
         const identity = await readWorkbookIdentity(context, settingsSheet);
 
@@ -925,6 +934,7 @@ export async function getJumpToState(options = {}) {
         let userCells = null;
         let invRows = [];
         let dp = false;
+        let dfs = false;
         if (identity.workbookGuid) {
           try {
             // getUserColumn in read-only: find existing column but don't create one if absent
@@ -940,19 +950,21 @@ export async function getJumpToState(options = {}) {
               const inv = await loadInventory(context, settingsSheet, colLetter);
               invRows = inv.rows;
               dp = inv.devPremium;
+              dfs = inv.devForceSurvey;
             }
           } catch {
             // ignore — best-effort read
           }
         }
 
-        return { identity, visibleSheets, userCells, invRows, devPremium: dp };
+        return { identity, visibleSheets, userCells, invRows, devPremium: dp, devForceSurvey: dfs };
       });
 
       if (wbData) {
         wbId = wbData.identity;
         sheets = wbData.visibleSheets || [];
         devPremium = wbData.devPremium;
+        devForceSurvey = wbData.devForceSurvey;
 
         if (wbData.userCells) {
           favorites = wbData.userCells.favorites || [];
@@ -1009,7 +1021,7 @@ export async function getJumpToState(options = {}) {
       recents: recIds.map(r => ({ ...r, name: idToName.get(r.id) || r.name || "" })),
       settings: (settings && typeof settings === "object") ? settings : {},
       __meta,
-      global: { freqById, devPremium },
+      global: { freqById, devPremium, devForceSurvey },
       isReadOnly: true,
     };
   }
@@ -1095,7 +1107,7 @@ export async function getJumpToState(options = {}) {
     }));
 
     // Load frequency values and dev flag for visible sheets (single batch, no extra sync).
-    const { rows: invRows, devPremium } = await loadInventory(context, settingsSheet, colLetter);
+    const { rows: invRows, devPremium, devForceSurvey } = await loadInventory(context, settingsSheet, colLetter);
     const freqById = {};
     for (const r of invRows) {
       if (r.id) freqById[r.id] = Number(r.freq || 0);
@@ -1109,7 +1121,7 @@ export async function getJumpToState(options = {}) {
       recents: recObjs,
       settings: (settings && typeof settings === "object") ? settings : {},
       __meta,
-      global: { freqById, devPremium }
+      global: { freqById, devPremium, devForceSurvey }
     };
   });
 

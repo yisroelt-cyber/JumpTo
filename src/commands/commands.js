@@ -1,4 +1,4 @@
-// 2026-03-11 12:00 UTC
+// 2026-03-12 19:30 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -296,7 +296,7 @@ async function buildDialogState(baseState, activeSheetId = null) {
     sheets: sheetsWithFreq,
     // Keep workbook settings minimal; dialog UI can still display global values (provided via `global`).
     settings: { favPercentManual, recentsDisplayCount },
-    global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop, devPremium: !!(baseState.global?.devPremium), enableQuickReturn },
+    global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop, devPremium: !!(baseState.global?.devPremium), devForceSurvey: !!(baseState.global?.devForceSurvey), enableQuickReturn },
     // favorites: all entries (Fav tab curation); navFavorites: current-workbook only (Nav tab).
     favorites: allFavs,
     navFavorites: navFavs,

@@ -1,6 +1,6 @@
-// 2026-03-11 12:00 UTC
+// 2026-03-12 19:30 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { MAX_RECENTS, PREMIUM_FREQ_BUMP, DEV_FORCE_SURVEY } from "../shared/constants";
+import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 
 import { createRoot } from "react-dom/client";
 
@@ -543,6 +543,7 @@ function FreeUpgradeTab() {
 function DialogApp() {
   const receivedStateDataRef = useRef(false);
   const devPremiumRef = useRef(false);
+  const devForceSurveyRef = useRef(false);
 
   // Suppress hover highlight on dialog open so a row under the cursor at open
   // time doesn't steal faux-focus. Cleared after layout settles (same approach
@@ -893,6 +894,7 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             try {
               receivedStateDataRef.current = true;
               devPremiumRef.current = !!(msg.state?.global?.devPremium);
+              devForceSurveyRef.current = !!(msg.state?.global?.devForceSurvey);
             } catch (e) {
               // ignore
             }
@@ -909,7 +911,7 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
               setLicensing(lic);
 
               // Show worksheet survey if not yet answered (or forced for dev testing).
-              if (!lic.ws_survey_done || DEV_FORCE_SURVEY) {
+              if (!lic.ws_survey_done || devForceSurveyRef.current) {
                 setShowSurvey(true);
               }
 
