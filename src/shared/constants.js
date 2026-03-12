@@ -62,6 +62,10 @@ export const LIC_WS_SURVEY_DONE      = "JumpTo.Licensing.WsSurveyDone";      // 
 // API base URL — will become https://api.leapsheet.com before launch.
 export const API_BASE_URL = "https://leapsheet-worker.leapsheet.workers.dev";
 
+// DEV ONLY — set to true to force the worksheet survey to appear regardless of stored state.
+// Must be false before any distribution build.
+export const DEV_FORCE_SURVEY = false;
+
 // Checkin interval: fire if 3+ days (in ms) have passed since last check-in.
 export const CHECKIN_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
 

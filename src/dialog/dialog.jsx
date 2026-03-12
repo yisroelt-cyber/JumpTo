@@ -1,6 +1,6 @@
 // 2026-03-11 12:00 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
+import { MAX_RECENTS, PREMIUM_FREQ_BUMP, DEV_FORCE_SURVEY } from "../shared/constants";
 
 import { createRoot } from "react-dom/client";
 
@@ -908,8 +908,8 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
               const lic = state.licensing;
               setLicensing(lic);
 
-              // Show worksheet survey if not yet answered.
-              if (!lic.ws_survey_done) {
+              // Show worksheet survey if not yet answered (or forced for dev testing).
+              if (!lic.ws_survey_done || DEV_FORCE_SURVEY) {
                 setShowSurvey(true);
               }
 
