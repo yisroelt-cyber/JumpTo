@@ -585,7 +585,7 @@ function DialogApp() {
 
   // ── Licensing state ──────────────────────────────────────────────────────────
   const [licensing, setLicensing] = useState(null); // effective licensing state from parent
-  const [showSurvey, setShowSurvey] = useState(true); // start true — hide survey only once ORTS confirms it's done
+  const [showSurvey, setShowSurvey] = useState(false); // worksheet count survey modal
 
   // Ref used to pass activation callbacks through the AboutTab component.
   const aboutTabActivateRef = useRef(null);
@@ -908,16 +908,15 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
               const lic = state.licensing;
               setLicensing(lic);
 
-              // Show survey only if not yet answered; hide it if already done.
-              setShowSurvey(!lic.ws_survey_done);
+              // Show worksheet survey if not yet answered.
+              if (!lic.ws_survey_done) {
+                setShowSurvey(true);
+              }
 
               // Restricted state: force About tab and disable other tabs.
               if (lic.is_restricted) {
                 setActiveTab("About");
               }
-            } else {
-              // No licensing state yet — keep survey showing until we know.
-              setShowSurvey(true);
             }
 
             const sheets = Array.isArray(state.sheets) ? state.sheets : [];
