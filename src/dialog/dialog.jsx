@@ -149,7 +149,7 @@ function sameFavoriteIds(a, b) {
 
 // ─── Worksheet survey modal ────────────────────────────────────────────────────
 // Presented on first dialog open. Mandatory — user must answer before proceeding.
-const WS_SURVEY_OPTIONS = ["1–10", "11–20", "21–30", "31–40", "41–50", "51–60", "61–70", "71+"];
+const WS_SURVEY_OPTIONS = ["1–10", "11–20", "21–30", "31–40", "41–50", "51–60", "61–70", "71 or more"];
 
 function WorksheetSurveyModal({ onSubmit }) {
   const [selected, setSelected] = useState(null);
@@ -161,12 +161,15 @@ function WorksheetSurveyModal({ onSubmit }) {
       fontFamily: "Segoe UI, Arial, sans-serif", padding: 24,
     }}>
       <div style={{ maxWidth: 360, width: "100%" }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Welcome to LeapSheet</div>
-        <div style={{ fontSize: 12, marginBottom: 16, opacity: 0.85, lineHeight: 1.5 }}>
-          Before you start, please answer one quick question to help us improve LeapSheet.
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Welcome to LeapSheet</div>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+          About how many worksheets are in the largest workbook you work with regularly?
         </div>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
-          How many worksheets does your largest regular workbook have?
+        <div style={{ fontSize: 12, marginBottom: 4, opacity: 0.85 }}>
+          Just a best guess is fine.
+        </div>
+        <div style={{ fontSize: 12, marginBottom: 16, opacity: 0.75 }}>
+          This one-time question helps us understand how LeapSheet is used.
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
           {WS_SURVEY_OPTIONS.map((opt) => (
@@ -175,11 +178,12 @@ function WorksheetSurveyModal({ onSubmit }) {
               type="button"
               onClick={() => setSelected(opt)}
               style={{
-                padding: "6px 14px", fontSize: 12, borderRadius: 6,
+                width: 90, padding: "6px 0", fontSize: 12, borderRadius: 6, textAlign: "center",
                 border: selected === opt ? "2px solid #0078d4" : "1px solid rgba(0,0,0,0.2)",
                 background: selected === opt ? "rgba(0,120,212,0.1)" : "white",
                 fontWeight: selected === opt ? 600 : 400,
                 cursor: "pointer",
+                boxSizing: "border-box",
               }}
             >{opt}</button>
           ))}
