@@ -1,4 +1,4 @@
-// 2026-03-12 19:30 UTC
+// 2026-03-12 19:50 UTC
 /* global Excel, OfficeRuntime */
 
 import { MAX_RECENTS, MAX_FAVORITES } from "../shared/constants";
@@ -1038,6 +1038,12 @@ export async function getJumpToState(options = {}) {
       const { colLetter } = await getUserColumn(context, settingsSheet, userKey);
       const { favorites, recents, settings, __meta } = await readUserCells(context, settingsSheet, colLetter);
 
+      // Read dev survey flag cell in the same batch — no extra sync.
+      const devSurveyFlagCell = settingsSheet.getRange(DEV_SURVEY_FLAG_CELL);
+      devSurveyFlagCell.load("values");
+      await context.sync();
+      const devForceSurvey = String(devSurveyFlagCell.values?.[0]?.[0] ?? "").trim() === DEV_SURVEY_FLAG_VALUE;
+
       return {
         __wbId: wbId,
         userKey,
@@ -1045,7 +1051,7 @@ export async function getJumpToState(options = {}) {
         recents,
         settings: (settings && typeof settings === "object") ? settings : {},
         __meta,
-        global: { freqById: {} }
+        global: { freqById: {}, devForceSurvey }
       };
     });
 
@@ -1069,7 +1075,8 @@ export async function getJumpToState(options = {}) {
           __meta: mini.__meta,
           global: {
             freqById: (perf.freqById && typeof perf.freqById === "object") ? perf.freqById : {},
-            devPremium: !!(perf.devPremium)
+            devPremium: !!(perf.devPremium),
+            devForceSurvey: !!(mini.global?.devForceSurvey)
           }
         };
       }
