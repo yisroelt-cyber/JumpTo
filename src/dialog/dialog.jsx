@@ -156,7 +156,7 @@ function WorksheetSurveyModal({ onSubmit }) {
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 9999,
-      background: "rgba(255,255,255,0.97)",
+      background: "#ffffff",
       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
       fontFamily: "Segoe UI, Arial, sans-serif", padding: "32px 24px 24px",
     }}>
