@@ -1,4 +1,4 @@
-// 2026-03-12 19:30 UTC
+// 2026-03-12 20:20 UTC
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -296,7 +296,7 @@ async function buildDialogState(baseState, activeSheetId = null) {
     sheets: sheetsWithFreq,
     // Keep workbook settings minimal; dialog UI can still display global values (provided via `global`).
     settings: { favPercentManual, recentsDisplayCount },
-    global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop, devPremium: !!(baseState.global?.devPremium), devForceSurvey: !!(baseState.global?.devForceSurvey), enableQuickReturn },
+    global: { oneDigitActivationEnabled, rowHeightPreset, baselineOrder, frequentOnTop, devPremium: !!(baseState.global?.devPremium), enableQuickReturn },
     // favorites: all entries (Fav tab curation); navFavorites: current-workbook only (Nav tab).
     favorites: allFavs,
     navFavorites: navFavs,
@@ -770,6 +770,23 @@ function openJumpDialog(event) {
               const lastCheckinFromBatch = ortsSettingsCache ? ortsSettingsCache[LIC_LAST_CHECKIN] : null;
               cachedLicensingState = { ...licRaw, last_checkin: lastCheckinFromBatch };
               // Send refreshed state back to dialog.
+              const state = await buildDialogState(cachedState, null);
+              reply({ type: "stateData", state });
+            } catch (e) {
+              // ignore
+            }
+          })();
+          return;
+        }
+
+        // DEV ONLY — remove before distribution
+        if (msg.type === "resetSurvey") {
+          (async () => {
+            try {
+              await OfficeRuntime.storage.removeItem("JumpTo.Licensing.WsSurveyDone");
+              const licRaw = await readLicensingState();
+              const lastCheckinFromBatch = ortsSettingsCache ? ortsSettingsCache[LIC_LAST_CHECKIN] : null;
+              cachedLicensingState = { ...licRaw, last_checkin: lastCheckinFromBatch };
               const state = await buildDialogState(cachedState, null);
               reply({ type: "stateData", state });
             } catch (e) {

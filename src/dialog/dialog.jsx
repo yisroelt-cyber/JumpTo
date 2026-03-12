@@ -1,6 +1,6 @@
-// 2026-03-12 19:30 UTC
+// 2026-03-12 20:20 UTC
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
+import { MAX_RECENTS, PREMIUM_FREQ_BUMP, DEV_FORCE_SURVEY } from "../shared/constants";
 
 import { createRoot } from "react-dom/client";
 
@@ -212,7 +212,7 @@ function WorksheetSurveyModal({ onSubmit }) {
 }
 
 // ─── About tab ────────────────────────────────────────────────────────────────
-function AboutTab({ licensing, onActivate, version }) {
+function AboutTab({ licensing, onActivate, onResetSurvey, version }) {
   const [licenseKeyInput, setLicenseKeyInput] = useState("");
   const [friendlyNameInput, setFriendlyNameInput] = useState("");
   const [activating, setActivating] = useState(false);
@@ -478,11 +478,22 @@ function AboutTab({ licensing, onActivate, version }) {
           </div>
         </div>
       )}
+      {/* DEV ONLY — remove before distribution */}
+      {typeof onResetSurvey === "function" && (
+        <div style={{ marginTop: 24, paddingTop: 12, borderTop: "1px solid rgba(0,0,0,0.08)" }}>
+          <span style={{ fontSize: 11, opacity: 0.5 }}>Dev: </span>
+          <button
+            type="button"
+            onClick={onResetSurvey}
+            style={{ fontSize: 11, color: "#0078d4", background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}
+          >
+            Reset survey
+          </button>
+        </div>
+      )}
     </div>
   );
 }
-
-// ─── Free Upgrade tab ─────────────────────────────────────────────────────────
 function FreeUpgradeTab() {
   const points = [
     {
@@ -543,7 +554,6 @@ function FreeUpgradeTab() {
 function DialogApp() {
   const receivedStateDataRef = useRef(false);
   const devPremiumRef = useRef(false);
-  const devForceSurveyRef = useRef(false);
 
   // Suppress hover highlight on dialog open so a row under the cursor at open
   // time doesn't steal faux-focus. Cleared after layout settles (same approach
@@ -894,7 +904,6 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
             try {
               receivedStateDataRef.current = true;
               devPremiumRef.current = !!(msg.state?.global?.devPremium);
-              devForceSurveyRef.current = !!(msg.state?.global?.devForceSurvey);
             } catch (e) {
               // ignore
             }
@@ -911,7 +920,7 @@ function snapshotDialogSettings(globalOptions, uiFavPercentManual, uiRecentsDisp
               setLicensing(lic);
 
               // Show worksheet survey if not yet answered (or forced for dev testing).
-              if (!lic.ws_survey_done || devForceSurveyRef.current) {
+              if (!lic.ws_survey_done || DEV_FORCE_SURVEY) {
                 setShowSurvey(true);
               }
 
@@ -1692,6 +1701,15 @@ const onActivate = ({ licenseKey, friendlyName, machineToDisplace }) => {
     // Surface error back via the stored callback.
     const cb = aboutTabActivateRef.current;
     if (cb) cb({ status: "error", message: "Failed to reach parent." });
+  }
+};
+
+// DEV ONLY — remove before distribution
+const onResetSurvey = () => {
+  try {
+    Office.context.ui.messageParent(JSON.stringify({ type: "resetSurvey" }));
+  } catch (err) {
+    console.error("messageParent(resetSurvey) failed:", err);
   }
 };
 
@@ -2719,6 +2737,7 @@ return (
           <AboutTab
             licensing={licensing}
             onActivate={onActivate}
+            onResetSurvey={onResetSurvey}
             version={null}
           />
         </div>
