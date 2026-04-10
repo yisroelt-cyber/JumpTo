@@ -1,4 +1,4 @@
-// 2026-04-09 12:00 PM EDT
+// 2026-04-10 12:00 PM EDT
 // Shared constants (single source of truth)
 // Keep storage caps and UI constraints aligned to prevent silent truncation.
 export const MAX_RECENTS = 20;
@@ -56,6 +56,10 @@ export const LIC_WS_RANGE_CONF       = "JumpTo.Licensing.WorksheetRangeConfirmed
 export const LIC_FRIENDLY_NAME       = "JumpTo.Licensing.FriendlyName";      // user-supplied machine name
 export const LIC_MUJD_FAILURES       = "JumpTo.Licensing.MujdFailures";      // count of consecutive MUJD-confirmed server failures
 export const LIC_USER_KEY_SOURCE     = "JumpTo.Licensing.UserKeySource";     // stable ID for UserKey derivation: license_id (individual) or employee_id (corporate)
+export const LIC_MACHINE_STATUS      = "JumpTo.Licensing.MachineStatus";     // "unregistered" when machine is not entitled for the license; absent otherwise
+export const LIC_RETRIAL_AVAILABLE   = "JumpTo.Licensing.RetrialAvailable";  // "true" when server confirms re-trial is available (accompanies license_status:expired)
+export const LIC_TAMPERED            = "JumpTo.Licensing.Tampered";          // "true" when server detects use-day count manipulation
+export const LIC_UPGRADE_IN_PROGRESS = "JumpTo.Licensing.UpgradeInProgress"; // session flag: set when user clicks Learn about Premium; clears on Refresh License
 
 // Worksheet survey — stored separately from licensing, synced on first check-in.
 export const LIC_WS_SURVEY_DONE      = "JumpTo.Licensing.WsSurveyDone";      // "true" once user has answered and local data is set

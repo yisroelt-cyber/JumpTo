@@ -1,4 +1,4 @@
-// 2026-03-12 20:20 UTC
+// 2026-04-10 12:00 PM EDT
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MAX_RECENTS, PREMIUM_FREQ_BUMP } from "../shared/constants";
 
@@ -217,37 +217,50 @@ function AboutTab({ licensing, onActivate, onResetSurvey, version }) {
   const [friendlyNameInput, setFriendlyNameInput] = useState("");
   const [activating, setActivating] = useState(false);
   const [activationMessage, setActivationMessage] = useState(null); // { type: "error"|"info", text }
-  // Displacement flow: when slots_full, show machine list.
+  // Deregistration flow: when slots_full, show machine list.
   const [slotsFullMachines, setSlotsFullMachines] = useState(null); // array of { machine_id, friendly_name, last_checkin }
-  const [displaceTarget, setDisplaceTarget] = useState(null);
+  const [deregisterTarget, setDeregisterTarget] = useState(null);
+  // "Use a different license key" flow (post-activation).
+  const [showKeyChange, setShowKeyChange] = useState(false);
 
-  const status  = licensing?.effective_status || "trial";
-  const tier    = licensing?.effective_tier   || "standard";
-  const isRestricted = !!licensing?.is_restricted;
-  const isMujdActive = !!licensing?.mujd_active;
+  const status           = licensing?.effective_status    || "trial";
+  const tier             = licensing?.effective_tier      || "standard";
+  const isRestricted     = !!licensing?.is_restricted;
+  const isMujdActive     = !!licensing?.mujd_active;
+  const machineUnreg     = !!licensing?.machine_unregistered;
+  const licenseType      = licensing?.license_type        || null;
+  const isCorporateEmp   = licenseType === "corporate_employee";
+  const upgradeInProgress = !!licensing?.upgrade_in_progress;
+  const retrialAvailable = !!licensing?.retrial_available;
 
-  // Banner colour and message for restricted states.
+  // Banner colour and message for restricted/notable states.
   let bannerBg    = null;
   let bannerBorder= null;
   let bannerText  = null;
-  if (status === "revoked") {
+
+  if (machineUnreg) {
+    bannerBg     = "rgba(0,120,212,0.07)";
+    bannerBorder = "rgba(0,120,212,0.25)";
+    bannerText   = "This machine is no longer registered. Please re-activate via the About tab.";
+  } else if (status === "revoked") {
     bannerBg     = "rgba(232,17,35,0.07)";
     bannerBorder = "rgba(200,0,0,0.3)";
-    const isCorpRevoke = licensing?.license_type === "corporate";
-    bannerText   = isCorpRevoke
+    bannerText   = isCorporateEmp
       ? "Your license is no longer active. Please contact your administrator."
       : "Invalid license.";
+  } else if (status === "cancelled") {
+    bannerBg     = "rgba(232,17,35,0.07)";
+    bannerBorder = "rgba(200,0,0,0.3)";
+    bannerText   = "Your license is no longer active. Please contact us if you believe this is an error.";
   } else if (status === "expired") {
     bannerBg     = "rgba(255,200,0,0.10)";
     bannerBorder = "rgba(180,130,0,0.3)";
     bannerText   = "Your trial has ended. Please purchase a license to continue using LeapSheet.";
-  } else if (status === "displaced") {
-    bannerBg     = "rgba(0,120,212,0.07)";
-    bannerBorder = "rgba(0,120,212,0.25)";
-    bannerText   = "This machine has been displaced by another device. Please re-activate below.";
   }
 
-  const showActivationForm = status === "trial" || isRestricted;
+  // Activation form shown in: trial, retrial, and all restricted states (expired/revoked/cancelled/unregistered).
+  const showActivationForm = status === "trial" || status === "retrial" || isRestricted;
+  // Post-activation panel shown when fully licensed and not restricted.
   const showActivated = status === "active" && !isRestricted;
 
   const handleActivate = () => {
@@ -259,24 +272,25 @@ function AboutTab({ licensing, onActivate, onResetSurvey, version }) {
     setActivating(true);
     setActivationMessage(null);
     setSlotsFullMachines(null);
-    setDisplaceTarget(null);
-    onActivate({ licenseKey: key, friendlyName: friendlyNameInput.trim(), machineToDisplace: null });
+    setDeregisterTarget(null);
+    onActivate({ licenseKey: key, friendlyName: friendlyNameInput.trim(), machineToDeregister: null });
   };
 
-  const handleDisplace = () => {
-    if (!displaceTarget) {
-      setActivationMessage({ type: "error", text: "Please select a machine to displace." });
+  const handleDeregister = () => {
+    if (!deregisterTarget) {
+      setActivationMessage({ type: "error", text: "Please select a machine to deregister." });
       return;
     }
     setActivating(true);
     setActivationMessage(null);
-    onActivate({ licenseKey: licenseKeyInput.trim(), friendlyName: friendlyNameInput.trim(), machineToDisplace: displaceTarget });
+    onActivate({ licenseKey: licenseKeyInput.trim(), friendlyName: friendlyNameInput.trim(), machineToDeregister: deregisterTarget });
   };
 
   // Exposed so commands parent can call back with result.
-  AboutTab._setActivating    = setActivating;
-  AboutTab._setMessage       = setActivationMessage;
+  AboutTab._setActivating       = setActivating;
+  AboutTab._setMessage          = setActivationMessage;
   AboutTab._setSlotsFullMachines = setSlotsFullMachines;
+  AboutTab._setShowKeyChange    = setShowKeyChange;
 
   const inputStyle = {
     width: "100%", padding: "5px 8px", fontSize: 12,
@@ -293,7 +307,7 @@ function AboutTab({ licensing, onActivate, onResetSurvey, version }) {
         )}
       </div>
 
-      {/* Restricted-state banner */}
+      {/* Restricted/notable-state banner */}
       {bannerText && (
         <div style={{
           marginBottom: 14, padding: "9px 12px", borderRadius: 6,
@@ -304,8 +318,8 @@ function AboutTab({ licensing, onActivate, onResetSurvey, version }) {
         </div>
       )}
 
-      {/* Trial status */}
-      {status === "trial" && !isRestricted && (
+      {/* Trial status info */}
+      {(status === "trial" || status === "retrial") && !isRestricted && (
         <div style={{
           marginBottom: 14, padding: "9px 12px", borderRadius: 6,
           background: "rgba(0,120,212,0.06)", border: "1px solid rgba(0,120,212,0.2)",
@@ -313,12 +327,14 @@ function AboutTab({ licensing, onActivate, onResetSurvey, version }) {
         }}>
           {isMujdActive
             ? "Trial active — extended while LeapSheet servers are unreachable."
-            : "Your trial is active for 30 days. All features including Premium are available during the trial."}
+            : status === "retrial"
+              ? "Your re-trial is active for 30 days. All features including Premium are available."
+              : "Your trial is active for 30 days. All features including Premium are available during the trial."}
         </div>
       )}
 
       {/* Post-activation state */}
-      {showActivated && (
+      {showActivated && !showKeyChange && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ marginBottom: 8 }}>
             <span style={{ fontWeight: 600 }}>Status: </span>
@@ -328,32 +344,99 @@ function AboutTab({ licensing, onActivate, onResetSurvey, version }) {
             <span style={{ fontWeight: 600 }}>Tier: </span>
             <span style={{ textTransform: "capitalize" }}>{tier}</span>
           </div>
+
+          {/* Open Portal link — suppressed for corporate employees */}
+          {!isCorporateEmp && (
+            <div style={{ marginTop: 10 }}>
+              <a
+                href="https://leapsheet.com/portal"
+                target="_blank"
+                rel="noreferrer"
+                style={{ fontSize: 12, color: "#0078d4" }}
+                onClick={() => {
+                  // Notify parent to persist upgradeInProgress flag.
+                  // This causes the Refresh License button to appear on next dialog open.
+                  try {
+                    Office.context.ui.messageParent(JSON.stringify({ type: "setUpgradeInProgress" }));
+                  } catch (e) { /* ignore */ }
+                }}
+              >
+                Open customer portal →
+              </a>
+            </div>
+          )}
+
+          {/* Refresh License: quiet link normally, prominent button when upgradeInProgress */}
+          <div style={{ marginTop: upgradeInProgress ? 14 : 10 }}>
+            {upgradeInProgress ? (
+              <div>
+                <div style={{ fontSize: 12, marginBottom: 8, opacity: 0.85, lineHeight: 1.45 }}>
+                  Once your purchase is complete, click Refresh License to activate your new tier.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onActivate({ type: "refresh" })}
+                  style={{
+                    padding: "7px 18px", fontSize: 12, fontWeight: 600,
+                    borderRadius: 6, border: "none",
+                    background: "#0078d4", color: "white", cursor: "pointer",
+                  }}
+                >
+                  Refresh License
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onActivate({ type: "refresh" })}
+                style={{
+                  fontSize: 12, color: "#0078d4", background: "none",
+                  border: "none", padding: 0, cursor: "pointer", textDecoration: "underline",
+                }}
+              >
+                License not showing correctly? Refresh
+              </button>
+            )}
+          </div>
+
+          {/* Use a different license key */}
           <div style={{ marginTop: 10 }}>
-            <a
-              href="https://leapsheet.com/portal"
-              target="_blank"
-              rel="noreferrer"
-              style={{ fontSize: 12, color: "#0078d4" }}
+            <button
+              type="button"
+              onClick={() => { setShowKeyChange(true); setActivationMessage(null); setSlotsFullMachines(null); setDeregisterTarget(null); }}
+              style={{
+                fontSize: 12, color: "#0078d4", background: "none",
+                border: "none", padding: 0, cursor: "pointer", textDecoration: "underline",
+              }}
             >
-              Open customer portal →
-            </a>
+              Use a different license key
+            </button>
           </div>
         </div>
       )}
 
-      {/* Activation form */}
-      {showActivationForm && !slotsFullMachines && (
+      {/* Activation form (trial, retrial, all restricted states, or key-change flow) */}
+      {(showActivationForm || showKeyChange) && !slotsFullMachines && (
         <div>
           <div style={{ fontWeight: 600, marginBottom: 10 }}>
-            {status === "trial" ? "Activate your license" : "Re-activate"}
+            {showKeyChange
+              ? "Enter new license key"
+              : (status === "trial" || status === "retrial")
+                ? "Activate your license"
+                : "Re-activate"}
           </div>
+          {showKeyChange && (
+            <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 10, lineHeight: 1.45 }}>
+              Activation on the new key will be attempted first. Your current license is untouched unless activation succeeds.
+            </div>
+          )}
           <div style={{ marginBottom: 8 }}>
             <div style={{ marginBottom: 4, opacity: 0.8 }}>License key</div>
             <input
               type="text"
               value={licenseKeyInput}
               onChange={(e) => setLicenseKeyInput(e.target.value)}
-              placeholder="XXXX-XXXX-XXXX-XXXX"
+              placeholder="XXXX-XXXX-XXXX"
               disabled={activating}
               style={inputStyle}
             />
@@ -381,49 +464,90 @@ function AboutTab({ licensing, onActivate, onResetSurvey, version }) {
             </div>
           )}
 
-          <button
-            type="button"
-            disabled={activating || !licenseKeyInput.trim()}
-            onClick={handleActivate}
-            style={{
-              padding: "7px 18px", fontSize: 12, fontWeight: 600,
-              borderRadius: 6, border: "none",
-              background: (!activating && licenseKeyInput.trim()) ? "#0078d4" : "#c8c8c8",
-              color: "white", cursor: (!activating && licenseKeyInput.trim()) ? "pointer" : "default",
-              marginRight: 8,
-            }}
-          >
-            {activating ? "Activating…" : "Activate"}
-          </button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              disabled={activating || !licenseKeyInput.trim()}
+              onClick={handleActivate}
+              style={{
+                padding: "7px 18px", fontSize: 12, fontWeight: 600,
+                borderRadius: 6, border: "none",
+                background: (!activating && licenseKeyInput.trim()) ? "#0078d4" : "#c8c8c8",
+                color: "white", cursor: (!activating && licenseKeyInput.trim()) ? "pointer" : "default",
+              }}
+            >
+              {activating ? "Activating…" : "Activate"}
+            </button>
 
-          <a
-            href="https://leapsheet.com/buy"
-            target="_blank"
-            rel="noreferrer"
-            style={{ fontSize: 12, color: "#0078d4" }}
-          >
-            Purchase a license →
-          </a>
+            {showKeyChange && (
+              <button
+                type="button"
+                onClick={() => { setShowKeyChange(false); setActivationMessage(null); setLicenseKeyInput(""); setFriendlyNameInput(""); }}
+                style={{
+                  padding: "7px 14px", fontSize: 12, borderRadius: 6,
+                  border: "1px solid rgba(0,0,0,0.2)", background: "white", cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            )}
+
+            {!showKeyChange && (
+              <a
+                href="https://leapsheet.com/buy"
+                target="_blank"
+                rel="noreferrer"
+                style={{ fontSize: 12, color: "#0078d4" }}
+              >
+                Purchase a license →
+              </a>
+            )}
+          </div>
+
+          {/* Re-trial available notice */}
+          {!showKeyChange && retrialAvailable && status === "expired" && (
+            <div style={{
+              marginTop: 14, padding: "9px 12px", borderRadius: 6,
+              background: "rgba(0,120,212,0.05)", border: "1px solid rgba(0,120,212,0.18)",
+              fontSize: 12, lineHeight: 1.45,
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Re-trial available</div>
+              <div style={{ opacity: 0.85, marginBottom: 8 }}>
+                It has been over a year since your trial ended. You are eligible for a free 30-day re-trial. No second re-trial will be granted.
+              </div>
+              <button
+                type="button"
+                onClick={() => onActivate({ type: "startRetrial" })}
+                style={{
+                  padding: "6px 14px", fontSize: 12, fontWeight: 600,
+                  borderRadius: 6, border: "none",
+                  background: "#0078d4", color: "white", cursor: "pointer",
+                }}
+              >
+                Start re-trial
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Displacement flow: slots full */}
-      {showActivationForm && slotsFullMachines && (
+      {/* Deregistration flow: slots full */}
+      {(showActivationForm || showKeyChange) && slotsFullMachines && (
         <div>
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Both activation slots are in use</div>
           <div style={{ marginBottom: 12, opacity: 0.85, lineHeight: 1.5 }}>
-            Select a machine to displace. That machine will revert to unactivated status and be prompted to re-activate.
+            Select a machine to deregister. That machine will revert to unactivated status and be prompted to re-activate.
           </div>
           <div style={{ border: "1px solid rgba(0,0,0,0.12)", borderRadius: 6, marginBottom: 12 }}>
             {slotsFullMachines.map((m) => {
-              const isSelected = displaceTarget === m.machine_id;
+              const isSelected = deregisterTarget === m.machine_id;
               const lastSeen = m.last_checkin
                 ? new Date(m.last_checkin).toLocaleDateString()
                 : "Unknown";
               return (
                 <div
                   key={m.machine_id}
-                  onClick={() => setDisplaceTarget(m.machine_id)}
+                  onClick={() => setDeregisterTarget(m.machine_id)}
                   style={{
                     padding: "8px 12px",
                     cursor: "pointer",
@@ -454,20 +578,20 @@ function AboutTab({ licensing, onActivate, onResetSurvey, version }) {
           <div style={{ display: "flex", gap: 8 }}>
             <button
               type="button"
-              disabled={activating || !displaceTarget}
-              onClick={handleDisplace}
+              disabled={activating || !deregisterTarget}
+              onClick={handleDeregister}
               style={{
                 padding: "7px 18px", fontSize: 12, fontWeight: 600,
                 borderRadius: 6, border: "none",
-                background: (!activating && displaceTarget) ? "#0078d4" : "#c8c8c8",
-                color: "white", cursor: (!activating && displaceTarget) ? "pointer" : "default",
+                background: (!activating && deregisterTarget) ? "#0078d4" : "#c8c8c8",
+                color: "white", cursor: (!activating && deregisterTarget) ? "pointer" : "default",
               }}
             >
-              {activating ? "Activating…" : "Displace & Activate"}
+              {activating ? "Activating…" : "Deregister & Activate"}
             </button>
             <button
               type="button"
-              onClick={() => { setSlotsFullMachines(null); setDisplaceTarget(null); setActivationMessage(null); }}
+              onClick={() => { setSlotsFullMachines(null); setDeregisterTarget(null); setActivationMessage(null); }}
               style={{
                 padding: "7px 14px", fontSize: 12, borderRadius: 6,
                 border: "1px solid rgba(0,0,0,0.2)", background: "white", cursor: "pointer",
@@ -1693,9 +1817,26 @@ const onSaveWorksheetSurvey = (range) => {
 };
 
 // License activation: sends request to parent; result comes back via activateResult message.
-const onActivate = ({ licenseKey, friendlyName, machineToDisplace }) => {
+const onActivate = ({ licenseKey, friendlyName, machineToDeregister, type }) => {
+  if (type === "refresh") {
+    // Trigger a fresh check-in / state refresh without re-activating.
+    try {
+      Office.context.ui.messageParent(JSON.stringify({ type: "refreshLicense" }));
+    } catch (err) {
+      console.error("messageParent(refreshLicense) failed:", err);
+    }
+    return;
+  }
+  if (type === "startRetrial") {
+    try {
+      Office.context.ui.messageParent(JSON.stringify({ type: "startRetrial" }));
+    } catch (err) {
+      console.error("messageParent(startRetrial) failed:", err);
+    }
+    return;
+  }
   try {
-    Office.context.ui.messageParent(JSON.stringify({ type: "activate", licenseKey, friendlyName, machineToDisplace }));
+    Office.context.ui.messageParent(JSON.stringify({ type: "activate", licenseKey, friendlyName, machineToDeregister }));
   } catch (err) {
     console.error("messageParent(activate) failed:", err);
     // Surface error back via the stored callback.
@@ -1719,7 +1860,13 @@ aboutTabActivateRef.current = (result) => {
   // Called when parent sends activateResult.
   if (!result) return;
   if (result.status === "activated") {
+    // On successful key-change activation, close the key-change panel.
+    AboutTab._setShowKeyChange && AboutTab._setShowKeyChange(false);
     // Parent will send updated stateData shortly; nothing more needed here.
+    return;
+  }
+  if (result.status === "retrial_started") {
+    // Parent will send updated stateData with license_status:retrial.
     return;
   }
   if (result.status === "slots_full") {
@@ -1921,7 +2068,7 @@ return (
         aria-label="JumpTo tabs"
       >
         {(() => {
-          // When restricted (expired/displaced/revoked), Nav/Favorites/Settings are disabled.
+          // When restricted (expired/revoked/cancelled/unregistered), Nav/Favorites/Settings are disabled.
           const isRestricted = !!(licensing?.is_restricted);
           return (
             <>

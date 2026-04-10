@@ -1,4 +1,4 @@
-// 2026-04-09 12:00 PM EDT
+// 2026-04-10 12:00 PM EDT
 /**
  * licensingService.js
  *
@@ -41,6 +41,10 @@ import {
   LIC_MUJD_FAILURES,
   LIC_WS_SURVEY_DONE,
   LIC_USER_KEY_SOURCE,
+  LIC_MACHINE_STATUS,
+  LIC_RETRIAL_AVAILABLE,
+  LIC_TAMPERED,
+  LIC_UPGRADE_IN_PROGRESS,
   API_BASE_URL,
   CHECKIN_INTERVAL_MS,
   MUJD_UNLOCK_THRESHOLD,
@@ -230,6 +234,10 @@ export async function readLicensingState() {
     LIC_MUJD_FAILURES,
     LIC_WS_SURVEY_DONE,
     LIC_USER_KEY_SOURCE,
+    LIC_MACHINE_STATUS,
+    LIC_RETRIAL_AVAILABLE,
+    LIC_TAMPERED,
+    LIC_UPGRADE_IN_PROGRESS,
   ];
   const raw = await ortsGetMany(keys);
 
@@ -253,6 +261,10 @@ export async function readLicensingState() {
     mujd_failures:           mujdFailures,
     ws_survey_done:          raw[LIC_WS_SURVEY_DONE] === "true",
     user_key_source:         raw[LIC_USER_KEY_SOURCE] || null,
+    machine_status:          raw[LIC_MACHINE_STATUS]  || null,   // "unregistered" or null
+    retrial_available:       raw[LIC_RETRIAL_AVAILABLE] === "true",
+    tampered:                raw[LIC_TAMPERED] === "true",
+    upgrade_in_progress:     raw[LIC_UPGRADE_IN_PROGRESS] === "true",
     // last_checkin injected by commands.js from main ORTS batch
   };
 }
@@ -394,6 +406,26 @@ async function performCheckin(licState) {
     updates[LIC_LICENSE_TYPE] = "";
   }
 
+  // machine_status: "unregistered" when machine is not entitled for this license.
+  // Absent means machine is in good standing — clear any stale value.
+  if (data.machine_status === "unregistered") {
+    updates[LIC_MACHINE_STATUS] = "unregistered";
+  } else {
+    updates[LIC_MACHINE_STATUS] = "";
+  }
+
+  // tampered: true when server use-day count exceeds client-reported count.
+  // Accompanies trial or retrial status only. Clear when not present.
+  updates[LIC_TAMPERED] = data.tampered === true ? "true" : "";
+
+  // retrial_available: returned when license_status is "expired".
+  if (data.retrial_available === true) {
+    updates[LIC_RETRIAL_AVAILABLE] = "true";
+  } else if (data.license_status && data.license_status !== "expired") {
+    // Not expired — clear any stale retrial flag.
+    updates[LIC_RETRIAL_AVAILABLE] = "";
+  }
+
   if (Object.keys(updates).length > 0) {
     await ortsSetMany(updates);
   }
@@ -416,17 +448,22 @@ async function handleServerUnreachable(licState) {
   }
 }
 
-// ─── Effective license state (applying MUJD) ─────────────────────────────────
+// ─── Effective license state (applying connection state overrides) ─────────────
 
 /**
  * Computes the effective licensing state to expose to the dialog UI.
- * Applies MUJD overrides as per LPD §15.
+ * Applies state:open (MUJD) overrides as per LPD §15.
  *
- * MUJD overrides:
- *   - expired / trial → treated as active (trial extends indefinitely)
- *   - active → continues normally
+ * state:open overrides (mujdActive):
+ *   - trial / retrial / expired → treated as active (extends indefinitely)
+ *   - active → continues normally; Standard tier unlocked to Premium
  *   - revoked / cancelled → NOT overridden (deliberate states)
- *   - machine_status: "unregistered" → NOT overridden
+ *   - machine_status: "unregistered" → NOT overridden (deliberate state)
+ *
+ * tampered flag:
+ *   - When tampered=true and status is trial or retrial, falls back to
+ *     trial_onset_date + 30 calendar days (handled by the dialog; passed through here).
+ *   - state:open (mujdActive) takes priority over tampered.
  *
  * @param {object} licState - raw licensing state from readLicensingState()
  * @returns {object} - effective state for dialog consumption
@@ -438,20 +475,29 @@ export function computeEffectiveLicenseState(licState) {
   let mujdOverride = false;
 
   if (mujdActive) {
-    if (effectiveStatus === "expired" || effectiveStatus === "trial") {
-      effectiveStatus = "active"; // MUJD: extend trial/expired
+    if (
+      effectiveStatus === "trial" ||
+      effectiveStatus === "retrial" ||
+      effectiveStatus === "expired"
+    ) {
+      effectiveStatus = "active"; // state:open: extend trial/retrial/expired
       mujdOverride = true;
     }
-    // revoked and cancelled are NOT overridden.
+    // revoked and cancelled are NOT overridden — deliberate states.
   }
 
-  // Restricted = any state that locks down the UI to About tab only.
+  // machine_status: "unregistered" forces restricted regardless of connection state.
+  // This is a machine property, not a license property, and is never overridden by state:open.
+  const machineUnregistered = licState.machine_status === "unregistered";
+
+  // Restricted = any state that locks the UI to About tab only.
   const isRestricted =
+    machineUnregistered ||
     effectiveStatus === "expired" ||
     effectiveStatus === "revoked" ||
     effectiveStatus === "cancelled";
 
-  // Under MUJD, Standard licensed users get Premium unlocked after 5 failures.
+  // Under state:open, Standard licensed users get Premium unlocked.
   const effectiveTier =
     mujdActive && !mujdOverride && effectiveStatus === "active"
       ? "premium"
@@ -459,11 +505,12 @@ export function computeEffectiveLicenseState(licState) {
 
   return {
     ...licState,
-    effective_status: effectiveStatus,
-    effective_tier:   effectiveTier,
-    is_restricted:    isRestricted,
-    mujd_active:      mujdActive,
-    mujd_override:    mujdOverride,
+    effective_status:    effectiveStatus,
+    effective_tier:      effectiveTier,
+    is_restricted:       isRestricted,
+    machine_unregistered: machineUnregistered,
+    mujd_active:         mujdActive,
+    mujd_override:       mujdOverride,
   };
 }
 
@@ -471,14 +518,21 @@ export function computeEffectiveLicenseState(licState) {
 
 /**
  * Activates a license key on this machine (Endpoint 1).
+ * If machineToDeregister is provided, routes to deregisterAndActivate (Endpoint 3) instead.
  * On success, stores the stable ID (license_id or employee_id) returned by
  * the server as LIC_USER_KEY_SOURCE for UserKey derivation.
  *
  * @param {string} licenseKey
  * @param {string} friendlyName
+ * @param {string|null} machineToDeregister - machine_id to deregister (slots_full flow)
  * @returns {Promise<object>} - { status, tier, userKey } on activated; { status, machines } on slots_full; { status } otherwise
  */
-export async function activateLicense(licenseKey, friendlyName) {
+export async function activateLicense(licenseKey, friendlyName, machineToDeregister) {
+  // Deregistration flow: route to Endpoint 3.
+  if (machineToDeregister) {
+    return deregisterAndActivate(licenseKey, machineToDeregister, friendlyName);
+  }
+
   // Ensure machine_hash and machine_id are ready.
   const machine_hash = await ensureMachineHash();
 
@@ -507,7 +561,7 @@ export async function activateLicense(licenseKey, friendlyName) {
     const userKeySource = data.license_id || data.employee_id || null;
     const userKey = userKeySource ? await sha256Hex(userKeySource) : null;
 
-    // Persist activated state.
+    // Persist activated state; clear machine_status (machine is now registered).
     await ortsSetMany({
       [LIC_LICENSE_KEY]:    licenseKey,
       [LIC_LICENSE_STATUS]: "active",
@@ -516,6 +570,7 @@ export async function activateLicense(licenseKey, friendlyName) {
       [LIC_MUJD_FAILURES]:  "0",
       [LIC_LICENSE_TYPE]:   "",
       [LIC_USER_KEY_SOURCE]: userKeySource || "",
+      [LIC_MACHINE_STATUS]: "",
     });
 
     return { status: "activated", tier: data.tier || "standard", userKey };
@@ -582,6 +637,7 @@ export async function deregisterAndActivate(licenseKey, machineToDeregister, fri
       [LIC_MUJD_FAILURES]:  "0",
       [LIC_LICENSE_TYPE]:   "",
       [LIC_USER_KEY_SOURCE]: userKeySource || "",
+      [LIC_MACHINE_STATUS]: "",
     });
 
     return { status: "activated", tier: data.tier || "standard", userKey };

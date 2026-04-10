@@ -1,4 +1,4 @@
-// 2026-03-12 20:20 UTC
+// 2026-04-10 12:00 PM EDT
 function delayMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -726,7 +726,7 @@ function openJumpDialog(event) {
           // Dialog requests license activation.
           const licenseKey   = typeof msg.licenseKey   === "string" ? msg.licenseKey.trim()   : "";
           const friendlyName = typeof msg.friendlyName === "string" ? msg.friendlyName.trim() : "";
-          const machineToDisplace = typeof msg.machineToDisplace === "string" ? msg.machineToDisplace : null;
+          const machineToDeregister = typeof msg.machineToDeregister === "string" ? msg.machineToDeregister : null;
 
           if (!licenseKey) {
             reply({ type: "activateResult", status: "invalid_key" });
@@ -735,7 +735,7 @@ function openJumpDialog(event) {
 
           (async () => {
             try {
-              const result = await activateLicense(licenseKey, friendlyName, machineToDisplace);
+              const result = await activateLicense(licenseKey, friendlyName, machineToDeregister);
 
               // If activated, refresh cached licensing state so next dialog open is correct.
               if (result.status === "activated") {
@@ -772,6 +772,47 @@ function openJumpDialog(event) {
               // Send refreshed state back to dialog.
               const state = await buildDialogState(cachedState, null);
               reply({ type: "stateData", state });
+            } catch (e) {
+              // ignore
+            }
+          })();
+          return;
+        }
+
+        if (msg.type === "refreshLicense") {
+          // Dialog requests a fresh licensing state read (Refresh License button).
+          // Clears upgrade_in_progress flag and re-pushes state to dialog.
+          (async () => {
+            try {
+              await OfficeRuntime.storage.setItem("JumpTo.Licensing.UpgradeInProgress", "");
+              const licRaw = await readLicensingState();
+              const lastCheckinFromBatch = ortsSettingsCache ? ortsSettingsCache[LIC_LAST_CHECKIN] : null;
+              cachedLicensingState = { ...licRaw, last_checkin: lastCheckinFromBatch };
+              const state = await buildDialogState(cachedState, null);
+              reply({ type: "stateData", state });
+            } catch (e) {
+              // ignore
+            }
+          })();
+          return;
+        }
+
+        if (msg.type === "startRetrial") {
+          // Dialog requests re-trial start (Endpoint 5 — To-Do #18, not yet built on server).
+          // Stub: responds immediately with not_available until Endpoint 5 is implemented.
+          reply({ type: "activateResult", status: "error", message: "Re-trial endpoint not yet available. Please try again after the next update." });
+          return;
+        }
+
+        if (msg.type === "setUpgradeInProgress") {
+          // Dialog signals that the user has clicked "Learn about Premium" / opened the portal.
+          // Persist the session flag so Refresh License button appears on next dialog open.
+          (async () => {
+            try {
+              await OfficeRuntime.storage.setItem("JumpTo.Licensing.UpgradeInProgress", "true");
+              const licRaw = await readLicensingState();
+              const lastCheckinFromBatch = ortsSettingsCache ? ortsSettingsCache[LIC_LAST_CHECKIN] : null;
+              cachedLicensingState = { ...licRaw, last_checkin: lastCheckinFromBatch };
             } catch (e) {
               // ignore
             }
