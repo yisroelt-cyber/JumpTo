@@ -1,4 +1,4 @@
-// 2026-03-11 12:00 UTC
+// 2026-04-09 12:00 PM EDT
 /**
  * licensingService.js
  *
@@ -9,9 +9,10 @@
  *   - ORTS read/write for all licensing state
  *   - Use-day tracking (local accumulation, server sync on check-in)
  *   - Trial onset tracking
- *   - Activation (Endpoint 1) and displacement (folded into Endpoint 1)
+ *   - Activation (Endpoint 1)
+ *   - Deregistration (Endpoint 3) — separate from activation
  *   - Check-in (Endpoint 2), including MUJD detection
- *   - UserKey derivation (SHA-256 of license key via SubtleCrypto)
+ *   - UserKey derivation (SHA-256 of license_id or employee_id via SubtleCrypto)
  *   - machine_id and machine_hash generation
  *
  * Key constraints:
@@ -39,6 +40,7 @@ import {
   LIC_FRIENDLY_NAME,
   LIC_MUJD_FAILURES,
   LIC_WS_SURVEY_DONE,
+  LIC_USER_KEY_SOURCE,
   API_BASE_URL,
   CHECKIN_INTERVAL_MS,
   MUJD_UNLOCK_THRESHOLD,
@@ -145,7 +147,7 @@ async function apiFetch(path, body) {
  */
 async function isMicrosoftReachable() {
   try {
-    const resp = await fetch("https://www.microsoft.com/favicon.ico", {
+    await fetch("https://www.microsoft.com/favicon.ico", {
       method: "HEAD",
       cache: "no-store",
       mode: "no-cors",
@@ -227,6 +229,7 @@ export async function readLicensingState() {
     LIC_FRIENDLY_NAME,
     LIC_MUJD_FAILURES,
     LIC_WS_SURVEY_DONE,
+    LIC_USER_KEY_SOURCE,
   ];
   const raw = await ortsGetMany(keys);
 
@@ -249,6 +252,7 @@ export async function readLicensingState() {
     friendly_name:           raw[LIC_FRIENDLY_NAME]  || null,
     mujd_failures:           mujdFailures,
     ws_survey_done:          raw[LIC_WS_SURVEY_DONE] === "true",
+    user_key_source:         raw[LIC_USER_KEY_SOURCE] || null,
     // last_checkin injected by commands.js from main ORTS batch
   };
 }
@@ -421,7 +425,8 @@ async function handleServerUnreachable(licState) {
  * MUJD overrides:
  *   - expired / trial → treated as active (trial extends indefinitely)
  *   - active → continues normally
- *   - displaced / revoked → NOT overridden
+ *   - revoked / cancelled → NOT overridden (deliberate states)
+ *   - machine_status: "unregistered" → NOT overridden
  *
  * @param {object} licState - raw licensing state from readLicensingState()
  * @returns {object} - effective state for dialog consumption
@@ -437,14 +442,14 @@ export function computeEffectiveLicenseState(licState) {
       effectiveStatus = "active"; // MUJD: extend trial/expired
       mujdOverride = true;
     }
-    // displaced and revoked are NOT overridden.
+    // revoked and cancelled are NOT overridden.
   }
 
   // Restricted = any state that locks down the UI to About tab only.
   const isRestricted =
     effectiveStatus === "expired" ||
-    effectiveStatus === "displaced" ||
-    effectiveStatus === "revoked";
+    effectiveStatus === "revoked" ||
+    effectiveStatus === "cancelled";
 
   // Under MUJD, Standard licensed users get Premium unlocked after 5 failures.
   const effectiveTier =
@@ -466,13 +471,14 @@ export function computeEffectiveLicenseState(licState) {
 
 /**
  * Activates a license key on this machine (Endpoint 1).
+ * On success, stores the stable ID (license_id or employee_id) returned by
+ * the server as LIC_USER_KEY_SOURCE for UserKey derivation.
  *
  * @param {string} licenseKey
  * @param {string} friendlyName
- * @param {string|null} machineToDisplace  - machine_id to displace (optional, displacement flow)
- * @returns {Promise<object>} server response
+ * @returns {Promise<object>} - { status, tier, userKey } on activated; { status, machines } on slots_full; { status } otherwise
  */
-export async function activateLicense(licenseKey, friendlyName, machineToDisplace = null) {
+export async function activateLicense(licenseKey, friendlyName) {
   // Ensure machine_hash and machine_id are ready.
   const machine_hash = await ensureMachineHash();
 
@@ -490,10 +496,6 @@ export async function activateLicense(licenseKey, friendlyName, machineToDisplac
     friendly_name: friendlyName || "",
   };
 
-  if (machineToDisplace) {
-    body.machine_to_displace = machineToDisplace;
-  }
-
   const data = await apiFetch("/activate", body);
 
   if (data.result !== "ok") {
@@ -501,8 +503,9 @@ export async function activateLicense(licenseKey, friendlyName, machineToDisplac
   }
 
   if (data.activation_status === "activated") {
-    // Derive UserKey from license key (SHA-256, local only).
-    const userKey = await sha256Hex(licenseKey);
+    // Stable ID for UserKey derivation — license_id (individual) or employee_id (corporate).
+    const userKeySource = data.license_id || data.employee_id || null;
+    const userKey = userKeySource ? await sha256Hex(userKeySource) : null;
 
     // Persist activated state.
     await ortsSetMany({
@@ -511,8 +514,8 @@ export async function activateLicense(licenseKey, friendlyName, machineToDisplac
       [LIC_TIER]:           data.tier || "standard",
       [LIC_FRIENDLY_NAME]:  friendlyName || "",
       [LIC_MUJD_FAILURES]:  "0",
-      // Clear license_type — not revoked.
       [LIC_LICENSE_TYPE]:   "",
+      [LIC_USER_KEY_SOURCE]: userKeySource || "",
     });
 
     return { status: "activated", tier: data.tier || "standard", userKey };
@@ -533,17 +536,78 @@ export async function activateLicense(licenseKey, friendlyName, machineToDisplac
   return { status: "unknown", raw: data };
 }
 
+// ─── Deregistration ───────────────────────────────────────────────────────────
+
+/**
+ * Deregisters an existing machine and activates this one in its place (Endpoint 3).
+ * Called when activation returns slots_full and the user selects a machine to remove.
+ *
+ * @param {string} licenseKey
+ * @param {string} machineToDeregister  - machine_id of the machine to remove
+ * @param {string} friendlyName
+ * @returns {Promise<object>} - { status, tier } on activated; { status, nextSwitchAllowed } on rate_limited
+ */
+export async function deregisterAndActivate(licenseKey, machineToDeregister, friendlyName) {
+  const machine_hash = await ensureMachineHash();
+  let machine_id = await ortsGet(LIC_MACHINE_ID);
+  if (!machine_id) {
+    machine_id = generateGuid();
+    await ortsSet(LIC_MACHINE_ID, machine_id);
+  }
+
+  const body = {
+    license_key:           licenseKey,
+    machine_to_deregister: machineToDeregister,
+    new_machine_hash:      machine_hash,
+    new_machine_id:        machine_id,
+    friendly_name:         friendlyName || "",
+  };
+
+  const data = await apiFetch("/deregister", body);
+
+  if (data.result !== "ok") {
+    throw new Error("Unexpected server response");
+  }
+
+  if (data.switch_status === "activated") {
+    // Stable ID returned directly by the deregister response.
+    const userKeySource = data.license_id || data.employee_id || null;
+    const userKey = userKeySource ? await sha256Hex(userKeySource) : null;
+
+    await ortsSetMany({
+      [LIC_LICENSE_KEY]:    licenseKey,
+      [LIC_LICENSE_STATUS]: "active",
+      [LIC_TIER]:           data.tier || "standard",
+      [LIC_FRIENDLY_NAME]:  friendlyName || "",
+      [LIC_MUJD_FAILURES]:  "0",
+      [LIC_LICENSE_TYPE]:   "",
+      [LIC_USER_KEY_SOURCE]: userKeySource || "",
+    });
+
+    return { status: "activated", tier: data.tier || "standard", userKey };
+  }
+
+  if (data.switch_status === "rate_limited") {
+    return { status: "rate_limited", nextSwitchAllowed: data.next_switch_allowed || null };
+  }
+
+  return { status: "unknown", raw: data };
+}
+
+// ─── UserKey ──────────────────────────────────────────────────────────────────
+
 /**
  * Returns the UserKey for the current machine.
- * Post-activation: SHA-256 of license_key (re-derived locally).
+ * Post-activation: SHA-256 of LIC_USER_KEY_SOURCE (license_id or employee_id).
  * Trial: machine_hash.
  */
 export async function getUserKey() {
   try {
-    const licKey = await ortsGet(LIC_LICENSE_KEY);
-    if (licKey) {
-      return sha256Hex(licKey);
+    const userKeySource = await ortsGet(LIC_USER_KEY_SOURCE);
+    if (userKeySource) {
+      return sha256Hex(userKeySource);
     }
+    // Trial fallback: use machine_hash as UserKey.
     const hash = await ortsGet(LIC_MACHINE_HASH);
     return hash || null;
   } catch (e) {
