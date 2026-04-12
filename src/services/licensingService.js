@@ -1,4 +1,4 @@
-// 2026-04-10 12:00 PM EDT
+// 2026-04-11 9:38 PM EDT
 /**
  * licensingService.js
  *
@@ -657,6 +657,36 @@ export async function deregisterAndActivate(licenseKey, machineToDeregister, fri
  * Post-activation: SHA-256 of LIC_USER_KEY_SOURCE (license_id or employee_id).
  * Trial: machine_hash.
  */
+// ── Endpoint 5 — Start Re-Trial ──────────────────────────────────────────────
+//
+// Called when the user confirms they want to start a re-trial.
+// On success: clears worksheet survey ORTS data (so survey re-presents),
+// sets license_status to "retrial", clears retrial_available flag.
+// Returns { success, retrialStatus, reason }.
+export async function startRetrial(licState) {
+  const machine_hash = licState.machine_hash;
+  if (!machine_hash) return { success: false, retrialStatus: null, reason: null };
+
+  try {
+    const data = await apiFetch("/retrial", { machine_hash });
+
+    if (data.retrial_status === "granted") {
+      // Clear worksheet survey so it is re-presented on next check-in sync.
+      await ortsSetMany({
+        [LIC_WS_RANGE]:       null,
+        [LIC_WS_RANGE_CONF]:  null,
+        [LIC_WS_SURVEY_DONE]: null,
+      });
+      await ortsSet(LIC_LICENSE_STATUS, "retrial");
+      await ortsSet(LIC_RETRIAL_AVAILABLE, null);
+    }
+
+    return { success: true, retrialStatus: data.retrial_status, reason: data.reason || null };
+  } catch (err) {
+    return { success: false, retrialStatus: null, reason: null };
+  }
+}
+
 export async function getUserKey() {
   try {
     const userKeySource = await ortsGet(LIC_USER_KEY_SOURCE);

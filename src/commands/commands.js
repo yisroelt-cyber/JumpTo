@@ -27,6 +27,7 @@ import {
   computeEffectiveLicenseState,
   activateLicense,
   saveWorksheetSurveyAnswer,
+  startRetrial,
 } from "../services/licensingService";
 
 import { LIC_LAST_CHECKIN } from "../shared/constants";
@@ -798,9 +799,33 @@ function openJumpDialog(event) {
         }
 
         if (msg.type === "startRetrial") {
-          // Dialog requests re-trial start (Endpoint 5 — To-Do #18, not yet built on server).
-          // Stub: responds immediately with not_available until Endpoint 5 is implemented.
-          reply({ type: "activateResult", status: "error", message: "Re-trial endpoint not yet available. Please try again after the next update." });
+          // Dialog requests re-trial start (Endpoint 5).
+          (async () => {
+            try {
+              const licRaw = await readLicensingState();
+              const result = await startRetrial(licRaw);
+
+              if (!result.success) {
+                reply({ type: "activateResult", status: "error", message: "Could not connect to the server. Please try again later." });
+                return;
+              }
+
+              if (result.retrialStatus === "granted") {
+                // Refresh cached state — license_status is now "retrial".
+                const updatedRaw = await readLicensingState();
+                const lastCheckinFromBatch = ortsSettingsCache ? ortsSettingsCache[LIC_LAST_CHECKIN] : null;
+                cachedLicensingState = { ...updatedRaw, last_checkin: lastCheckinFromBatch };
+                reply({ type: "activateResult", status: "retrial_started" });
+              } else {
+                const message = result.reason === "already_used"
+                  ? "A re-trial has already been used on this machine."
+                  : "Re-trial not yet available. Check back later.";
+                reply({ type: "activateResult", status: "error", message });
+              }
+            } catch (err) {
+              reply({ type: "activateResult", status: "error", message: "An unexpected error occurred." });
+            }
+          })();
           return;
         }
 
